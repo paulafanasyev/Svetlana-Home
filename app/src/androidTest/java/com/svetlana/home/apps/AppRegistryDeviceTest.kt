@@ -22,7 +22,7 @@ class AppRegistryDeviceTest : SvetlanaDeviceTest() {
     @Test
     fun registrySeesInstalledApps() = runBlocking {
         val registry = ServiceLocator.appRegistry
-        registry.refresh()
+        registry.scan()
 
         val apps = registry.apps.value
         println("INSTALLED_APPS=${apps.size}")
@@ -33,7 +33,7 @@ class AppRegistryDeviceTest : SvetlanaDeviceTest() {
     @Test
     fun everyAppHasPackageAndLabel() = runBlocking {
         val registry = ServiceLocator.appRegistry
-        registry.refresh()
+        registry.scan()
 
         val apps = registry.apps.value
         apps.forEach { app ->
@@ -47,7 +47,7 @@ class AppRegistryDeviceTest : SvetlanaDeviceTest() {
     @Test
     fun appAliasesResolve() = runBlocking {
         val registry = ServiceLocator.appRegistry
-        registry.refresh()
+        registry.scan()
 
         val apps = registry.apps.value
         // Проверяем, что aliases — это валидная структура, а не null.
@@ -59,7 +59,7 @@ class AppRegistryDeviceTest : SvetlanaDeviceTest() {
     @Test
     fun systemSettingsAppIsFindable() = runBlocking {
         val registry = ServiceLocator.appRegistry
-        registry.refresh()
+        registry.scan()
 
         val resolver = ServiceLocator.intentResolver
         val resolved = resolver.resolveApp("настройки")
@@ -71,7 +71,7 @@ class AppRegistryDeviceTest : SvetlanaDeviceTest() {
     @Test
     fun uninstalledAppIsNotInRegistry() = runBlocking {
         val registry = ServiceLocator.appRegistry
-        registry.refresh()
+        registry.scan()
 
         val apps = registry.apps.value
         // Несуществующий пакет не должен присутствовать.

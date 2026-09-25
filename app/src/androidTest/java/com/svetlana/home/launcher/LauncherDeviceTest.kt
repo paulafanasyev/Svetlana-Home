@@ -29,7 +29,7 @@ class LauncherDeviceTest : SvetlanaDeviceTest() {
         val pm = context.packageManager
         val pkg = context.packageName
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-        val resolved = pm.queryActivities(intent, PackageManager.MATCH_ALL)
+        val resolved = pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
 
         val svetlana = resolved.firstOrNull { it.activityInfo.packageName == pkg }
         println("SVETLANA_HOME_ACTIVITY=${svetlana?.activityInfo?.name}")
