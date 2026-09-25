@@ -76,4 +76,18 @@ class HandsDeviceTest : SvetlanaDeviceTest() {
             assertFalse("Если не установлен — флаг должен быть false", state.installed)
         }
     }
+
+    /**
+     * Аудит п.8: dispatchGesture асинхронен. Доказываем, что waitForPackage
+     * не зависает на несуществующем пакете и честно возвращает false.
+     * Раньше результат жеста мог быть прочитан ДО callback'а.
+     */
+    @Test
+    fun waitForPackage_timesOutForNonexistentPackage() = runBlocking {
+        val hands = ServiceLocator.hands
+        // Несуществующий пакет никогда не станет foreground — должен быть
+        // таймаут и false, а не бесконечное ожидание.
+        val found = hands.waitForPackage("com.svetlana.nonexistent.pkg", timeoutMs = 2000)
+        assertFalse("Несуществующий пакет не должен быть найден", found)
+    }
 }
