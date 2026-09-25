@@ -37,7 +37,7 @@ class AppAliasesTest {
         val accOnly = ControlCapabilities(canLaunch = false, canAccessibility = true)
         assertThat(accOnly.preferredWay()).isEqualTo("accessibility")
 
-        val none = ControlCapabilities()
+        val none = ControlCapabilities(canLaunch = false, canAccessibility = false)
         assertThat(none.preferredWay()).isEqualTo("none")
     }
 }

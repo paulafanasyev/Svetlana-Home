@@ -46,13 +46,21 @@ class AIModelCompatibilityEngine(
             score -= 3
         }
 
-        // Storage
+        // Storage — жёсткий критерий: модель, не помещающаяся на устройство,
+        // физически не может быть установлена (ТЗ §31, §33).
         if (caps.storageAvailableMb >= model.storageRequirementMb) {
             reasons.add("Storage: свободно ${caps.storageAvailableMb}MB")
             score += 1
         } else {
             reasons.add("Storage: мало места — свободно ${caps.storageAvailableMb}MB, нужно ${model.storageRequirementMb}MB")
-            score -= 3
+            return CompatibilityReport(
+                model = model,
+                level = CompatibilityLevel.INCOMPATIBLE,
+                reasons = reasons,
+                expectedPerf = "Установка невозможна: не хватает места",
+                canRunOnDevice = false,
+                canRunOnServer = true
+            )
         }
 
         // CPU / ядра

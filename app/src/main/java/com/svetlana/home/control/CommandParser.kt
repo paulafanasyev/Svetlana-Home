@@ -23,6 +23,9 @@ object CommandParser {
         val low = c.lowercase().replace("ё", "е")
         val body = stripWakeWord(low).trim()
         if (body.isEmpty()) return null
+        // Оригинальный текст нужен для сохранения регистра элементов и фраз
+        // (светлана должна нажать именно «Отправить», а не «отправить»).
+        val original = stripWakeWord(c).trim()
 
         // Навигация
         when {
@@ -74,8 +77,11 @@ object CommandParser {
         // Нажатие
         Regex("^(нажми|кликни|tap|press|нажать)\\s+(на\\s+)?(кнопку\\s+|элемент\\s+)?(.*)")
             .matchEntire(body)?.let {
-                val element = it.groupValues[4].trim()
-                if (element.isNotBlank()) return SvetlanaAction.Click("current", element)
+                val element = it.groups[4]!!.value.trim()
+                if (element.isNotBlank()) {
+                    val origElement = originalElement(original, body, element)
+                    return SvetlanaAction.Click("current", origElement)
+                }
             }
 
         // Чтение экрана
@@ -84,19 +90,24 @@ object CommandParser {
 
         // Поиск элемента
         Regex("^(найди|поищи|find)\\s+(.*)").matchEntire(body)?.let {
-            val el = it.groupValues[2].trim()
-            if (el.isNotBlank()) return SvetlanaAction.FindElement("current", el)
+            val el = it.groups[2]!!.value.trim()
+            if (el.isNotBlank()) {
+                val origEl = originalElement(original, body, el)
+                return SvetlanaAction.FindElement("current", origEl)
+            }
         }
 
         // Перевод
         Regex("^(переведи|перевести|перевод|translate)\\s+(.*)").matchEntire(body)?.let {
-            val rest = it.groupValues[2].trim()
+            val rest = it.groups[2]!!.value.trim()
             val direction = if (body.contains("вьетнамск") || body.contains("vietnamese")) "ru-vi"
             else if (body.contains("русск")) "vi-ru"
             else "ru-vi"
             // Текст может быть в кавычках или идти после "фразу"
             val text = extractQuoted(rest) ?: rest.removePrefix("фразу").trim().removePrefix("это").trim()
-            return SvetlanaAction.Translate(text, direction)
+            // Сохраняем оригинальный регистр фразы, если она была в кавычках
+            val finalText = if (text.isNotBlank()) originalElement(original, body, text) else text
+            return SvetlanaAction.Translate(finalText, direction)
         }
 
         // Звонок / сообщения
@@ -113,14 +124,25 @@ object CommandParser {
         return null
     }
 
-    fun stripWakeWord(low: String): String {
+    fun stripWakeWord(command: String): String {
+        val low = command.lowercase().replace("ё", "е")
         for (w in wakeWords) {
             if (low == w) return ""
             if (low.startsWith("$w ") || low.startsWith("$w,") || low.startsWith("$w:")) {
-                return low.substring(w.length).trimStart(' ', ',', ':')
+                return command.substring(w.length).trimStart(' ', ',', ':')
             }
         }
-        return low
+        return command
+    }
+
+    /**
+     * Возвращает [needle] в оригинальном регистре, ища его в [original].
+     * body и original совпадают посимвольно, отличаются только регистром.
+     */
+    private fun originalElement(original: String, body: String, needle: String): String {
+        val idx = body.indexOf(needle)
+        if (idx < 0 || idx + needle.length > original.length) return needle
+        return original.substring(idx, idx + needle.length)
     }
 
     private fun extractTarget(body: String, explicitMarker: String? = null): String {

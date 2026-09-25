@@ -37,12 +37,16 @@ data class ControlCapabilities(
     val canVerify: Boolean = true
 ) {
     /** Способ управления, выбранный по приоритету из ТЗ. */
-    fun preferredWay(): String = when {
-        canIntent -> "intent"
-        canDeepLink -> "deeplink"
-        canLaunch -> "launch"
-        canAccessibility -> "accessibility"
-        else -> "none"
+    fun preferredWay(): String {
+        // Нет ни одного реального способа управления — честно показываем «none».
+        if (!canLaunch && !canDeepLink && !canIntent && !canAccessibility) return "none"
+        return when {
+            canIntent -> "intent"
+            canDeepLink -> "deeplink"
+            canLaunch -> "launch"
+            canAccessibility -> "accessibility"
+            else -> "none"
+        }
     }
 }
 

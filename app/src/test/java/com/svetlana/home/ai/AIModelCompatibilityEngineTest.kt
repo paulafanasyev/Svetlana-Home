@@ -91,12 +91,14 @@ class AIModelCompatibilityEngineTest {
     /**
      * Минимальный контекст-заглушка: evaluate(model, caps) не обращается к Android API,
      * когда в него передаются готовые capabilities.
+     *
+     * Наследуемся от ContextWrapper, чтобы не реализовывать все абстрактные методы
+     * Context вручную (их количество меняется между версиями Android SDK).
      */
-    private class FakeContext : android.content.Context() {
+    private class FakeContext : android.content.ContextWrapper(null) {
         override fun getApplicationContext(): android.content.Context = this
         override fun getSystemService(name: String): Any? = null
         override fun checkSelfPermission(permission: String): Int = 0
-        override fun getResources(): android.content.res.Resources? = null
         override fun getPackageName(): String = "com.svetlana.home"
     }
 }
