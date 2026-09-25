@@ -29,6 +29,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Configure Gradle memory
+        # lintAnalyzeDebug требует много heap на x86_64; без этого daemon
+        # падает с JVM crash на hosted-раннере.
+        run: |
+          mkdir -p ~/.gradle
+          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
+          echo "org.gradle.daemon=false" >> ~/.gradle/gradle.properties
+
       - name: Cache Gradle dependencies
         uses: actions/cache@v4
         with:
@@ -138,6 +146,14 @@ jobs:
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+
+      - name: Configure Gradle memory
+        # lintAnalyzeDebug требует много heap на x86_64; без этого daemon
+        # падает с JVM crash на hosted-раннере.
+        run: |
+          mkdir -p ~/.gradle
+          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
+          echo "org.gradle.daemon=false" >> ~/.gradle/gradle.properties
 
       - name: Cache Gradle dependencies
         uses: actions/cache@v4
