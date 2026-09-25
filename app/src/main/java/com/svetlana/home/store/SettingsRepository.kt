@@ -18,15 +18,18 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 
 /**
  * Настройки пользователя. Хранятся на устройстве.
+ *
+ * Класс open — чтобы тесты могли подставлять in-memory реализации
+ * отдельных Flow, не трогая DataStore.
  */
-class SettingsRepository(private val context: Context) {
+open class SettingsRepository(private val context: Context) {
 
     private val ds get() = context.dataStore
 
     val onboardingDone: Flow<Boolean> = ds.data.map { it[KEY_ONBOARDING] ?: false }
     val setupDone: Flow<Boolean> = ds.data.map { it[KEY_SETUP] ?: false }
 
-    val aiMode: Flow<AIMode> = ds.data.map {
+    open val aiMode: Flow<AIMode> = ds.data.map {
         AIMode.fromName(it[KEY_AI_MODE]) ?: AIMode.AUTO
     }
 
@@ -34,7 +37,7 @@ class SettingsRepository(private val context: Context) {
     val fallbackProviderId: Flow<String?> = ds.data.map { it[KEY_FALLBACK_PROVIDER] }
     val activeLocalModelId: Flow<String?> = ds.data.map { it[KEY_LOCAL_MODEL] }
 
-    val memoryMode: Flow<MemoryMode> = ds.data.map {
+    open val memoryMode: Flow<MemoryMode> = ds.data.map {
         MemoryMode.fromName(it[KEY_MEMORY_MODE]) ?: MemoryMode.LOCAL
     }
 

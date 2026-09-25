@@ -49,6 +49,11 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale.toLanguageTag())
+                // ТЗ §53: разговорный режим RU↔VI — даём системе обе локали,
+                // чтобы она могла выбрать подходящую по факту сказанного.
+                if (locale.toLanguageTag() == "ru-RU") {
+                    putExtra(RecognizerIntent.EXTRA_SUPPORTED_LANGUAGES, arrayListOf("ru-RU", "vi-VN"))
+                }
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             }
@@ -56,6 +61,39 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
             _listening.value = true
         } catch (t: Throwable) {
             Log.w(TAG, "Не удалось начать распознавание", t)
+            _result.value = SttResult.Error(t.message ?: "Ошибка распознавания")
+        }
+    }
+
+    /**
+     * Многоязычный запуск для синхронного переводчика: система слушает оба
+     * языка, а итоговый язык определяется по распознанному тексту
+     * (см. SvetlanaTranslator.detectRussian).
+     */
+    fun startListeningMultilingual() {
+        stopListening()
+        if (!isAvailable) {
+            _result.value = SttResult.Error("Распознавание речи недоступно на этом устройстве")
+            return
+        }
+        try {
+            recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
+                setRecognitionListener(listener)
+            }
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                // Основной язык — русский, но добавляем вьетнамский как
+                // поддерживаемый. Часть реализаций IGNORE это, поэтому
+                // финальное определение языка делаем по тексту.
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
+                putExtra(RecognizerIntent.EXTRA_SUPPORTED_LANGUAGES, arrayListOf("ru-RU", "vi-VN"))
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            }
+            recognizer?.startListening(intent)
+            _listening.value = true
+        } catch (t: Throwable) {
+            Log.w(TAG, "Не удалось начать multilingual распознавание", t)
             _result.value = SttResult.Error(t.message ?: "Ошибка распознавания")
         }
     }

@@ -18,6 +18,12 @@ android {
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+        // llama.cpp runtime собран только под arm64-v8a (POCO X3 NFC = ARM64).
+        // На остальных ABI нативных библиотек нет — ограничиваем явно, чтобы
+        // не устанавливать APK на устройство, где local AI не сможет работать.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
@@ -102,6 +108,11 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.3.3")
     implementation("androidx.camera:camera-lifecycle:1.3.3")
     implementation("androidx.camera:camera-view:1.3.3")
+
+    // Локальный ИИ: llama.cpp (GGUF) — реальный on-device inference runtime.
+    // MIT, arm64-v8a, CPU/NEON. Модель скачивается ТОЛЬКО по явному решению
+    // пользователя (ТЗ §32, §33, §87) — библиотека сама ничего не качает.
+    implementation("dev.ffmpegkit-maintained:llama-android:0.1.1")
 
     // Тесты
     testImplementation("junit:junit:4.13.2")

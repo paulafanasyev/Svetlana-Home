@@ -86,8 +86,10 @@ class SvetlanaTranslator(
      * символы — говорящий по-русски, иначе — вьетнамский.
      */
     suspend fun translateConversationCycle(): TranslateResult {
-        // Слушаем любой из двух языков
-        recognizer.startListening(java.util.Locale("ru", "RU"))
+        // ТЗ §53: синхронный режим с автоопределением языка.
+        // Слушаем оба языка сразу, затем определяем сказавший по тексту:
+        // кириллица → русский, иначе → вьетнамский.
+        recognizer.startListeningMultilingual()
         val spoken = waitForSttResult()
         recognizer.stopListening()
         if (spoken.isNullOrBlank()) {
@@ -96,8 +98,13 @@ class SvetlanaTranslator(
         val isRussian = detectRussian(spoken)
         val direction = if (isRussian) TranslateDirection.RU_TO_VI else TranslateDirection.VI_TO_RU
         val translated = translateText(spoken, direction)
-        if (translated.success && tts.isAvailable) tts.speak(translated.text)
-        return translated
+        if (translated.success && tts.isAvailable) {
+            // Озвучиваем перевод на целевом языке
+            tts.speak(translated.text,
+                if (direction == TranslateDirection.RU_TO_VI)
+                    java.util.Locale("vi", "VN") else java.util.Locale("ru", "RU"))
+        }
+        return translated.copy(sourceText = spoken)
     }
 
     fun detectRussian(text: String): Boolean {

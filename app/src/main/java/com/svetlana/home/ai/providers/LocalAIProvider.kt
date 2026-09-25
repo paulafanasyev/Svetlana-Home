@@ -74,16 +74,48 @@ class LocalAIProvider(
         } else if (runtime?.isReady() == true) {
             AIResult(true, "Локальный runtime готов. Модель: ${model.name}", AIBackend.LOCAL, modelName = model.name)
         } else {
-            AIResult(false, "Модель установлена (${model.name}), runtime не подключён. Статус: ${SvetlanaStatus.NOT_PROVEN}", AIBackend.LOCAL)
+            val reason = when {
+                runtime == null -> "runtime не подключён к этой сборке"
+                !isNativeReady() -> "нативный llama.cpp недоступен на этом устройстве (нужен arm64-v8a)"
+                else -> "модель установлена, но не загружена"
+            }
+            AIResult(false, "Модель установлена (${model.name}), $reason. Статус: ${SvetlanaStatus.NOT_PROVEN}",
+                AIBackend.LOCAL, modelName = model.name)
         }
     }
 
+    private fun isNativeReady(): Boolean = try {
+        runtime is InferenceRuntime && runtime.isReady()
+    } catch (t: Throwable) { false }
+
     override fun redactedConfig(): String = "local://${activeModel()?.name ?: "none"}"
+
+    /**
+     * ТЗ §48: «Света, какой ИИ сейчас отвечает?» — локальный бэкенд сообщает
+     * фактическое состояние, а не красивую заглушку.
+     */
+    fun describeBackend(): String {
+        val model = activeModel()
+        return when {
+            model == null -> "Локальная модель не установлена."
+            runtime?.isReady() == true ->
+                "Сейчас используется локальная модель на устройстве: ${model.name}."
+            else -> "Локальная модель установлена (${model.name}), но runtime не готов."
+        }
+    }
+
+    /**
+     * ТЗ §34: «Остановить» — выгружает модель из памяти.
+     */
+    fun unload() {
+        (runtime as? com.svetlana.home.ai.local.LlamaCppRuntime)?.unload()
+    }
 }
 
 /**
- * Runtime локального inference. Подключается извне (llama.cpp / onnxruntime).
- * В этой сборке по умолчанию недоступен — приложение честно это сообщает.
+ * Runtime локального inference. Реализация — LlamaCppRuntime (llama.cpp, GGUF).
+ * Интерфейс оставлен, чтобы можно было подключить и другие runtime'ы
+ * (onnxruntime для STT/TTS и т.д.) без переделки провайдера.
  */
 interface InferenceRuntime {
     fun isReady(): Boolean

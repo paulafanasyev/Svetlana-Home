@@ -5,11 +5,16 @@ import android.content.Context
 import com.svetlana.home.ai.AIRouter
 import com.svetlana.home.ai.AIModelCompatibilityEngine
 import com.svetlana.home.ai.AIModelRegistry
+import com.svetlana.home.ai.HybridPipeline
 import com.svetlana.home.ai.LocalModelManager
 import com.svetlana.home.ai.ModelRouter
 import com.svetlana.home.ai.PrivacyRouter
+import com.svetlana.home.ai.ProviderConfig
 import com.svetlana.home.ai.ProviderManager
+import com.svetlana.home.ai.AIProvider
 import com.svetlana.home.ai.providers.LocalAIProvider
+import com.svetlana.home.ai.local.LlamaCppRuntime
+import kotlinx.coroutines.flow.first
 import com.svetlana.home.apps.AppRegistry
 import com.svetlana.home.apps.AppRepository
 import com.svetlana.home.control.ActionRouter
@@ -60,17 +65,35 @@ object ServiceLocator {
     val wakeWord by lazy { WakeWordEngine(app, speechRecognizer, settings) }
     val modelRegistry by lazy { AIModelRegistry() }
     val localModelManager by lazy { LocalModelManager(app) }
-    val localAiProvider by lazy { LocalAIProvider(localModelManager, modelRegistry, null) }
+    val llamaRuntime by lazy { LlamaCppRuntime(app, localModelManager, modelRegistry) }
+    val localAiProvider by lazy { LocalAIProvider(localModelManager, modelRegistry, llamaRuntime) }
     val compatibility by lazy { AIModelCompatibilityEngine(device) }
     val serverManager by lazy { PersonalServerManager(app, settings) }
     val providerManager by lazy { ProviderManager(app, serverManager, localAiProvider) }
     val privacyRouter by lazy { PrivacyRouter(settings) }
     val modelRouter by lazy { ModelRouter(device, settings, serverManager, privacyRouter) }
+    val historyManager by lazy { HistoryManager(app) }
+    val hybridPipeline by lazy {
+        // ТЗ §46: реальный гибридный pipeline. Remote-провайдер выбирается
+        // маршрутизатором (personal server или внешний провайдер).
+        HybridPipeline(
+            localProvider = localAiProvider,
+            remoteProviderFactory = {
+                // suspend лямбда: читаем активный провайдер; если внешний не
+                // выбран — гибрид идёт на personal server.
+                val activeId = settings.activeProviderId.first()
+                val cfg = activeId?.let { providerManager.byId(it) }
+                    ?: ProviderConfig(id = "personal-server", name = "Мой сервер",
+                        type = AIProvider.ProviderType.PERSONAL_SERVER)
+                providerManager.build(cfg)
+            },
+            recordHistory = { category, msg -> historyManager.record(category, msg) }
+        )
+    }
     val aiRouter by lazy {
         AIRouter(app, settings, modelRouter, privacyRouter, serverManager, historyManager,
-            providerManager, localAiProvider)
+            providerManager, localAiProvider, hybridPipeline)
     }
-    val historyManager by lazy { HistoryManager(app) }
     val personalMemory by lazy { PersonalMemory(app, settings) }
     val translatorProvider by lazy { TranslatorProviderManager(app, aiRouter) }
     val translator by lazy { SvetlanaTranslator(app, translatorProvider, tts, speechRecognizer) }

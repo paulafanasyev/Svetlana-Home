@@ -65,13 +65,44 @@ val routing = modelRouter.route(TaskComplexity.HEAVY)
 
 При `LOCAL_ONLY` шаги 2–3 блокируются — см. `privacy.md`.
 
+## HybridPipeline (реальный pipeline)
+
+Раньше маршрут `HYBRID` в `AIRouter` тихо выполнял запрос только в
+`LocalAIProvider` — remote-этап фактически отсутствовал. Теперь за него
+отвечает `HybridPipeline`:
+
+```
+input
+  ↓
+privacy decision        ← выполняется ДО любого сетевого вызова;
+  ↓                        LOCAL_ONLY физически исключает передачу
+local preprocessing     ← обрезка контекста на устройстве
+  ↓
+sanitized payload       ← маскирование PIN / ключей
+  ↓
+remote inference        ← personal server / внешний провайдер
+  ↓
+local postprocessing    ← форматирование ответа на устройстве
+  ↓
+result
+```
+
+Каждый этап попадает в `Result.stages` — это доказательная цепочка:
+`privacy → preprocess → remote → postprocess`.
+
+Fallback честный: если remote недоступен или упал — pipeline возвращается
+на устройство и помечает этап `remote` как неудачный (а не делает вид,
+что гибрид сработал).
+
 ## Тест-план (ТЗ §73)
 
 ```
 Local preprocessing → Remote inference → Local UI → Result
 ```
 
-- [ ] Hybrid AI работает
-- [ ] Local-only работает
-- [ ] Offline работает (облачные функции честно сообщают отсутствие сети)
-- [ ] Fallback корректно переключается
+- [x] Hybrid AI работает (CODE VERIFIED — `HybridPipeline`, 7 unit-тестов:
+      full chain, LOCAL_ONLY-блокировка, fallback, sanitization, обрезка
+      контекста, SCREENSHOT-маршрутизация)
+- [x] Local-only работает (CODE VERIFIED — privacy-проверка до сети)
+- [ ] Offline работает (DEVICE VERIFIED — требуется тест на устройстве)
+- [x] Fallback корректно переключается (CODE VERIFIED)

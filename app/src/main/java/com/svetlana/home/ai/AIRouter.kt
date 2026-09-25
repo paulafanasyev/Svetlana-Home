@@ -91,7 +91,8 @@ class AIRouter(
     private val serverManager: com.svetlana.home.server.PersonalServerManager,
     private val historyManager: HistoryManager,
     private val providerManager: ProviderManager,
-    private val localProvider: com.svetlana.home.ai.providers.LocalAIProvider
+    private val localProvider: com.svetlana.home.ai.providers.LocalAIProvider,
+    private val hybridPipeline: HybridPipeline? = null
 ) {
 
     suspend fun activeMode(): AIMode = settings.aiMode.first()
@@ -130,6 +131,28 @@ class AIRouter(
             return AIResult(false, privacy.reason, routing.backend)
         }
 
+        // ТЗ §46: HYBRID — реальный pipeline: локальная предобработка,
+        // санитизация, remote inference, локальная постобработка.
+        // Если pipeline не подключён — честно сообщаем, что гибрид недоступен,
+        // вместо тихого выполнения только на локальном провайдере.
+        if (routing.backend == AIBackend.HYBRID) {
+            val pipeline = hybridPipeline
+            if (pipeline == null) {
+                historyManager.record(HistoryCategory.AI, "HYBRID выбран, pipeline не подключён")
+                return AIResult(false, "Гибридный режим недоступен в этой сборке", routing.backend)
+            }
+            val hybridResult = pipeline.run(prompt, PrivacyDataType.TEXT, mode = mode)
+            historyManager.record(HistoryCategory.AI,
+                "hybrid → ${hybridResult.backend} ${if (hybridResult.success) "OK" else "FAIL"} " +
+                "(${hybridResult.latencyMs}мс, этапов: ${hybridResult.stages.size})")
+            return AIResult(
+                success = hybridResult.success,
+                text = hybridResult.text,
+                backend = hybridResult.backend,
+                latencyMs = hybridResult.latencyMs
+            )
+        }
+
         val provider = when (routing.backend) {
             AIBackend.LOCAL -> localProvider
             AIBackend.PERSONAL_SERVER -> providerManager.build(
@@ -141,8 +164,8 @@ class AIRouter(
                 if (cfg != null) providerManager.build(cfg)
                 else localProvider
             }
-            AIBackend.HYBRID -> localProvider // гибрид: предобработка локально, затем сервер
             AIBackend.NONE -> localProvider
+            AIBackend.HYBRID -> localProvider // обработано выше; сюда не доходим
         }
 
         if (!provider.isAvailable() && provider is com.svetlana.home.ai.providers.LocalAIProvider && mode == AIMode.LOCAL_ONLY) {

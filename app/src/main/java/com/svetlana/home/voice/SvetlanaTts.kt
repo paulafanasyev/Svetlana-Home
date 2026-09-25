@@ -62,6 +62,28 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
         }
     }
 
+    /**
+     * Озвучить текст на указанном языке (ТЗ §53: перевод озвучивается
+     * на целевом языке — RU→VI говорит по-вьетнамски и наоборот).
+     */
+    fun speak(text: String, locale: java.util.Locale, flush: Boolean = true) {
+        if (!isAvailable || text.isBlank()) return
+        try {
+            // Переключаем язык только если он поддерживается; иначе остаётся
+            // язык по умолчанию (лучше сказать с акцентом, чем промолчать).
+            val res = tts?.setLanguage(locale)
+            if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
+                Log.w(TAG, "Язык ${locale.toLanguageTag()} не поддерживается TTS, использую по умолчанию")
+            }
+            tts?.speak(text, if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+                null, "svetlana_${System.currentTimeMillis()}")
+            // Возвращаем русский как основной язык интерфейса
+            tts?.setLanguage(Locale("ru", "RU"))
+        } catch (t: Throwable) {
+            Log.w(TAG, "Не удалось озвучить текст на ${locale.toLanguageTag()}", t)
+        }
+    }
+
     fun speakAsync(text: String) {
         speak(text, flush = false)
     }

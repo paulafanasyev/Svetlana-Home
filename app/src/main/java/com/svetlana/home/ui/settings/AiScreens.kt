@@ -203,6 +203,7 @@ fun LocalAiScreen() {
     val scope = rememberCoroutineScope()
     val registry = remember { ServiceLocator.modelRegistry }
     val manager = remember { ServiceLocator.localModelManager }
+    val llamaRuntime = remember { ServiceLocator.llamaRuntime }
     val compat = remember { ServiceLocator.compatibility }
     val settings = ServiceLocator.settings
     var installed by remember { mutableStateOf(manager.list()) }
@@ -253,7 +254,8 @@ fun LocalAiScreen() {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ActionChip(stringResource(R.string.model_benchmark)) {
                             scope.launch(Dispatchers.IO) {
-                                val result = BenchmarkRunner.run(registry.byId(model.modelId)!!, manager)
+                                val result = BenchmarkRunner.run(
+                                    registry.byId(model.modelId)!!, manager, llamaRuntime)
                                 manager.recordBenchmark(result)
                                 installed = manager.list()
                                 ServiceLocator.historyManager.record(HistoryCategory.MODELS,

@@ -19,7 +19,15 @@ import java.io.RandomAccessFile
  */
 object BenchmarkRunner {
 
-    fun run(model: AIModel, manager: LocalModelManager): BenchmarkResult {
+    /**
+     * @param runtime реальный inference runtime. Если null — benchmark измеряет
+     * только I/O/устройство, а inference-метрики остаются NOT PROVEN.
+     */
+    fun run(
+        model: AIModel,
+        manager: LocalModelManager,
+        runtime: Any? = null
+    ): BenchmarkResult {
         val device = DeviceCapabilityManager(com.svetlana.home.SvetlanaApp.instance)
         val capsBefore = device.refresh()
         val startedTotal = System.currentTimeMillis()
@@ -33,10 +41,27 @@ object BenchmarkRunner {
             -1L
         }
 
-        // 2. Runtime inference (если доступен)
+        // 2. Runtime inference — реальная генерация через подключённый runtime.
         var tokensPerSecond = 0.0
         var firstTokenMs = 0L
         var inferenceOk = false
+        val llama = runtime as? com.svetlana.home.ai.local.LlamaCppRuntime
+        if (llama != null && file != null && file.exists()) {
+            try {
+                val startedInference = System.currentTimeMillis()
+                val output = llama.generate(model.id, BENCHMARK_PROMPT, maxTokens = 32)
+                firstTokenMs = llama.lastLatencyMs()
+                tokensPerSecond = llama.lastTokensPerSecond()
+                inferenceOk = output.isNotBlank()
+                Log.i(TAG, "Inference benchmark: ${tokensPerSecond} ток/с, " +
+                    "firstToken=${firstTokenMs}мс, длина ответа=${output.length}")
+            } catch (t: Throwable) {
+                Log.w(TAG, "Inference benchmark не удался — модель не может быть VERIFIED", t)
+                inferenceOk = false
+            }
+        } else {
+            Log.w(TAG, "Inference runtime не передан — метрики генерации NOT PROVEN")
+        }
 
         // 3. Состояние устройства после теста
         val capsAfter = device.refresh()
@@ -44,9 +69,11 @@ object BenchmarkRunner {
         val contextStable = capsAfter.thermalStatus in listOf("none", "light", "moderate")
         val batteryImpact = (capsBefore.batteryPercent - capsAfter.batteryPercent).coerceAtLeast(0)
 
+        // ТЗ §35: DEVICE VERIFIED — только после фактического теста с inference.
+        // Чтение файла без генерации таковым не является.
         val status = when {
-            !inferenceOk && loadTimeMs < 0 -> SvetlanaStatus.NOT_PROVEN
-            inferenceOk && contextStable -> SvetlanaStatus.DEVICE_VERIFIED
+            !inferenceOk -> SvetlanaStatus.NOT_PROVEN
+            contextStable && tokensPerSecond > 0 -> SvetlanaStatus.DEVICE_VERIFIED
             else -> SvetlanaStatus.NOT_PROVEN
         }
 
@@ -83,4 +110,5 @@ object BenchmarkRunner {
     }
 
     private const val TAG = "BenchmarkRunner"
+    private const val BENCHMARK_PROMPT = "Назови три слова на русском языке."
 }
