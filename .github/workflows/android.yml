@@ -21,23 +21,18 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', 'gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: gradle-${{ runner.os }}-
-
+      # На hosted-раннере Ubuntu Android SDK 36 и build-tools уже предустановлены.
+      # android-actions/setup-android@v3 здесь не используется: он пытается установить
+      # устаревший пакет tools, которого больше нет в cmdline-tools 16.0.
+      # Недостающие компоненты Gradle докачает сам при наличии сети.
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          api-level: 36
-          build-tools-version: 35.0.0
+      - name: Verify preinstalled Android SDK
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME}"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list_installed | head -40 || \
+            ls -1 "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
 
       - name: Run Lint
         run: ./gradlew lintDebug --no-daemon
