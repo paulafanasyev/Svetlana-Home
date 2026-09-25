@@ -61,12 +61,45 @@ class AvatarEngine(
     }
 
     /**
+     * Результат выбора аватара: разделяет желаемый уровень, реальную
+     * доступность renderer'а и итоговый выбранный уровень.
+     * Это защищает от ложного заявления «доступен Real Avatar»,
+     * когда renderer'а в сборке нет (аудит п.24).
+     */
+    data class AvatarDecision(
+        val requestedLevel: AvatarLevel,
+        val rendererAvailable: Boolean,
+        val selectedLevel: AvatarLevel,
+        val reason: String
+    )
+
+    /**
      * Измерить ресурсы и выбрать уровень.
+     * @return детальное решение: желаемый уровень, доступность renderer'а,
+     *         итоговый выбранный уровень и причина.
      */
     fun evaluate(override: Int = -1): AvatarLevel {
+        currentLevel = decide(override).selectedLevel
+        return currentLevel
+    }
+
+    /**
+     * Полная версия evaluate: возвращает, что было запрошено и что реально выбрано.
+     * UI показывает пользователю честную картину возможностей.
+     */
+    fun decide(override: Int = -1): AvatarDecision {
         if (override >= 0) {
-            currentLevel = AvatarLevel.fromLevel(override)
-            return currentLevel
+            val requested = AvatarLevel.fromLevel(override)
+            val selected = AvatarRendererRegistry.highestAvailableAtOrBelow(requested)
+            val decision = AvatarDecision(
+                requestedLevel = requested,
+                rendererAvailable = AvatarRendererRegistry.isAvailable(requested),
+                selectedLevel = selected,
+                reason = if (selected == requested) "явный выбор пользователя"
+                    else "запрошенный уровень недоступен, выбран ближайший доступный"
+            )
+            currentLevel = selected
+            return decision
         }
         val caps = device.current()
         val remote = serverManager.isReachable()
@@ -83,8 +116,25 @@ class AvatarEngine(
             networkAvailable = caps.networkAvailable,
             latencyMs = 0
         )
-        currentLevel = chooseLevel(resources)
-        return currentLevel
+        val requested = chooseLevel(resources)
+        // Главная защита: нельзя выбрать уровень, renderer для которого
+        // не зарегистрирован как доступный.
+        val selected = AvatarRendererRegistry.highestAvailableAtOrBelow(requested)
+        val decision = AvatarDecision(
+            requestedLevel = requested,
+            rendererAvailable = AvatarRendererRegistry.isAvailable(requested),
+            selectedLevel = selected,
+            reason = reasonText(requested, selected, resources)
+        )
+        currentLevel = selected
+        return decision
+    }
+
+    private fun reasonText(requested: AvatarLevel, selected: AvatarLevel, r: AvatarResources): String = buildString {
+        append("RAM ${r.ramTotalMb}MB, ядер ${r.cpuCores}, FPS=${r.fps} → запрошен ${requested.label}")
+        if (selected != requested) {
+            append("; renderer для ${requested.label} недоступен → выбран ${selected.label}")
+        }
     }
 
     private fun chooseLevel(r: AvatarResources): AvatarLevel {

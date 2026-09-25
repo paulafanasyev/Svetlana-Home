@@ -32,6 +32,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.svetlana.home.R
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.owner.OwnerIdentity
 import com.svetlana.home.ui.components.LivingOrb
 import com.svetlana.home.ui.launcher.HomeActivity
 import com.svetlana.home.ui.permissions.PermissionSetupScreen
@@ -77,6 +78,10 @@ class OnboardingActivity : ComponentActivity() {
 
                 when (stage) {
                     0 -> IntroStage()
+                    1 -> OwnerCreateStage(
+                        onCreated = { stage = 2 },
+                        onSkip = { stage = 2 }
+                    )
                     else -> PermissionSetupScreen(
                         onAllHandled = {
                             scope.launch {
@@ -147,6 +152,73 @@ class OnboardingActivity : ComponentActivity() {
                 text = "Владелец: создаётся единый профиль. PIN и пароли не сохраняются.",
                 style = MaterialTheme.typography.bodySmall
             )
+        }
+    }
+
+    /**
+     * Шаг создания профиля владельца (ТЗ §23).
+     * Кладётся в Android Keystore — без сохранения PIN/пароля пользователя.
+     */
+    @Composable
+    private fun OwnerCreateStage(
+        onCreated: () -> Unit,
+        onSkip: () -> Unit
+    ) {
+        var name by remember { mutableStateOf("") }
+        var message by remember { mutableStateOf("") }
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "Создать профиль владельца",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Имя используется только на этом устройстве. Ключ защиты " +
+                        "генерируется в Android Keystore; PIN и пароли не сохраняются.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(Modifier.height(12.dp))
+            androidx.compose.material3.OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Как вас зовут?") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = {
+                    val displayName = name.trim().ifBlank { "Владелец" }
+                    scope.launch {
+                        val result = ServiceLocator.ownerIdentity.createOwner(displayName)
+                        when (result) {
+                            is OwnerIdentity.Result.Created -> {
+                                ServiceLocator.settings.setOwnerName(displayName)
+                                onCreated()
+                            }
+                            is OwnerIdentity.Result.AlreadyExists -> onCreated()
+                            is OwnerIdentity.Result.Failed -> {
+                                message = "Не удалось создать профиль: ${result.message}. " +
+                                        "Android Keystore недоступен — проверьте блокировку экрана."
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MintPrimary)
+            ) {
+                Text(text = "Создать профиль", color = AlmostBlack)
+            }
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = onSkip, modifier = Modifier.fillMaxWidth()) {
+                Text(text = "Пропустить")
+            }
+            if (message.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(text = message, style = MaterialTheme.typography.bodySmall, color = MintPrimary)
+            }
         }
     }
 }

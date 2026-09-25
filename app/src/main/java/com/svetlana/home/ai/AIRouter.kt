@@ -22,7 +22,7 @@ class ProviderManager(
 ) {
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private val storeFile: File by lazy { File(context.filesDir, "providers.json") }
-    private val keyStore = SecureKeyStore(context)
+    private val keyStore = SecureKeyStore.create(context)
 
     @Volatile
     private var configs: List<ProviderConfig> = load()

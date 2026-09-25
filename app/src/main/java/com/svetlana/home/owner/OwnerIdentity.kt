@@ -90,13 +90,19 @@ class OwnerIdentity(context: Context) {
     /**
      * Идентификатор владельца для диагностики. Не является секретом и не позволяет
      * обойти Android security model.
+     *
+     * ВАЖНО: не используются аппаратные идентификаторы устройства (Build.SERIAL,
+     * ANDROID_ID и т.п.) — это запрещено политикой проекта и Android для не-DeviceOwner
+     * приложений. Идентификатор генерируется криптостойким случайным значением при
+     * создании профиля и не покидает устройство.
      */
     fun stablePublicId(): String {
         if (!isOwnerCreated()) return "no-owner"
         val existing = prefs.getString(KEY_PUBLIC_ID, null)
         if (existing != null) return existing
-        val seed = (displayName() + createdAt() + android.os.Build.SERIAL).toByteArray()
-        val digest = MessageDigest.getInstance("SHA-256").digest(seed)
+        // Новый криптостойкий идентификатор, не привязанный к железу.
+        val random = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+        val digest = MessageDigest.getInstance("SHA-256").digest(random)
         val id = "owner-" + Base64.encodeToString(digest.copyOfRange(0, 9), Base64.NO_WRAP)
         prefs.edit().putString(KEY_PUBLIC_ID, id).apply()
         return id

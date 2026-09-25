@@ -24,13 +24,18 @@ class AppControlEngine(
     private val context: Context,
     private val intentResolver: IntentResolver,
     private val hands: HandsController,
-    private val permissionManager: PermissionManager
+    private val permissionManager: PermissionManager,
+    private val launchVerifier: LaunchVerifier = LaunchVerifier(context, hands)
 ) {
 
     private val proofBuilder = ProofBuilder()
 
     /**
      * Открыть приложение. Приоритет — Intent/PackageManager, Hands как резерв.
+     *
+     * Доказательная цепочка: startActivity() — это лишь ACTION_ATTEMPTED.
+     * ACTION_PERFORMED выставляется только после того, как LaunchVerifier
+     * реально увидел целевой пакет в foreground.
      */
     suspend fun openApp(target: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=OPEN_APP target=$target")
@@ -44,9 +49,29 @@ class AppControlEngine(
         return try {
             context.startActivity(resolved.launchIntent)
             proof.ok(ProofStage.ACTION_ATTEMPTED, "startActivity sent")
-            proof.ok(ProofStage.ACTION_PERFORMED, "intent launch")
-            proof.ok(ProofStage.RESULT_VERIFIED, "PLAN0_STATUS=ACTION_PERFORMED PLAN0_RESULT=VERIFIED")
-            ActionResult(SvetlanaAction.OpenApp(target), true, "Приложение открыто",
+            // Ключевое место: ждём реального перехода, а не считаем
+            // «команда отправлена» == «действие выполнено».
+            val verified = launchVerifier.awaitForeground(resolved.app.packageName)
+            val reached = verified.foregroundPackage
+                ?.equals(resolved.app.packageName, ignoreCase = true) == true
+            if (reached) {
+                proof.ok(ProofStage.ACTION_PERFORMED, "foreground=${verified.foregroundPackage} src=${verified.source}")
+                proof.ok(ProofStage.RESULT_VERIFIED, "PLAN0_STATUS=ACTION_PERFORMED PLAN0_RESULT=VERIFIED")
+            } else if (verified.foregroundPackage == null) {
+                // Нет источника проверки (Hands выключен, USAGE_STATS не выдан).
+                // Честно отмечаем: действие попытано, но не верифицировано.
+                proof.add(ProofStage.ACTION_PERFORMED, StepStatus.UNVERIFIED,
+                    "no verification source (hands off, usage stats not granted)")
+                proof.add(ProofStage.RESULT_VERIFIED, StepStatus.UNVERIFIED,
+                    "PLAN0_RESULT=NOT PROVEN")
+            } else {
+                proof.add(ProofStage.ACTION_PERFORMED, StepStatus.FAILED,
+                    "foreground=${verified.foregroundPackage} expected=${resolved.app.packageName}")
+                proof.add(ProofStage.RESULT_VERIFIED, StepStatus.FAILED,
+                    "PLAN0_RESULT=NOT VERIFIED")
+            }
+            ActionResult(SvetlanaAction.OpenApp(target), reached,
+                if (reached) "Приложение открыто" else "Не удалось подтвердить открытие приложения",
                 proof.build(), resolved.way)
         } catch (t: Throwable) {
             // Резерв: Hands

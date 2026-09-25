@@ -42,7 +42,7 @@ class OpenAiCompatibleProvider(
     override val type: AIProvider.ProviderType = AIProvider.ProviderType.OPENAI_COMPATIBLE
     override val backend: AIBackend = AIBackend.EXTERNAL
 
-    private val keyStore = SecureKeyStore(context)
+    private val keyStore = SecureKeyStore.create(context)
     private val json = Json { ignoreUnknownKeys = true }
 
     private val client = OkHttpClient.Builder()

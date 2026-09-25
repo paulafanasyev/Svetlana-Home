@@ -2,6 +2,8 @@
 
 **Персональный AI Launcher для Android**
 
+Репозиторий: https://github.com/paulafanasyev/Svetlana-Home
+
 Hands + Voice + Vision + управление приложениями + Mobile Harness +
 локальный ИИ + внешние AI-провайдеры + персональный сервер + RU↔VI
 переводчик + адаптивный аватар.

@@ -87,32 +87,48 @@ class MobileHarnessController(
 
         // Приоритет: Intent / PackageManager, затем Hands
         val intent = intentResolver.launchIntentFor(app)
+        var launchException: Throwable? = null
         val launchOk = if (intent != null) {
             try {
                 context.startActivity(intent)
                 delay(LAUNCH_SETTLE_MS)
                 hands.waitForPackage(pkg, timeoutMs = WAIT_PKG_MS)
             } catch (t: Throwable) {
-                Log.w(TAG, "Intent-запуск не удался, пробуем Hands", t)
+                launchException = t
+                Log.w(TAG, "Intent-запуск не удался", t)
                 false
             }
         } else false
 
         if (launchOk) {
+            // launchOk=true означает, что waitForPackage подтвердил foreground.
             proof.add(ProofStep(ProofStage.PERMISSION_CHECKED, StepStatus.OK, "intent-based запуск"))
             proof.add(ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "startActivity выполнен"))
             proof.add(ProofStep(ProofStage.ACTION_PERFORMED, StepStatus.OK,
-                "PLAN0_TARGET=OPEN_MOBILE_HARNESS"))
+                "foreground=$pkg PLAN0_TARGET=OPEN_MOBILE_HARNESS"))
             proof.add(ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.OK,
                 "PLAN0_STATUS=ACTION_PERFORMED PLAN0_RESULT=VERIFIED"))
-        } else if (hands.isActive) {
+        } else if (hands.isActive && intent != null) {
+            // Hands не может запустить приложение сам по себе (pressHome ведёт на
+            // главный экран, а не в Mobile Harness). Честно сообщаем, что попытка
+            // зап зависимости от причины: если startActivity упал — пробуем повторно,
+            // иначе показываем, что приложение не стало foreground.
             proof.add(ProofStep(ProofStage.PERMISSION_CHECKED, StepStatus.OK, "Hands активен"))
-            proof.add(ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "запуск через Hands"))
-            val homeOk = hands.pressHome()
-            proof.add(ProofStep(ProofStage.ACTION_PERFORMED, ok(homeOk),
-                if (homeOk) "открыт через Hands" else "Hands не смог открыть приложение"))
-            proof.add(ProofStep(ProofStage.RESULT_VERIFIED, ok(homeOk),
-                if (homeOk) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED"))
+            proof.add(ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED,
+                launchException?.message ?: "startActivity не привёл к переходу в foreground"))
+            proof.add(ProofStep(ProofStage.ACTION_PERFORMED, StepStatus.FAILED,
+                "pressHome не открывает Mobile Harness — этот путь не выполняет задачу"))
+            proof.add(ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED,
+                "PLAN0_RESULT=NOT VERIFIED"))
+        } else if (hands.isActive) {
+            // Intent не удалось построить вообще.
+            proof.add(ProofStep(ProofStage.PERMISSION_CHECKED, StepStatus.OK, "Hands активен"))
+            proof.add(ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED,
+                "launchIntent для Mobile Harness недоступен"))
+            proof.add(ProofStep(ProofStage.ACTION_PERFORMED, StepStatus.FAILED,
+                " Hands не может запустить приложение без launch intent"))
+            proof.add(ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED,
+                "PLAN0_RESULT=NOT VERIFIED"))
         } else {
             proof.add(ProofStep(ProofStage.PERMISSION_CHECKED, StepStatus.FAILED,
                 "Hands не включён, стандартный запуск не удался"))

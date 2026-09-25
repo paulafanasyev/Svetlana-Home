@@ -27,6 +27,8 @@ import com.svetlana.home.store.SettingsRepository
 import com.svetlana.home.translate.SvetlanaTranslator
 import com.svetlana.home.translate.TranslatorProviderManager
 import com.svetlana.home.avatar.AvatarEngine
+import com.svetlana.home.avatar.AvatarLevel
+import com.svetlana.home.avatar.AvatarRendererRegistry
 import com.svetlana.home.vision.VisionManager
 import com.svetlana.home.voice.SvetlanaSpeechRecognizer
 import com.svetlana.home.voice.SvetlanaTts
@@ -73,7 +75,15 @@ object ServiceLocator {
     val translatorProvider by lazy { TranslatorProviderManager(app, aiRouter) }
     val translator by lazy { SvetlanaTranslator(app, translatorProvider, tts, speechRecognizer) }
     val vision by lazy { VisionManager(app, hands, translatorProvider) }
-    val avatarEngine by lazy { AvatarEngine(device, serverManager) }
+    val avatarEngine by lazy {
+        // Регистрация renderer'ов, которые реально есть в этой сборке.
+        // L0 (Orb) и L1 (Light Avatar на Compose) — точно присутствуют.
+        // L2/L3 не регистрируются, пока не появится соответствующий движок,
+        // чтобы AvatarEngine не мог заявить нереализованную возможность.
+        AvatarRendererRegistry.reset()
+        AvatarRendererRegistry.register(AvatarLevel.L1_LIGHT_AVATAR)
+        AvatarEngine(device, serverManager)
+    }
 
     val permissionCenter by lazy { permissionManager }
 

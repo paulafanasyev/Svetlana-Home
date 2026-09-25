@@ -139,15 +139,42 @@ class SvetlanaAccessibilityService : AccessibilityService() {
             .build())
     }
 
+    /**
+     * Жёсткое правило доказательной цепочки:GestureResultCallback вызывается
+     * асинхронно, поэтому нельзя вернуть результат сразу после dispatchGesture().
+     * Ждём реального onCompleted/onCancelled с таймаутом — иначе ACTION_PERFORMED
+     * мог бы быть выставлен до того, как жест реально выполнен.
+     */
     private fun performGesture(gesture: GestureDescription): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
-        val result = AtomicBoolean(false)
+        val latch = java.util.concurrent.CountDownLatch(1)
+        val succeeded = AtomicBoolean(false)
         val callback = object : GestureResultCallback() {
-            override fun onCompleted(g: GestureDescription?) { result.set(true) }
-            override fun onCancelled(g: GestureDescription?) { result.set(false) }
+            override fun onCompleted(g: GestureDescription?) {
+                succeeded.set(true)
+                latch.countDown()
+            }
+            override fun onCancelled(g: GestureDescription?) {
+                succeeded.set(false)
+                latch.countDown()
+            }
         }
-        dispatchGesture(gesture, callback, null)
-        return result.get()
+        val dispatched = try {
+            dispatchGesture(gesture, callback, null)
+        } catch (t: Throwable) {
+            Log.w(TAG, "dispatchGesture не принят системой", t)
+            return false
+        }
+        if (!dispatched) return false
+        // Система сама вызывает callback в main thread; ждём с таймаутом,
+        // чтобы не повиснуть, если Android не ответил.
+        try {
+            latch.await(GESTURE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return false
+        }
+        return succeeded.get()
     }
 
     fun pressBack(): Boolean = performGlobalAction(GLOBAL_ACTION_BACK)
@@ -191,7 +218,11 @@ class SvetlanaAccessibilityService : AccessibilityService() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
         try {
-            startForeground(NOTIF_ID, notification)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(NOTIF_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(NOTIF_ID, notification)
+            }
         } catch (t: Throwable) {
             Log.w(TAG, "Не удалось запустить foreground-уведомление Hands", t)
         }
@@ -201,6 +232,7 @@ class SvetlanaAccessibilityService : AccessibilityService() {
         private const val TAG = "SvetlanaHands"
         private const val CHANNEL_ID = "svetlana_hands"
         private const val NOTIF_ID = 4201
+        private const val GESTURE_TIMEOUT_MS = 5_000L
 
         @Volatile
         var instance: SvetlanaAccessibilityService? = null

@@ -38,4 +38,4 @@ data class ProofStep(
     val timestampMs: Long = System.currentTimeMillis()
 )
 
-enum class StepStatus { PENDING, OK, FAILED, SKIPPED }
+enum class StepStatus { PENDING, OK, FAILED, SKIPPED, UNVERIFIED }

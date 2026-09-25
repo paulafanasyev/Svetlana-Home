@@ -64,7 +64,7 @@ class PersonalServerManager(
     private val settings: SettingsRepository
 ) {
     private val json = Json { ignoreUnknownKeys = true }
-    private val keyStore = SecureKeyStore(context)
+    private val keyStore = SecureKeyStore.create(context)
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)

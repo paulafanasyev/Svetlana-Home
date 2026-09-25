@@ -10,6 +10,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
+import android.os.PowerManager
 import android.os.StatFs
 import android.os.SystemClock
 import android.util.DisplayMetrics
@@ -34,7 +35,9 @@ class DeviceCapabilityManager(private val context: Context) {
         val storageTotalMb: Long,
         val storageAvailableMb: Long,
         val gpu: String,
+        val gpuVendor: String = "unknown",
         val vulkanSupported: Boolean,
+        val vulkanVersion: String = "unknown",
         val openGlEsVersion: String,
         val nnapiSupported: Boolean,
         val thermalStatus: String,
@@ -84,10 +87,11 @@ class DeviceCapabilityManager(private val context: Context) {
 
         val extStorage = getStorageStats(context.filesDir.absolutePath)
 
-        val gpu = try {
-            (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
-                .deviceConfigurationInfo.glEsVersion
+        // OpenGL ES версия — это не имя GPU. Имя GPU определяем отдельно через EGL.
+        val glEsVersion = try {
+            am.deviceConfigurationInfo.glEsVersion
         } catch (t: Throwable) { "unknown" }
+        val gpuInfo = GpuProbe.rendererInfo(context)
 
         val displayMetrics = DisplayMetrics().also {
             (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager)
@@ -110,9 +114,11 @@ class DeviceCapabilityManager(private val context: Context) {
             ramAvailableMb = (memInfo.availMem / MB).toInt(),
             storageTotalMb = extStorage.first,
             storageAvailableMb = extStorage.second,
-            gpu = gpu,
+            gpu = gpuInfo.first,
+            gpuVendor = gpuInfo.second,
             vulkanSupported = vulkanSupported(),
-            openGlEsVersion = gpu,
+            vulkanVersion = vulkanVersion(),
+            openGlEsVersion = glEsVersion,
             nnapiSupported = nnapiSupported(),
             thermalStatus = thermalStatus(),
             batteryLevel = battery.first,
@@ -124,7 +130,7 @@ class DeviceCapabilityManager(private val context: Context) {
             audioSupported = audioSupported(),
             networkAvailable = network.first,
             networkType = network.second,
-            backendSupport = detectBackends(abis, gpu),
+            backendSupport = detectBackends(abis, glEsVersion, gpuInfo.first),
             snapshotAt = System.currentTimeMillis()
         )
     }
@@ -144,22 +150,38 @@ class DeviceCapabilityManager(private val context: Context) {
         } else false
     } catch (t: Throwable) { false }
 
+    private fun vulkanVersion(): String {
+        return try {
+            // FeatureInfo.version появилось в API 33; на более старых версиях
+            // поле существует в классе, но равно 0. getSystemFeatureVersion
+            // непубличный/удалённый — используем только публичный API.
+            val features = context.packageManager.getSystemAvailableFeatures()
+            val version = features.firstOrNull { it.name == PackageManager.FEATURE_VULKAN_HARDWARE_VERSION }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                version?.version?.takeIf { it != 0 }?.toString() ?: "unknown"
+            } else "unknown"
+        } catch (t: Throwable) { "unknown" }
+    }
+
     private fun nnapiSupported(): Boolean = try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             context.packageManager.hasSystemFeature("android.software.neuralnetworks")
         } else false
     } catch (t: Throwable) { false }
 
-    private fun thermalStatus(): String = try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val cls = Class.forName("android.os.ThermalManager")
-            val tm = context.getSystemService(cls)
-            val status = tm?.let {
-                cls.getMethod("getCurrentThermalStatus").invoke(it) as? Int
-            } ?: -1
-            thermalName(status)
-        } else "unknown"
-    } catch (t: Throwable) { "unknown" }
+    /**
+     * Тепловое состояние. Публичный API — PowerManager.getCurrentThermalStatus(),
+     * доступен с API 29 (Android 10). Reflection не используется.
+     */
+    @Suppress("NewApi")
+    private fun thermalStatus(): String {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                thermalName(pm?.getCurrentThermalStatus() ?: -1)
+            } else "unknown"
+        } catch (t: Throwable) { "unknown" }
+    }
 
     private fun thermalName(status: Int): String = when (status) {
         0 -> "none"
@@ -206,16 +228,20 @@ class DeviceCapabilityManager(private val context: Context) {
         } else true to "legacy"
     } catch (t: Throwable) { false to "unknown" }
 
-    private fun detectBackends(abis: List<String>, glEs: String): BackendSupport {
+    private fun detectBackends(abis: List<String>, glEs: String, gpuName: String): BackendSupport {
         val arm64 = abis.any { it.contains("arm64-v8a") || it.contains("x86_64") }
         val npu = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
                 context.packageManager.hasSystemFeature("android.software.neuralnetworks")
             else false
         } catch (t: Throwable) { false }
+        // GPU compute backend не доказывается версией OpenGL ES.
+        // Поддерживаем, только если есть реальный Vulkan/GLES-ускоритель и NNAPI GPU delegation.
+        val gpuCompute = arm64 && glEs != "unknown" && gpuName != "unknown" &&
+                vulkanSupported()
         return BackendSupport(
             cpu = true,
-            gpu = arm64 && glEs != "unknown",
+            gpu = gpuCompute,
             npu = npu,
             nnapi = npu
         )
@@ -229,7 +255,7 @@ class DeviceCapabilityManager(private val context: Context) {
         appendLine("android=${caps.androidVersion} sdk=${caps.sdkInt} abi=${caps.abis.joinToString(",")}")
         appendLine("cpu_cores=${caps.cpuCores} ram=${caps.ramTotalMb}MB free=${caps.ramAvailableMb}MB")
         appendLine("storage=${caps.storageTotalMb}MB free=${caps.storageAvailableMb}MB")
-        appendLine("gpu=${caps.gpu} vulkan=${caps.vulkanSupported} nnapi=${caps.nnapiSupported}")
+        appendLine("gpu=${caps.gpu} vendor=${caps.gpuVendor} gles=${caps.openGlEsVersion} vulkan=${caps.vulkanVersion} nnapi=${caps.nnapiSupported}")
         appendLine("thermal=${caps.thermalStatus} battery=${caps.batteryPercent}%")
         appendLine("network=${caps.networkType} camera=${caps.hasCamera} mic=${caps.hasMicrophone}")
         appendLine("backend_support=${caps.backendSupport}")

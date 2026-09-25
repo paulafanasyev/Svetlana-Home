@@ -52,6 +52,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setTranslatorBackend(value: String) { ds.edit { it[KEY_TRANSLATOR_BACKEND] = value } }
     suspend fun setWakeWordEnabled(value: Boolean) { ds.edit { it[KEY_WAKE_WORD] = value } }
     suspend fun setAvatarLevelOverride(level: Int) { ds.edit { it[KEY_AVATAR_LEVEL] = level } }
+    suspend fun setOwnerName(value: String) { ds.edit { it[KEY_OWNER_NAME] = value } }
 
     suspend fun <T> read(block: (Preferences) -> T): T = block(ds.data.first())
     suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
@@ -69,5 +70,6 @@ class SettingsRepository(private val context: Context) {
         private val KEY_TRANSLATOR_BACKEND = stringPreferencesKey("translator_backend")
         private val KEY_WAKE_WORD = booleanPreferencesKey("wake_word_enabled")
         private val KEY_AVATAR_LEVEL = intPreferencesKey("avatar_level_override")
+        private val KEY_OWNER_NAME = stringPreferencesKey("owner_name")
     }
 }
