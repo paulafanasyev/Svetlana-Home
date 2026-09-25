@@ -255,12 +255,10 @@ class AppControlEngine(
 
     /**
      * Опасные действия, требующие подтверждения пользователя (ТЗ §58).
+     * Делегируем в чистую функцию ActionRiskPolicy — единый источник
+     * классификации, покрываемый unit-тестами без Context.
      */
-    fun riskOf(action: SvetlanaAction): ActionRisk = when (action) {
-        is SvetlanaAction.SendMessage, is SvetlanaAction.MakeCall -> ActionRisk.DANGEROUS
-        is SvetlanaAction.Share -> ActionRisk.MODERATE
-        else -> ActionRisk.SAFE
-    }
+    fun riskOf(action: SvetlanaAction): ActionRisk = ActionRiskPolicy.riskOf(action)
 
     /**
      * Возможности управления для конкретного приложения (capability matrix).

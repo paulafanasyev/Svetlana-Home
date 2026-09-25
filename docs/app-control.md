@@ -61,9 +61,24 @@ PLAN0_RESULT=VERIFIED
 финансовые действия, передача конфиденциальных данных, критические
 системные изменения.
 
-`AppControlEngine.riskOf(action)` возвращает `SAFE / MODERATE / DANGEROUS`.
-`ActionRouter.execute()` возвращает `ActionResult.requiresUserConfirmation`,
-и UI показывает диалог «Подтвердить / Отмена».
+Классификация вынесена в `ActionRiskPolicy.riskOf(action)` — чистую
+функцию, не зависящую от Context. `AppControlEngine.riskOf()` делегирует
+в неё, `ActionRouter.execute()` использует результат:
+
+```kotlin
+if (riskOf(action) == ActionRisk.DANGEROUS && !confirmed) {
+    // действие НЕ выполняется; выставляем requiresUserConfirmation
+}
+```
+
+**Это блокировка, а не маркировка** (аудит п.27): опасное действие не
+выполняется, пока пользователь явно не подтвердит. «Света, отправь SMS
+Ивану» не превращается в реальную отправку.
+
+Покрытие unit-тестами: `DangerousActionBlockTest` — классификация всех
+типов действий (отправка/звонок = DANGEROUS, шеринг = MODERATE, Hands =
+SAFE). На устройстве: `DangerousActionDeviceTest` — проверка реальной
+блокировки и записи запроса подтверждения в историю.
 
 ## Ограничения приложений (ТЗ §67)
 
