@@ -54,6 +54,26 @@ PLAN0_RESULT=VERIFIED
 
 `ACTION_PERFORMED` выставляется только после реального выполнения.
 
+### Реальная верификация запуска (аудит п.7)
+
+Раньше `openApp()` выставлял `ACTION_PERFORMED` сразу после
+`startActivity()`. Это нарушало модель доказательства: команда отправлена
+≠ приложение в foreground.
+
+Теперь используется `LaunchVerifier.awaitForeground(pkg)`, который
+фактически ждёт перехода и возвращает источник проверки:
+
+- foreground пакет **совпал** → `ACTION_PERFORMED=OK`,
+  `RESULT_VERIFIED=OK` (`PLAN0_RESULT=VERIFIED`);
+- foreground пакет **другой** → `FAILED`, `PLAN0_RESULT=NOT VERIFIED`;
+- **нет источника** проверки (Hands выключен, USAGE_STATS не выдан) →
+  `UNVERIFIED`, `PLAN0_RESULT=NOT PROVEN` — приложение не считается
+  открытым, но цепочка честно фиксирует причину.
+
+Покрытие: `AppControlProofDeviceTest` — полный proof chain запуска
+«Настройки», отказ для несуществующего приложения, требования Hands
+для click/screenshot.
+
 ## Опасные действия (ТЗ §58)
 
 Перед выполнением подтверждение запрашивается для:
