@@ -378,6 +378,39 @@ battery, screen, camera, mic, network.
 `DEVICE VERIFIED`, `NOT PROVEN`, `BLOCKED`. Метка `DEVICE VERIFIED`
 ставится только после фактического теста на устройстве.
 
+## Текущий статус подсистем
+
+> Жёсткое маркирование (аудит п.30): архитектура ≠ работающая функция.
+> Обновляется по мере прохождения CI и device-тестов.
+
+| Подсистема | Статус | Основание |
+|------------|--------|-----------|
+| Repository / CI | VERIFIED | public repo, GitHub Actions, APK artifact |
+| Сборка APK | VERIFIED | `assembleDebug` green, 25.9 MB, arm64-v8a |
+| Unit-тесты | VERIFIED | 66 тестов, 0 неудач |
+| Launcher (ROLE_HOME) | CODE VERIFIED | нужны device-тесты |
+| App Registry / Drawer | CODE VERIFIED | нужны device-тесты |
+| App Control + proof chain | CODE VERIFIED | `LaunchVerifier` ждёт foreground-переход |
+| Hands (dispatchGesture) | CODE VERIFIED | async-callback исправлен; нужен device-тест |
+| Mobile Harness | CODE VERIFIED | нужны device-тесты |
+| Voice (STT/TTS) | CODE VERIFIED | системные STT/TTS; wake word — polling |
+| Wake word | NOT PROVEN | не always-on low-power детектор |
+| Vision | CODE VERIFIED | нужны device-тесты |
+| Local AI runtime | CODE VERIFIED | llama.cpp встроен; inference возможен только на arm64 |
+| Model Registry / Compatibility | CODE VERIFIED | требуется device-проверка совместимости |
+| External AI Providers | CODE VERIFIED | OpenAI-compatible, реальный HTTP; нужен ключ пользователя |
+| Personal Server | CODE VERIFIED | /health, /capabilities, /inference |
+| Hybrid AI | CODE VERIFIED | `HybridPipeline`: privacy→preprocess→sanitize→remote→postprocess |
+| Privacy / LOCAL_ONLY | CODE VERIFIED | `PrivacyPolicy`, 7 unit-тестов покрывают все режимы |
+| Translator RU↔VI | CODE VERIFIED | multilingual STT + post-detection языка |
+| Owner Identity | CODE VERIFIED | Android Keystore; `Build.SERIAL` убран |
+| Permissions | CODE VERIFIED | Permission Center; полный device-flow не проверен |
+| Avatar Engine | CODE VERIFIED | L0/L1 доступны; L2/L3 не регистрируются (нет renderer) |
+| Device Capability | CODE VERIFIED | GPU через EGL; thermal через PowerManager |
+| Опасные действия | CODE VERIFIED | `ActionRiskPolicy` блокирует, а не маркирует |
+| Physical POCO X3 NFC | NOT PROVEN | устройство не подключено к этой среде |
+| Production release | NOT PROVEN | нет signing config / AAB |
+
 ---
 
 © 2025 SVETLANA HOME

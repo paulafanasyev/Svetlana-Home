@@ -6,6 +6,7 @@ import com.svetlana.home.core.ServiceLocator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -28,7 +29,7 @@ class DangerousActionDeviceTest : SvetlanaDeviceTest() {
         val router = ServiceLocator.actionRouter
         val action = SvetlanaAction.SendMessage("Иван", "тестовое сообщение")
 
-        val result = router.execute(action, confirmed = false)
+        val result = runBlocking { router.execute(action, confirmed = false) }
 
         // Ключевое: действие НЕ выполнено
         assertFalse("Отправка SMS не должна выполняться без подтверждения",
@@ -43,7 +44,7 @@ class DangerousActionDeviceTest : SvetlanaDeviceTest() {
 
     @Test
     fun dangerousActionsClassifiedCorrectly() {
-        val engine = ServiceLocator.appControlEngine
+        val engine = ServiceLocator.controlEngine
         assertEquals("SMS должно быть DANGEROUS",
             ActionRisk.DANGEROUS, engine.riskOf(SvetlanaAction.SendMessage("Иван", "текст")))
         assertEquals("Звонок должен быть DANGEROUS",
@@ -56,7 +57,7 @@ class DangerousActionDeviceTest : SvetlanaDeviceTest() {
         val historyBefore = ServiceLocator.historyManager.all()
             .count { it.category == com.svetlana.home.memory.HistoryCategory.CONFIRMATIONS }
 
-        router.execute(SvetlanaAction.MakeCall("Иван"), confirmed = false)
+        runBlocking { router.execute(SvetlanaAction.MakeCall("Иван"), confirmed = false) }
 
         val historyAfter = ServiceLocator.historyManager.all()
             .count { it.category == com.svetlana.home.memory.HistoryCategory.CONFIRMATIONS }
