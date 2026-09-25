@@ -59,7 +59,7 @@
 
         <!-- Главный экран: официальный механизм ROLE_HOME -->
         <activity
-            android:name=".launcher.HomeActivity"
+            android:name=".ui.launcher.HomeActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:stateNotNeeded="true"
