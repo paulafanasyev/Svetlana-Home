@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Premium AI / Dark Glass / Liquid Light -->
+    <color name="bg_almost_black">#FF05080A</color>
+    <color name="bg_glass">#CC0B1114</color>
+    <color name="bg_glass_light">#1A10181B</color>
+    <color name="mint_primary">#FF5FE3B0</color>
+    <color name="mint_soft">#FF8FF0CC</color>
+    <color name="mint_dimmed">#FF3E8F74</color>
+    <color name="green_deep">#FF123B30</color>
+    <color name="text_primary">#FFF1F7F4</color>
+    <color name="text_secondary">#FF9FB3AC</color>
+    <color name="text_tertiary">#FF637069</color>
+    <color name="divider">#FF22302B</color>
+    <color name="warn_amber">#FFE8B84B</color>
+    <color name="error_red">#FFFF6B6B</color>
+    <color name="white_transparent_70">#B3FFFFFF</color>
+</resources>

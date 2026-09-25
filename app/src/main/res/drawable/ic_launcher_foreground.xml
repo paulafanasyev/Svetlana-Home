@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Living Orb: световой шар Светланы -->
+    <path
+        android:fillColor="#FF5FE3B0"
+        android:fillAlpha="0.18"
+        android:pathData="M54,18 m-30,0 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0" />
+    <path
+        android:fillColor="#FF8FF0CC"
+        android:pathData="M54,30 m-18,0 a18,18 0 1,0 36,0 a18,18 0 1,0 -36,0" />
+    <path
+        android:fillColor="#FF5FE3B0"
+        android:pathData="M54,40 m-9,0 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0" />
+    <path
+        android:strokeColor="#FF5FE3B0"
+        android:strokeAlpha="0.55"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M22,74 C34,66 46,82 54,74 C62,66 74,82 86,74" />
+    <path
+        android:strokeColor="#FF8FF0CC"
+        android:strokeAlpha="0.35"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M28,84 C40,77 50,90 54,84 C60,77 70,90 80,84" />
+</vector>

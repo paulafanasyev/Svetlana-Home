@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ===================== SVETLANA HOME ===================== -->
+    <string name="app_name">Светлана Home</string>
+    <string name="svetlana_name">Светлана</string>
+
+    <!-- Главный экран -->
+    <string name="home_greeting">Чем помочь?</string>
+    <string name="home_input_hint">Скажите или напишите</string>
+    <string name="home_apps">Приложения</string>
+    <string name="home_translator">Переводчик</string>
+    <string name="home_settings">Настройки</string>
+    <string name="home_listening">Слушаю…</string>
+    <string name="home_thinking">Светлана думает…</string>
+    <string name="home_orb_content_description">Живой шар Светланы</string>
+    <string name="home_set_as_default">Сделать главным экраном</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_welcome">Добро пожаловать в Светлану</string>
+    <string name="onboarding_intro">Я могу:</string>
+    <string name="onboarding_ability_launcher">управлять вашим телефоном;</string>
+    <string name="onboarding_ability_apps">запускать приложения;</string>
+    <string name="onboarding_ability_harness">управлять Mobile Harness;</string>
+    <string name="onboarding_ability_voice">работать голосом;</string>
+    <string name="onboarding_ability_vision">видеть экран;</string>
+    <string name="onboarding_ability_translate">переводить русский и вьетнамский;</string>
+    <string name="onboarding_ability_local">использовать локальный ИИ;</string>
+    <string name="onboarding_ability_external">подключать внешние AI;</string>
+    <string name="onboarding_ability_server">работать с вашим сервером.</string>
+    <string name="onboarding_setup_button">Настроить Светлану</string>
+    <string name="onboarding_skip">Пропустить</string>
+    <string name="onboarding_owner_title">Владелец</string>
+    <string name="onboarding_owner_desc">Создадим единый профиль владельца. Это безопасно: PIN и пароли не сохраняются.</string>
+    <string name="onboarding_done">Готово</string>
+    <string name="onboarding_next">Далее</string>
+
+    <!-- Мастер разрешений -->
+    <string name="setup_title">Настроить Светлану</string>
+    <string name="setup_subtitle">Последовательно предоставьте действительно нужные доступы</string>
+    <string name="perm_microphone">Микрофон</string>
+    <string name="perm_microphone_desc">Нужно для голосовых команд и перевода</string>
+    <string name="perm_camera">Камера</string>
+    <string name="perm_camera_desc">Нужно для зрения и перевода через камеру</string>
+    <string name="perm_contacts">Контакты</string>
+    <string name="perm_contacts_desc">Нужно для звонков и сообщений по имени</string>
+    <string name="perm_phone">Телефон</string>
+    <string name="perm_phone_desc">Нужно для совершения звонков</string>
+    <string name="perm_notifications">Уведомления</string>
+    <string name="perm_notifications_desc">Нужно для статуса и ответов</string>
+    <string name="perm_location">Местоположение</string>
+    <string name="perm_location_desc">Необязательно — только если попросите</string>
+    <string name="perm_hands">Hands / Специальные возможности</string>
+    <string name="perm_hands_desc">Нужно для управления другими приложениями</string>
+    <string name="perm_home">Главный экран</string>
+    <string name="perm_home_desc">Назначить Светлану главным экраном</string>
+    <string name="perm_grant">Предоставить</string>
+    <string name="perm_open_settings">Открыть настройки</string>
+    <string name="perm_skip">Пропустить</string>
+    <string name="perm_finish">Завершить настройку</string>
+    <string name="perm_optional">Необязательно</string>
+    <string name="perm_required">Требуется</string>
+
+    <!-- Permission Center -->
+    <string name="permission_center">Разрешения Светланы</string>
+    <string name="perm_state_granted">Разрешён</string>
+    <string name="perm_state_granted_f">Разрешена</string>
+    <string name="perm_state_granted_plural">Разрешены</string>
+    <string name="perm_state_active">Активен</string>
+    <string name="perm_state_off">Выключено</string>
+    <string name="perm_state_not_granted">Не разрешён</string>
+    <string name="perm_change">Изменить</string>
+    <string name="perm_note_persistent">Постоянный доступ используется повторно в рамках разрешённой функции</string>
+
+    <!-- Заголовки экранов -->
+    <string name="title_settings">Настройки</string>
+    <string name="title_apps">Приложения</string>
+    <string name="title_translator">Светлана Переводчик</string>
+    <string name="title_camera_translate">Перевод через камеру</string>
+    <string name="title_history">История Светланы</string>
+    <string name="title_local_ai">Локальный ИИ</string>
+    <string name="title_providers">Провайдеры ИИ</string>
+    <string name="title_server">Мой сервер Светланы</string>
+    <string name="title_model_registry">Реестр моделей</string>
+    <string name="title_device">Устройство</string>
+    <string name="title_avatar">Аватар</string>
+    <string name="title_owner">Владелец</string>
+    <string name="title_memory">Память</string>
+    <string name="title_about">О приложении</string>
+    <string name="title_diagnostics">Диагностика</string>
+
+    <!-- Поиск приложений -->
+    <string name="search_hint">Поиск приложений</string>
+    <string name="search_no_results">Ничего не найдено</string>
+    <string name="category_all">Все</string>
+    <string name="category_favorites">Избранное</string>
+    <string name="category_recent">Недавние</string>
+    <string name="tab_apps">Приложения</string>
+    <string name="empty_apps">Приложения не найдены</string>
+    <string name="hidden_apps">Скрытые</string>
+    <string name="action_hide">Скрыть</string>
+    <string name="action_unhide">Показать</string>
+    <string name="action_favorite_add">В избранное</string>
+    <string name="action_favorite_remove">Убрать из избранного</string>
+    <string name="action_app_info">Настройки приложения</string>
+    <string name="action_uninstall">Удалить</string>
+    <string name="action_launch">Открыть</string>
+
+    <!-- Голос -->
+    <string name="voice_error_stt">Распознавание речи недоступно</string>
+    <string name="voice_error_tts">Синтез речи недоступен</string>
+    <string name="voice_no_permission">Нет разрешения на микрофон</string>
+    <string name="voice_listening_wake">Скажите «Света»…</string>
+    <string name="voice_unavailable_offline">Голосовой ввод требует наличия распознавателя речи на устройстве</string>
+
+    <!-- Ответы Светланы -->
+    <string name="reply_ok">Готово</string>
+    <string name="reply_app_not_found">Я не нашла такое приложение на устройстве</string>
+    <string name="reply_no_hands">Для этого действия нужен Hands, но он не включён</string>
+    <string name="reply_action_unavailable">Это действие недоступно через Android или ограничено самим приложением.</string>
+    <string name="reply_confirm_dangerous">Это опасное действие. Подтвердите его выполнение.</string>
+    <string name="reply_local_only_blocked">Для этой задачи нужна более мощная модель, но режим «Только устройство» запрещает передачу данных наружу.</string>
+    <string name="reply_provider_failed">Выбранный провайдер не смог выполнить задачу</string>
+
+    <!-- AI-режимы -->
+    <string name="ai_mode_local_only">Только устройство</string>
+    <string name="ai_mode_local_first">Локальный в приоритете</string>
+    <string name="ai_mode_auto">Автоматический</string>
+    <string name="ai_mode_server">Мой сервер</string>
+    <string name="ai_mode_external">Внешний провайдер</string>
+    <string name="ai_backend_local">Сейчас используется локальная модель на устройстве.</string>
+    <string name="ai_backend_server">Сейчас используется ваш удалённый сервер.</string>
+    <string name="ai_backend_external">Сейчас используется внешний AI-провайдер.</string>
+    <string name="ai_backend_none">Сейчас активный AI-провайдер не выбран.</string>
+
+    <!-- Локальный ИИ / модели -->
+    <string name="models_installed">Установленные</string>
+    <string name="models_compatible">Совместимые</string>
+    <string name="models_available">Доступные</string>
+    <string name="model_not_installed">Локальная модель не установлена</string>
+    <string name="model_download_offer">Я нашла локальную модель, совместимую с вашим устройством.</string>
+    <string name="model_offer_question">На вашем устройстве можно установить локальную модель. Хотите посмотреть подходящие варианты?</string>
+    <string name="model_name">Название</string>
+    <string name="model_size">Размер</string>
+    <string name="model_ram_required">Требуется памяти</string>
+    <string name="model_perf">Ожидаемая производительность</string>
+    <string name="model_download">Скачать</string>
+    <string name="model_details">Подробнее</string>
+    <string name="model_not_now">Не сейчас</string>
+    <string name="model_stop">Остановить</string>
+    <string name="model_check">Проверить</string>
+    <string name="model_benchmark">Запустить benchmark</string>
+    <string name="model_delete">Удалить</string>
+    <string name="model_make_primary">Сделать основной</string>
+    <string name="model_use">Использовать</string>
+    <string name="model_never_auto">Модель никогда не скачивается автоматически — только после вашего решения</string>
+    <string name="compat_verified">VERIFIED</string>
+    <string name="compat_likely">LIKELY COMPATIBLE</string>
+    <string name="compat_not_proven">NOT PROVEN</string>
+    <string name="compat_incompatible">INCOMPATIBLE</string>
+
+    <!-- Benchmark -->
+    <string name="bench_load_time">Время загрузки</string>
+    <string name="bench_first_token">Задержка первого токена</string>
+    <string name="bench_tokens_per_sec">Токенов/сек</string>
+    <string name="bench_ram">Память</string>
+    <string name="bench_status">Статус</string>
+    <string name="bench_device_verified">DEVICE VERIFIED</string>
+    <string name="bench_run_after_install">Тест можно запустить после установки модели</string>
+
+    <!-- Провайдеры -->
+    <string name="provider_add">Добавить провайдера</string>
+    <string name="provider_name">Название</string>
+    <string name="provider_type">Тип</string>
+    <string name="provider_status">Статус</string>
+    <string name="provider_model">Модель</string>
+    <string name="provider_endpoint">Endpoint</string>
+    <string name="provider_api_key">API Key</string>
+    <string name="provider_test">Проверить соединение</string>
+    <string name="provider_use">Использовать</string>
+    <string name="provider_disable">Отключить</string>
+    <string name="provider_delete">Удалить</string>
+    <string name="provider_primary">Основной AI</string>
+    <string name="provider_fallback">Резервный</string>
+    <string name="provider_local">Локальный</string>
+    <string name="provider_server">Мой сервер</string>
+    <string name="provider_secured">Ключи хранятся в зашифрованном хранилище устройства</string>
+    <string name="provider_none">Провайдеры не подключены — это нормально, базовые функции работают</string>
+
+    <!-- Personal server -->
+    <string name="server_connect">Подключить</string>
+    <string name="server_check">Проверить</string>
+    <string name="server_health">Проверка работоспособности</string>
+    <string name="server_stop">Остановить</string>
+    <string name="server_disconnect">Отключить</string>
+    <string name="server_capabilities">Возможности сервера</string>
+    <string name="server_mode_remote_power">Удалённая мощность</string>
+    <string name="server_free_tier_note">Приложение не гарантирует, что ресурс бесплатен — проверяйте условия сами</string>
+
+    <!-- Переводчик -->
+    <string name="translate_ru_vi">Русский → Вьетнамский</string>
+    <string name="translate_vi_ru">Вьетнамский → Русский</string>
+    <string name="translate_speak_ru">Говорите по-русски</string>
+    <string name="translate_speak_vi">Говорите по-вьетнамски</string>
+    <string name="translate_sync_mode">Режим разговора</string>
+    <string name="translate_backend">Способ перевода</string>
+    <string name="translate_swap">Поменять направление</string>
+    <string name="translate_result">Перевод</string>
+    <string name="translate_speak_result">Озвучить</string>
+
+    <!-- Avatar -->
+    <string name="avatar_mode_orb">Living Orb</string>
+    <string name="avatar_mode_light">Light Avatar</string>
+    <string name="avatar_mode_real">Realistic Avatar</string>
+    <string name="avatar_mode_full">Full Real Avatar</string>
+    <string name="avatar_auto">Выбирается автоматически по ресурсам</string>
+    <string name="avatar_level">Уровень %1$d</string>
+
+    <!-- История -->
+    <string name="history_cat_commands">Команды</string>
+    <string name="history_cat_apps">Приложения</string>
+    <string name="history_cat_hands">Hands</string>
+    <string name="history_cat_harness">Mobile Harness</string>
+    <string name="history_cat_ai">AI</string>
+    <string name="history_cat_models">Модели</string>
+    <string name="history_cat_server">Сервер</string>
+    <string name="history_cat_translate">Переводы</string>
+    <string name="history_cat_errors">Ошибки</string>
+    <string name="history_cat_confirmations">Подтверждения</string>
+    <string name="history_empty">История пуста</string>
+    <string name="history_clear">Очистить историю</string>
+
+    <!-- Память -->
+    <string name="memory_mode_local">Локально</string>
+    <string name="memory_mode_remote">Удалённо</string>
+    <string name="memory_mode_disabled">Отключено</string>
+    <string name="memory_note">Персональная память не отправляется внешнему AI автоматически</string>
+
+    <!-- Диагностика / устройство -->
+    <string name="device_model">Модель</string>
+    <string name="device_android">Android</string>
+    <string name="device_sdk">SDK</string>
+    <string name="device_abi">ABI</string>
+    <string name="device_ram">Оперативная память</string>
+    <string name="device_ram_free">Доступная память</string>
+    <string name="device_storage">Накопитель</string>
+    <string name="device_storage_free">Свободно</string>
+    <string name="device_cpu">Процессор</string>
+    <string name="device_cores">Ядра</string>
+    <string name="device_gpu">Графика</string>
+    <string name="device_vulkan">Vulkan</string>
+    <string name="device_gles">OpenGL ES</string>
+    <string name="device_nnapi">NNAPI</string>
+    <string name="device_thermal">Тепловое состояние</string>
+    <string name="device_battery">Батарея</string>
+    <string name="device_screen">Экран</string>
+    <string name="device_camera">Камера</string>
+    <string name="device_mic">Микрофон</string>
+    <string name="device_audio">Аудио</string>
+    <string name="device_network">Сеть</string>
+    <string name="device_backend">Backend</string>
+
+    <!-- Доказательная цепочка -->
+    <string name="proof_plan">ПЛАН</string>
+    <string name="proof_target_app">ЦЕЛЕВОЕ ПРИЛОЖЕНИЕ</string>
+    <string name="proof_permission">ПРОВЕРКА РАЗРЕШЕНИЙ</string>
+    <string name="proof_attempt">ПОПЫТКА ДЕЙСТВИЯ</string>
+    <string name="proof_performed">ДЕЙСТВИЕ ВЫПОЛНЕНО</string>
+    <string name="proof_verified">РЕЗУЛЬТАТ ПРОВЕРЕН</string>
+    <string name="proof_failed">НЕ ВЫПОЛНЕНО</string>
+
+    <!-- Сервис Hands -->
+    <string name="hands_service_label">Светлана Hands</string>
+    <string name="hands_notification_title">Hands активен</string>
+    <string name="hands_notification_text">Светлана может управлять интерфейсом в пределах разрешённых функций</string>
+    <string name="hands_channel_name">Hands</string>
+    <string name="hands_channel_desc">Управление интерфейсом других приложений</string>
+
+    <!-- Прочее -->
+    <string name="ok">ОК</string>
+    <string name="cancel">Отмена</string>
+    <string name="confirm">Подтвердить</string>
+    <string name="yes">Да</string>
+    <string name="no">Нет</string>
+    <string name="back">Назад</string>
+    <string name="close">Закрыть</string>
+    <string name="offline_no_network">Нет подключения к сети. Облачные функции недоступны.</string>
+    <string name="permission_denied">Разрешение не предоставлено</string>
+    <string name="danger_confirm_title">Подтверждение</string>
+</resources>
