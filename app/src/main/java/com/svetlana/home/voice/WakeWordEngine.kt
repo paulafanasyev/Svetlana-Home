@@ -40,8 +40,6 @@ class WakeWordEngine(
 
     enum class State { IDLE, LISTENING, DETECTED }
 
-    private val wakeWords = listOf("света", "светочка", "светлана")
-
     fun start() {
         if (job?.isActive == true) return
         job = scope.launch {
@@ -71,15 +69,27 @@ class WakeWordEngine(
     }
 
     /**
+     * Тип прослушивания (для прозрачности перед пользователем и аудита п.12).
+     *
+     * Текущая реализация — STT_POLLING: системный распознаватель опрашивается
+     * короткими окнами. Это НЕ always-on low-power аппаратный детектор:
+     * расходует больше батареи и не работает в Doze.
+     *
+     * Честно сообщаем это, вместо того чтобы заявлять «настоящий wake word».
+     */
+    val listeningKind: String get() = "STT_POLLING (не always-on low-power детектор)"
+
+    /**
      * Проверить, содержит ли фраза слово пробуждения.
      * Возвращает команду без wake word или null.
+     * Делегирует в WakeWordMatcher — единый источник логики (покрыт тестами).
      */
     fun matchWakeWord(phrase: String): String? {
-        val low = phrase.lowercase().trim().replace("ё", "е")
-        val matched = wakeWords.firstOrNull { low == it || low.startsWith("$it ") || low.startsWith("$it,") }
-        if (matched == null) return null
-        _state.value = State.DETECTED
-        return low.removePrefix(matched).trimStart(' ', ',').ifBlank { null }
+        val command = WakeWordMatcher.matchWakeWord(phrase)
+        if (command != null || WakeWordMatcher.containsWakeWord(phrase)) {
+            _state.value = State.DETECTED
+        }
+        return command
     }
 
     companion object { private const val TAG = "WakeWord" }
