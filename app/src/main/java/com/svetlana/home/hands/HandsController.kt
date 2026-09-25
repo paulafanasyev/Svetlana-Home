@@ -102,7 +102,7 @@ class HandsController(private val context: Context) {
     fun openRecents(): Boolean = service()?.openRecents() ?: false
 
     suspend fun takeScreenshot(): Bitmap? = suspendCancellableCoroutine { cont ->
-        service()?.takeScreenshot { cont.resume(it) } ?: cont.resume(null)
+        service()?.captureScreen { cont.resume(it) } ?: cont.resume(null)
     }
 
     /**

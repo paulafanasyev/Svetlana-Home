@@ -124,7 +124,8 @@ class PersonalServerManager(
                 vramGb = gpu["vram_gb"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
                 models = root["models"]?.let { el ->
                     json.decodeFromJsonElement(
-                        kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.builtins.StringSerializer), el)
+                        kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<String>()), el
+                    )
                 } ?: emptyList(),
                 inferenceSupported = root["inference"]?.jsonPrimitive?.content?.toBoolean() ?: false,
                 latencyMs = System.currentTimeMillis() - started

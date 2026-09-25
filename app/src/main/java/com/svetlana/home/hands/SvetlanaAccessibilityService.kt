@@ -6,6 +6,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.graphics.Bitmap
 import android.graphics.Path
+import android.hardware.display.DisplayManager
+import android.view.Display
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
 import android.os.Build
@@ -13,6 +15,7 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.svetlana.home.R
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -156,9 +159,13 @@ class SvetlanaAccessibilityService : AccessibilityService() {
     /**
      * Скриншот экрана. Доступно на Android R+ с разрешённым canTakeScreenshots.
      */
-    fun takeScreenshot(onResult: (Bitmap?) -> Unit) {
+    fun captureScreen(onResult: (Bitmap?) -> Unit) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) { onResult(null); return }
-        takeScreenshot(object : TakeScreenshotCallback {
+        val displayId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            (getSystemService(DisplayManager::class.java)).getDisplay(Display.DEFAULT_DISPLAY)?.displayId
+                ?: Display.DEFAULT_DISPLAY
+        } else Display.DEFAULT_DISPLAY
+        takeScreenshot(displayId, ContextCompat.getMainExecutor(this), object : TakeScreenshotCallback {
             override fun onSuccess(screenshot: ScreenshotResult) {
                 val bitmap = Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
                 onResult(bitmap)
