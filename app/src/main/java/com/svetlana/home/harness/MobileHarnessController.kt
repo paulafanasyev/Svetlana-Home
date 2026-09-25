@@ -110,9 +110,8 @@ class MobileHarnessController(
                 "PLAN0_STATUS=ACTION_PERFORMED PLAN0_RESULT=VERIFIED"))
         } else if (hands.isActive && intent != null) {
             // Hands не может запустить приложение сам по себе (pressHome ведёт на
-            // главный экран, а не в Mobile Harness). Честно сообщаем, что попытка
-            // зап зависимости от причины: если startActivity упал — пробуем повторно,
-            // иначе показываем, что приложение не стало foreground.
+            // главный экран, а не в Mobile Harness). Честно сообщаем причину:
+            // startActivity либо упал, либо приложение не стало foreground.
             proof.add(ProofStep(ProofStage.PERMISSION_CHECKED, StepStatus.OK, "Hands активен"))
             proof.add(ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED,
                 launchException?.message ?: "startActivity не привёл к переходу в foreground"))
@@ -126,7 +125,7 @@ class MobileHarnessController(
             proof.add(ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED,
                 "launchIntent для Mobile Harness недоступен"))
             proof.add(ProofStep(ProofStage.ACTION_PERFORMED, StepStatus.FAILED,
-                " Hands не может запустить приложение без launch intent"))
+                "Hands не может запустить приложение без launch intent"))
             proof.add(ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED,
                 "PLAN0_RESULT=NOT VERIFIED"))
         } else {

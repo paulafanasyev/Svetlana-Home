@@ -75,9 +75,18 @@ Mobile Harness → UI element → Real action → Result verified
 
 ## Тест-план
 
-- [ ] Mobile Harness найден
-- [ ] Mobile Harness запущен
-- [ ] Управление голосом: «Света, открой Mobile Harness»
+Покрытие тестами:
+
+- [x] Mobile Harness детектится честно (CODE VERIFIED —
+      `MobileHarnessDeviceTest.detectionIsHonest`)
+- [x] Proof chain содержит все этапы и начинается с PLAN (CODE VERIFIED)
+- [x] Если Harness не установлен — цепочка честно FAIL на
+      TARGET_APP_IDENTIFIED, ACTION_PERFORMED/RESULT_VERIFIED не OK
+      (CODE VERIFIED — `notInstalled_proofChainFailsAtTargetIdentification`)
+- [x] UI tree / verifyResult не падают и не имитируют успех (CODE VERIFIED)
+- [ ] Mobile Harness запущен на устройстве (DEVICE VERIFIED — нужно
+      физическое устройство с установленным Mobile Harness)
+- [ ] Управление голосом: «Света, открой Mobile Harness» (DEVICE VERIFIED)
 - [ ] Управление Hands: нажать элемент, ввести текст, сделать скриншот
-- [ ] Реальное действие выполнено
-- [ ] Результат подтверждён (`PLAN0_RESULT=VERIFIED`)
+      (DEVICE VERIFIED)
+- [ ] Реальное действие выполнено и `PLAN0_RESULT=VERIFIED` (DEVICE VERIFIED)
