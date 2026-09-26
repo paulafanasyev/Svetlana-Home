@@ -388,8 +388,8 @@ battery, screen, camera, mic, network.
 | Repository / CI | VERIFIED | public repo, GitHub Actions, APK artifact |
 | Сборка APK | VERIFIED | debug 25.9 MB + release 8.6 MB (R8), arm64-v8a |
 | Lint | VERIFIED | 0 errors (3 ошибки аудита устранены) |
-| Unit-тесты | VERIFIED | 73 теста, 0 неудач |
-| Instrumented-тесты | CI VERIFIED | 17 androidTest-классов; эмулятор ≠ устройство |
+| Unit-тесты | VERIFIED | 88 тестов, 0 неудач |
+| Instrumented-тесты | CI VERIFIED | 18 androidTest-классов; эмулятор ≠ устройство |
 | Launcher (ROLE_HOME) | CODE VERIFIED | нужны device-тесты |
 | App Registry / Drawer | CODE VERIFIED | нужны device-тесты |
 | App Control + proof chain | CODE VERIFIED | `LaunchVerifier` ждёт foreground-переход |
@@ -407,9 +407,9 @@ battery, screen, camera, mic, network.
 | Translator RU↔VI | CODE VERIFIED | multilingual STT + device-тест обоих направлений |
 | Owner Identity | CODE VERIFIED | Android Keystore; `Build.SERIAL` убран |
 | Permissions | CODE VERIFIED | Permission Center; полный device-flow не проверен |
-| Avatar Engine | CODE VERIFIED | L0/L1 доступны; L2/L3 не регистрируются (нет renderer) |
+| Avatar Engine | CODE VERIFIED | `AvatarFallback`: L0/L1 доступны; false-capability покрыт 8 unit-тестами |
 | Device Capability | CODE VERIFIED | GPU через EGL + vendor; thermal через PowerManager |
-| Опасные действия | CODE VERIFIED | `ActionRiskPolicy` блокирует, а не маркирует |
+| Опасные действия | CODE VERIFIED | `ActionRiskPolicy` блокирует SendMessage/MakeCall/Share |
 | Physical POCO X3 NFC | NOT PROVEN | устройство не подключено к этой среде |
 | Production release | NOT PROVEN | R8+AAB собираются; подпись требует keystore в секретах |
 
