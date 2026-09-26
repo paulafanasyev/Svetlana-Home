@@ -45,6 +45,12 @@ data class ProviderConfig(
             ProviderConfig(
                 id = "preset-localllama", name = "Локальный llama.cpp сервер",
                 baseUrl = "http://127.0.0.1:8080", model = "local"
+            ),
+            // Аудит п.1: произвольный OpenAI-compatible endpoint
+            // (self-hosted, vLLM, llama.cpp server, корпоративный шлюз).
+            ProviderConfig(
+                id = "preset-custom", name = "Custom / OpenAI-compatible",
+                baseUrl = "", model = ""
             )
         )
     }

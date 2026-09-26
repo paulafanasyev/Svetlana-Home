@@ -35,9 +35,15 @@ class ExternalProviderDeviceTest : SvetlanaDeviceTest() {
         val presets = ProviderConfig.presets
         assertTrue("Должен быть хотя бы один preset провайдера", presets.isNotEmpty())
         presets.forEach { p ->
+            // Custom preset намеренно пустой — пользователь заполняет
+            // произвольный OpenAI-compatible endpoint сам.
+            if (p.id == "preset-custom") return@forEach
             assertTrue("Preset ${p.name} должен иметь baseUrl", p.baseUrl.isNotBlank())
             assertTrue("Preset ${p.name} должен иметь модель", p.model.isNotBlank())
         }
+        // Аудит п.1: произвольный OpenAI-compatible endpoint доступен.
+        assertTrue("Должен быть Custom preset",
+            presets.any { it.id == "preset-custom" })
         println("PROVIDER_PRESETS=${presets.map { it.name }}")
     }
 
