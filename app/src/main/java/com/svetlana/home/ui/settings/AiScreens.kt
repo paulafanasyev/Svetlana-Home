@@ -474,6 +474,34 @@ fun ServerScreen() {
                             manager.setEnabled(false)
                         }
                     }
+                    Spacer(Modifier.height(8.dp))
+                    // Аудит п.72: полная цепочка — connection → auth → health →
+                    // capabilities → inference → latency. Проверка inference
+                    // отдельной кнопкой, чтобы пользователь видел реальный
+                    // ответ сервера, а не только health check.
+                    var inferenceStatus by remember { mutableStateOf("") }
+                    ActionChip("Проверить inference") {
+                        scope.launch(Dispatchers.IO) {
+                            val started = System.currentTimeMillis()
+                            val reply = manager.inference("Ответь одним словом: работает.")
+                            val latency = System.currentTimeMillis() - started
+                            withContext(Dispatchers.Main) {
+                                inferenceStatus = if (reply.isNullOrBlank()) {
+                                    "✕ Inference не выполнен — сервер недоступен или не поддерживает его"
+                                } else {
+                                    "✓ Ответ: «${reply.take(40)}» (${latency}мс)"
+                                }
+                            }
+                        }
+                    }
+                    if (inferenceStatus.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = inferenceStatus,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (inferenceStatus.startsWith("✓")) MintPrimary else WarnAmber
+                        )
+                    }
                 }
             }
         }
