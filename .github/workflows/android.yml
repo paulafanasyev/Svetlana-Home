@@ -173,6 +173,22 @@ jobs:
       - name: Debug APK (strict)
         run: ./gradlew assembleDebug --no-daemon
 
+      - name: Release APK with R8 (strict)
+        # ТЗ §29: release-сборка с минификацией. Без keystore в секретах
+        # APK остаётся unsigned — подпись подключается через env.
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Release AAB (strict)
+        run: ./gradlew bundleRelease --no-daemon
+
+      - name: Artifact checksums (SHA-256)
+        # ТЗ §32: каждый артефакт сопровождается контрольной суммой.
+        run: |
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee checksums.txt
+          sha256sum app/build/outputs/apk/release/*.apk | tee -a checksums.txt
+          sha256sum app/build/outputs/bundle/release/*.aab | tee -a checksums.txt
+          cat checksums.txt
+
       - name: Verify no secrets in tree
         run: |
           # ТЗ §78: в репозитории не должно быть секретов.
@@ -185,6 +201,16 @@ jobs:
             echo "FOUND_SECRETS" && exit 1
           fi
           echo "no secrets found"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: svetlana-home-release
+          path: |
+            app/build/outputs/apk/release/
+            app/build/outputs/bundle/release/
+            checksums.txt
+          if-no-files-found: error
 
       - name: Report gate result
         run: echo "PRODUCTION_GATE=PASSED"
