@@ -6,6 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -64,12 +67,15 @@ private fun TranslateScreen() {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .imePadding()
                 .statusBarsPadding()
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(stringResource(R.string.title_translator),
-                style = MaterialTheme.typography.headlineMedium)
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.fillMaxWidth())
 
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text(

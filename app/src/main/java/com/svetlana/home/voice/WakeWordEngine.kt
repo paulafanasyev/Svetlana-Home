@@ -36,6 +36,13 @@ class WakeWordEngine(
     private val _state = MutableStateFlow(State.IDLE)
     val state: StateFlow<State> = _state.asStateFlow()
 
+    /**
+     * Распознанная фраза, если она содержит слово пробуждения.
+     * HomeViewModel слушает этот поток и запускает команду.
+     */
+    private val _detection = MutableStateFlow<String?>(null)
+    val detection: StateFlow<String?> = _detection.asStateFlow()
+
     private var job: kotlinx.coroutines.Job? = null
 
     enum class State { IDLE, LISTENING, DETECTED }
@@ -53,6 +60,10 @@ class WakeWordEngine(
                     delay(4000)
                     recognizer.stopListening()
                     delay(400)
+                    // КЛЮЧВОЕ место (аудит п.8): ранее результат STT никогда
+                    // не читался — слово пробуждения физически не могло быть
+                    // обнаружено. Теперь берём распознанный текст и проверяем.
+                    processSttResult()
                 } catch (t: Throwable) {
                     Log.w(TAG, "Цикл wake word прерван", t)
                     delay(2000)
@@ -60,6 +71,24 @@ class WakeWordEngine(
             }
         }
     }
+
+    /**
+     * Читает результат STT за только что завершённое окно прослушивания и
+     * проверяет его на слово пробуждения. Полный путь:
+     *   Микрофон → STT → WakeWordMatcher → DETECTED → команда
+     */
+    private fun processSttResult() {
+        val current = recognizer.result.value ?: return
+        if (current !is SvetlanaSpeechRecognizer.SttResult.Success) return
+        val command = matchWakeWord(current.text) ?: return
+        Log.i(TAG, "Слово пробуждения обнаружено, команда: $command")
+        _detection.value = command
+    }
+
+    /**
+     * Сброс detections после того, как HomeViewModel обработал команду.
+     */
+    fun consumeDetection() { _detection.value = null }
 
     fun stop() {
         job?.cancel()

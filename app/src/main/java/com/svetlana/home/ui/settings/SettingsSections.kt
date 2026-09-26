@@ -60,6 +60,21 @@ fun PermissionCenterScreen() {
     val pm = remember { ServiceLocator.permissionManager }
     var items by remember { mutableStateOf(pm.list()) }
 
+    // Аудит п.11: пользователь мог открыть системные настройки (Accessibility,
+    // геолокацию, приложение) и изменить разрешение там. После возврата экран
+    // обязан показать АКТУАЛЬНОЕ состояние, а не закешированное. Без этого
+    // Permission Center показывает устаревший статус.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                items = pm.list()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
             text = stringResource(R.string.perm_note_persistent),

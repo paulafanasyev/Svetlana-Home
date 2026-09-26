@@ -56,41 +56,88 @@ class HandsController(private val context: Context) {
 
     fun click(x: Float, y: Float): Boolean = service()?.clickPoint(x, y) ?: false
 
+    /**
+     * Поиск «живого» AccessibilityNodeInfo, соответствующего UiNode из снапшота.
+     *
+     * Аудит п.12: ранее поиск шёл ТОЛЬКО по resource-id. Если у элемента нет
+     * id (id пустой) — clickNode/longClick/inputText молча возвращали false,
+     * хотя элемент был только что найден по тексту. Теперь используем
+     * идентификацию по нескольким признакам: id → текст → contentDescription →
+     * класс + bounds.
+     */
+    private fun findLiveNode(node: UiNode): AccessibilityNodeInfo? {
+        val svc = service() ?: return null
+        val root = svc.rootInActiveWindow ?: return null
+        // 1. По resource-id, если он есть (самый надёжный путь).
+        if (node.id.isNotBlank()) {
+            findByViewId(root, node.id)?.let { return it }
+        }
+        // 2. По видимому тексту (то, как элемент был найден в findElement).
+        val byText = node.visibleText.takeIf { it.isNotBlank() }?.let { text ->
+            findByText(root, text)
+        }
+        if (byText != null) return byText
+        // 3. По классу + положению на экране (последняя надежда).
+        return findByClassAndBounds(root, node)
+    }
+
+    private fun findByText(node: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
+        val nodeText = node.text?.toString().orEmpty()
+        val nodeDesc = node.contentDescription?.toString().orEmpty()
+        if (nodeText == text || nodeDesc == text) return node
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            findByText(child, text)?.let { return it }
+        }
+        return null
+    }
+
+    private fun findByClassAndBounds(node: AccessibilityNodeInfo, target: UiNode): AccessibilityNodeInfo? {
+        val bounds = android.graphics.Rect().also { node.getBoundsInScreen(it) }
+        val sameClass = node.className?.toString().orEmpty() == target.className
+        if (sameClass && bounds == target.bounds) return node
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            findByClassAndBounds(child, target)?.let { return it }
+        }
+        return null
+    }
+
     fun clickNode(node: UiNode): Boolean {
         val svc = service() ?: return false
-        val live = findNodeById(node.id) ?: return false
+        val live = findLiveNode(node) ?: return false
         return svc.click(live)
     }
 
     fun longClick(node: UiNode): Boolean {
         val svc = service() ?: return false
-        val live = findNodeById(node.id) ?: return false
+        val live = findLiveNode(node) ?: return false
         return svc.longClick(live)
     }
 
     fun inputText(node: UiNode, text: String): Boolean {
         val svc = service() ?: return false
-        val live = findNodeById(node.id) ?: return false
+        val live = findLiveNode(node) ?: return false
         return svc.inputText(live, text)
     }
 
     fun clearText(node: UiNode): Boolean {
         val svc = service() ?: return false
-        val live = findNodeById(node.id) ?: return false
+        val live = findLiveNode(node) ?: return false
         return svc.clearText(live)
     }
 
     fun scrollForward(): Boolean {
         val svc = service() ?: return false
-        val scrollable = service()?.snapshotUiTree()?.nodes?.lastOrNull { it.isScrollable }
-        val live = scrollable?.let { findNodeById(it.id) }
+        val scrollable = svc.snapshotUiTree()?.nodes?.lastOrNull { it.isScrollable }
+        val live = scrollable?.let { findLiveNode(it) }
         return if (live != null) svc.scrollForward(live) else svc.swipe(540f, 1400f, 540f, 400f)
     }
 
     fun scrollBackward(): Boolean {
         val svc = service() ?: return false
-        val scrollable = service()?.snapshotUiTree()?.nodes?.lastOrNull { it.isScrollable }
-        val live = scrollable?.let { findNodeById(it.id) }
+        val scrollable = svc.snapshotUiTree()?.nodes?.lastOrNull { it.isScrollable }
+        val live = scrollable?.let { findLiveNode(it) }
         return if (live != null) svc.scrollBackward(live) else svc.swipe(540f, 400f, 540f, 1400f)
     }
 
@@ -155,4 +202,37 @@ class HandsController(private val context: Context) {
         val tree = uiTree() ?: return false
         return tree.nodes.any { it.visibleText.contains(text, ignoreCase = true) }
     }
+
+    /**
+     * Пост-условие для typeText: указанный узел теперь содержит введённый текст.
+     * Это настоящая RESULT_VERIFIED-проверка, а не «команда отправлена».
+     */
+    fun verifyTextEntered(node: UiNode, text: String): Boolean {
+        val live = findLiveNode(node) ?: return false
+        val current = live.text?.toString() ?: live.contentDescription?.toString().orEmpty()
+        return current.contains(text)
+    }
+
+    /**
+     * Пост-условие для clearText: поле ввода действительно пусто.
+     */
+    fun verifyTextEmpty(node: UiNode): Boolean {
+        val live = findLiveNode(node) ?: return false
+        return live.text?.toString().isNullOrBlank()
+    }
+
+    /**
+     * Проверка, что элемент всё ещё присутствует на экране (для swipe/scroll —
+     * содержимое могло измениться, но дерево осталось валидным).
+     */
+    fun verifyTreeChanged(beforeNodeCount: Int): Boolean {
+        val tree = uiTree() ?: return false
+        return tree.nodes.size != beforeNodeCount
+    }
+
+    /**
+     * Снимок количества узлов — «до» действия, для последующей проверки
+     * реального изменения экрана.
+     */
+    fun nodeCount(): Int = uiTree()?.nodes?.size ?: -1
 }

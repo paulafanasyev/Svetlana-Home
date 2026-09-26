@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -76,7 +78,9 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
             HistoryFilterRow(filter) { filter = it; entries = history.all() }
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
             ) {
                 if (shown.isEmpty()) {
                     item { Text(stringResource(R.string.history_empty)) }
@@ -102,14 +106,15 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
 
 @Composable
 private fun HistoryFilterRow(current: HistoryCategory?, onChange: (HistoryCategory?) -> Unit) {
-    LazyColumn(horizontalAlignment = androidx.compose.ui.Alignment.Start) {
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip("Все", current == null) { onChange(null) }
-                HistoryCategory.entries.forEach { cat ->
-                    Chip(cat.label, current == cat) { onChange(cat) }
-                }
-            }
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+    ) {
+        Chip("Все", current == null) { onChange(null) }
+        HistoryCategory.entries.forEach { cat ->
+            Chip(cat.label, current == cat) { onChange(cat) }
         }
     }
 }

@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -44,6 +45,26 @@ class HomeViewModel : ViewModel() {
     fun refreshClock(context: Context) {
         val now = android.text.format.DateFormat.format("HH:mm", java.util.Date()).toString()
         _state.value = _state.value.copy(clock = now)
+    }
+
+    /**
+     * ТЗ §21: слово пробуждения, обнаруженное WakeWordEngine в фоне.
+     *
+     * Цепочка: Микрофон → STT → WakeWordMatcher → DETECTED → команда → Action Router.
+     * Аудит п.8: раньше результат STT никогда не читался, поэтому «Света»
+     * физически не могла быть обнаружена. Теперь WakeWordEngine публикует
+     * команду сюда, и она обрабатывается как обычный голосовой ввод.
+     */
+    fun observeWakeWord(context: Context) {
+        viewModelScope.launch(Dispatchers.Default) {
+            ServiceLocator.wakeWord.detection.collect { command ->
+                if (command.isNullOrBlank()) return@collect
+                ServiceLocator.wakeWord.consumeDetection()
+                ServiceLocator.historyManager.record(
+                    HistoryCategory.COMMANDS, "Wake word: ${command.take(120)}")
+                handleInput(context, command)
+            }
+        }
     }
 
     fun refreshAvatarLevel() {

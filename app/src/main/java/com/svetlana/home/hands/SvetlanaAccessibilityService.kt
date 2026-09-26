@@ -14,6 +14,7 @@ import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.accessibilityservice.AccessibilityServiceInfo
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.svetlana.home.R
@@ -36,8 +37,32 @@ class SvetlanaAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        enableScreenshotCapability()
         startForegroundNotification()
         Log.i(TAG, "Hands активирован пользователем")
+    }
+
+    /**
+     * Аудит п.13: объявляем возможность скриншота.
+     *
+     * XML-атрибут android:canTakeScreenshots недоступен в местном ARM64 aapt2
+     * (это публичный атрибут с API 30), поэтому устанавливаем capability
+     * программно через публичное поле AccessibilityServiceInfo.canTakeScreenshots
+     * и подтверждаем через setServiceInfo(). На API < 30 поле отсутствует —
+     * скриншот через Hands просто недоступен, что и так проверяется в captureScreen().
+     */
+    private fun enableScreenshotCapability() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        try {
+            val info = serviceInfo ?: return
+            val field = AccessibilityServiceInfo::class.java.getField("canTakeScreenshots")
+            field.isAccessible = true
+            field.set(info, true)
+            setServiceInfo(info)
+            Log.i(TAG, "canTakeScreenshots capability включена")
+        } catch (t: Throwable) {
+            Log.w(TAG, "canTakeScreenshots capability недоступна", t)
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

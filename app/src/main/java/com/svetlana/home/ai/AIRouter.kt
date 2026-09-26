@@ -141,7 +141,12 @@ class AIRouter(
                 historyManager.record(HistoryCategory.AI, "HYBRID выбран, pipeline не подключён")
                 return AIResult(false, "Гибридный режим недоступен в этой сборке", routing.backend)
             }
-            val hybridResult = pipeline.run(prompt, PrivacyDataType.TEXT, mode = mode)
+            val hybridResult = pipeline.run(
+                prompt = prompt,
+                dataType = PrivacyDataType.TEXT,
+                mode = mode,
+                remoteBackend = routing.remoteBackend
+            )
             historyManager.record(HistoryCategory.AI,
                 "hybrid → ${hybridResult.backend} ${if (hybridResult.success) "OK" else "FAIL"} " +
                 "(${hybridResult.latencyMs}мс, этапов: ${hybridResult.stages.size})")

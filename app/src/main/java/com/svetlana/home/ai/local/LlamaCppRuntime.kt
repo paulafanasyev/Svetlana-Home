@@ -3,6 +3,7 @@ package com.svetlana.home.ai.local
 import android.content.Context
 import android.util.Log
 import com.svetlana.home.ai.AIModelRegistry
+import com.svetlana.home.ai.InstalledModel
 import com.svetlana.home.ai.LocalModelManager
 import com.svetlana.home.ai.providers.InferenceRuntime
 import dev.ffmpegkit.llama.Llama
@@ -28,7 +29,13 @@ import java.io.File
 class LlamaCppRuntime(
     private val context: Context,
     private val modelManager: LocalModelManager,
-    private val registry: AIModelRegistry
+    private val registry: AIModelRegistry,
+    /**
+     * Идентификатор модели, выбранной пользователем основной. Без этого
+     * runtime грузил первую установленную, игнорируя выбор пользователя
+     * (аудит п.6).
+     */
+    private val activeModelId: () -> String? = { null }
 ) : InferenceRuntime {
 
     @Volatile
@@ -146,7 +153,13 @@ class LlamaCppRuntime(
         Log.i(TAG, "Модель выгружена пользователем")
     }
 
-    private fun activeInstalled() = modelManager.list().firstOrNull()
+    private fun activeInstalled(): InstalledModel? {
+        // Только модель, выбранную пользователем; если такой нет — первую
+        // установленную (значение по умолчанию).
+        val selected = activeModelId()
+        return selected?.let { modelManager.byId(it) }
+            ?: modelManager.list().firstOrNull()
+    }
 
     private fun optimalThreads(): Int = try {
         val cores = Runtime.getRuntime().availableProcessors()

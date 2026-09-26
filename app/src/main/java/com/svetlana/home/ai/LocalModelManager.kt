@@ -42,7 +42,11 @@ data class BenchmarkResult(
     val status: String
 )
 
-class LocalModelManager(private val context: Context) {
+/**
+ * open — чтобы unit-тесты могли подставлять предустановленный список моделей,
+ * не вызывая реальную загрузку файлов (аудит п.6: проверка выбора модели).
+ */
+open class LocalModelManager(private val context: Context) {
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private val storeFile: File by lazy { File(context.filesDir, "local_models.json") }
@@ -51,11 +55,11 @@ class LocalModelManager(private val context: Context) {
     @Volatile
     private var installed: List<InstalledModel> = load()
 
-    fun list(): List<InstalledModel> = installed
+    open fun list(): List<InstalledModel> = installed
 
     fun isInstalled(modelId: String): Boolean = installed.any { it.modelId == modelId }
 
-    fun byId(modelId: String): InstalledModel? = installed.firstOrNull { it.modelId == modelId }
+    open fun byId(modelId: String): InstalledModel? = installed.firstOrNull { it.modelId == modelId }
 
     fun fileFor(modelId: String): File? = byId(modelId)?.let { File(it.filePath) }
 

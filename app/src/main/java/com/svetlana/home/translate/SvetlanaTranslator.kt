@@ -59,7 +59,11 @@ class SvetlanaTranslator(
         }
         val translated = translateText(result, direction)
         if (translated.success && tts.isAvailable) {
-            tts.speak(translated.text)
+            // Аудит п.10: озвучиваем перевод на ЦЕЛЕВОМ языке, а не на языке
+            // интерфейса. RU→VI — вьетнамский, VI→RU — русский.
+            tts.speak(translated.text,
+                if (direction == TranslateDirection.RU_TO_VI)
+                    java.util.Locale("vi", "VN") else java.util.Locale("ru", "RU"))
         }
         return translated
     }

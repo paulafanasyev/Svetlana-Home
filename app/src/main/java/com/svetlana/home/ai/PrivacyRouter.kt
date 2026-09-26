@@ -50,7 +50,14 @@ class ModelRouter(
     data class Routing(
         val decision: RouteDecision,
         val backend: AIBackend,
-        val reason: String
+        val reason: String,
+        /**
+         * Какой remote-бэкенд выбрал маршрутизатор для HYBRID-режима.
+         * Audit p.17: pipeline обязан отправлять данные именно туда, куда
+         * решил Router, а не туда, куда получится. Если Router выбрал
+         * PERSONAL_SERVER, данные не должны внезапно уйти внешнему провайдеру.
+         */
+        val remoteBackend: AIBackend = AIBackend.PERSONAL_SERVER
     )
 
     suspend fun route(

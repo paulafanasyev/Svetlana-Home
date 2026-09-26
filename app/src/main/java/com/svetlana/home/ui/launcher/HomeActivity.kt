@@ -19,10 +19,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -57,9 +60,13 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.svetlana.home.R
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.ui.apps.AppDrawerActivity
@@ -131,6 +138,15 @@ class HomeActivity : ComponentActivity() {
             viewModel.refreshAvatarLevel()
             viewModel.refreshBackendLabel()
         }
+        // ТЗ §21: фоновое прослушивание слова пробуждения.
+        LaunchedEffect(Unit) {
+            // Запускаем цикл прослушивания: он сам проверяет настройку
+            // пользователя, и честно простаивает, если wake word выключен.
+            if (ServiceLocator.permissionManager.isGranted(android.Manifest.permission.RECORD_AUDIO)) {
+                ServiceLocator.wakeWord.start()
+            }
+            viewModel.observeWakeWord(context)
+        }
 
         Box(
             modifier = Modifier
@@ -155,22 +171,35 @@ class HomeActivity : ComponentActivity() {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
                     .statusBarsPadding()
                     .navigationBarsPadding(),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Часы
                 Text(
                     text = uiState.clock.ifBlank { "21:42" },
                     style = TextStyle(fontSize = 44.sp, color = TextPrimary, textAlign = TextAlign.Center),
-                    modifier = Modifier.padding(top = 24.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 24.dp)
                 )
 
                 // Аудит P0: если Светлана ещё не главный экран — показываем
                 // подсказку с переходом к системному ROLE_HOME.
                 val pm = remember { ServiceLocator.permissionManager }
-                val isHome = remember { pm.isHomeLauncher() }
+                // Аудит п.11: состояние должно обновляться при возврате из
+                // системных настроек ROLE_HOME, а не кэшироваться на весь
+                // жизненный цикл Compose.
+                val lifecycleOwner = LocalLifecycleOwner.current
+                var isHome by remember { mutableStateOf(pm.isHomeLauncher()) }
+                LaunchedEffect(lifecycleOwner) {
+                    lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                        isHome = pm.isHomeLauncher()
+                    }
+                }
                 if (!isHome) {
                     GlassCard(
                         modifier = Modifier
@@ -220,7 +249,11 @@ class HomeActivity : ComponentActivity() {
                         text = uiState.lastReply,
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 32.dp)
+                        maxLines = 6,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 32.dp)
                     )
                     if (uiState.aiBackendLabel.isNotBlank()) {
                         Spacer(Modifier.height(6.dp))
@@ -239,7 +272,11 @@ class HomeActivity : ComponentActivity() {
                             style = MaterialTheme.typography.labelSmall,
                             color = TextTertiary,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 32.dp)
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 32.dp)
                         )
                     }
                 }

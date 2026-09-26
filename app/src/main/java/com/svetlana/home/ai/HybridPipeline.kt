@@ -47,20 +47,25 @@ class HybridPipeline(
 
     /**
      * @param dataType тип данных, который пойдёт на remote-этап.
-     * От этого зависит privacy-решение.
+     * @param remoteBackend какой backend выбрал маршрутизатор. Pipeline не
+     *   переопределяет это решение (аудит п.17): если Router сказал
+     *   PERSONAL_SERVER, данные не могут внезапно уйти внешнему провайдеру.
+     *   [remoteProviderFactory] используется только чтобы получить реализацию
+     *   провайдера для этого backend'а.
      */
     suspend fun run(
         prompt: String,
         dataType: PrivacyDataType = PrivacyDataType.TEXT,
         systemPrompt: String? = null,
-        mode: AIMode
+        mode: AIMode,
+        remoteBackend: AIBackend = AIBackend.PERSONAL_SERVER
     ): Result {
         val started = System.currentTimeMillis()
         val stages = mutableListOf<Stage>()
 
         // 1. Privacy decision — выполняется до любого сетевого вызова.
         // LOCAL_ONLY физически исключает передачу независимо от вызывающего кода.
-        val privacy = PrivacyPolicy.decide(dataType, AIBackend.PERSONAL_SERVER, mode)
+        val privacy = PrivacyPolicy.decide(dataType, remoteBackend, mode)
         if (!privacy.allowed) {
             stages += Stage("privacy", false, privacy.reason)
             recordHistory(HistoryCategory.AI,
@@ -72,7 +77,7 @@ class HybridPipeline(
                 latencyMs = System.currentTimeMillis() - started
             )
         }
-        stages += Stage("privacy", true, "передача разрешена")
+        stages += Stage("privacy", true, "передача разрешена backend=$remoteBackend")
 
         // 2. Local preprocessing — на устройстве, без сети.
         val preprocessed = preprocess(prompt)
@@ -80,14 +85,17 @@ class HybridPipeline(
             "контекст ${prompt.length}→${preprocessed.length} символов")
         val sanitized = sanitize(preprocessed)
 
-        // 3. Remote inference.
+        // 3. Remote inference — строго на backend, выбранном Router.
+        // Проверяем совпадение backend'а, чтобы исключить отправку данных
+        // не туда, куда решил Router.
         val remote = remoteProviderFactory()
-        if (remote == null || !remote.isAvailable()) {
-            stages += Stage("remote", false, "удалённый провайдер недоступен")
+        if (remote == null || !remote.isAvailable() || remote.backend != remoteBackend) {
+            stages += Stage("remote", false,
+                "провайдер недоступен для backend=$remoteBackend (фактический=${remote?.backend})")
             // Fallback на устройство — честный, с пометкой о причине.
             val local = runLocal(sanitized, systemPrompt, stages)
             recordHistory(HistoryCategory.AI,
-                "Hybrid: remote недоступен, fallback на устройство")
+                "Hybrid: backend $remoteBackend недоступен, fallback на устройство")
             return local.copy(latencyMs = System.currentTimeMillis() - started)
         }
 

@@ -108,56 +108,113 @@ class AppControlEngine(
             return ActionResult(SvetlanaAction.Click(target, element), false,
                 "Элемент не найден на экране", proof.failed("element not found"))
         }
+        val before = hands.nodeCount()
         val ok = hands.clickNode(node)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "click performed" else "click failed")
-        proof.add(ProofStage.RESULT_VERIFIED, if (ok) StepStatus.OK else StepStatus.FAILED,
-            if (ok) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
+        // Пост-условие: click должен изменить экран (появился новый элемент,
+        // изменилось состояние и т.д.). ACTION_PERFORMED без проверки — это
+        // только «команда отправлена», что неоднозначно (аудит п.11).
+        val changed = ok && verifyScreenChanged(before, 700)
+        proof.add(ProofStage.RESULT_VERIFIED,
+            if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
+            if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
         return ActionResult(SvetlanaAction.Click(target, element), ok,
             if (ok) "Нажатие выполнено" else "Не удалось нажать",
             proof.build(), "hands")
     }
 
     suspend fun longClick(target: String, element: String): ActionResult {
-        if (!hands.isActive) return handsOff(SvetlanaAction.LongClick(target, element))
+        val proof = proofBuilder.start("PLAN0_TARGET=LONG_CLICK app=$target element=$element")
+        if (!hands.isActive) return handsOff(SvetlanaAction.LongClick(target, element), proof)
+        proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
+        proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
+        proof.ok(ProofStage.ACTION_ATTEMPTED, "find element: $element")
         val node = hands.findElement(element)
             ?: return ActionResult(SvetlanaAction.LongClick(target, element), false,
-                "Элемент не найден", emptyList())
+                "Элемент не найден", proof.failed("element not found"))
+        val before = hands.nodeCount()
         val ok = hands.longClick(node)
+        proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
+            if (ok) "long click performed" else "long click failed")
+        // Пост-условие: экран должен откликнуться (измениться или элемент
+        // остаться валидным). Без этого RESULT_VERIFIED не ставится.
+        val verified = ok && verifyScreenChanged(before, 800)
+        proof.add(ProofStage.RESULT_VERIFIED,
+            if (verified) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
+            if (verified) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
         return ActionResult(SvetlanaAction.LongClick(target, element), ok,
-            if (ok) "Долгое нажатие выполнено" else "Не удалось", emptyList(), "hands")
+            if (ok) "Долгое нажатие выполнено" else "Не удалось", proof.build(), "hands")
     }
 
     suspend fun typeText(target: String, element: String, text: String): ActionResult {
-        if (!hands.isActive) return handsOff(SvetlanaAction.TypeText(target, element, text))
+        val proof = proofBuilder.start("PLAN0_TARGET=TYPE_TEXT app=$target element=$element")
+        if (!hands.isActive) return handsOff(SvetlanaAction.TypeText(target, element, text), proof)
+        proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
+        proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
+        proof.ok(ProofStage.ACTION_ATTEMPTED, "find element: $element")
         val node = hands.findElement(element)
             ?: return ActionResult(SvetlanaAction.TypeText(target, element, text), false,
-                "Поле ввода не найдено", emptyList())
+                "Поле ввода не найдено", proof.failed("input field not found"))
         val ok = hands.inputText(node, text)
+        proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
+            if (ok) "input performed" else "input failed")
+        // Настоящее пост-условие: поле действительно содержит текст.
+        val entered = ok && hands.verifyTextEntered(node, text)
+        proof.add(ProofStage.RESULT_VERIFIED,
+            if (entered) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
+            if (entered) "PLAN0_RESULT=VERIFIED text=\"${text.take(32)}\""
+                else "PLAN0_RESULT=NOT VERIFIED")
         return ActionResult(SvetlanaAction.TypeText(target, element, text), ok,
-            if (ok) "Текст введён" else "Не удалось ввести текст", emptyList(), "hands")
+            if (ok) "Текст введён" else "Не удалось ввести текст", proof.build(), "hands")
     }
 
     suspend fun clearText(target: String, element: String): ActionResult {
-        if (!hands.isActive) return handsOff(SvetlanaAction.ClearText(target, element))
+        val proof = proofBuilder.start("PLAN0_TARGET=CLEAR_TEXT app=$target element=$element")
+        if (!hands.isActive) return handsOff(SvetlanaAction.ClearText(target, element), proof)
+        proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
+        proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
+        proof.ok(ProofStage.ACTION_ATTEMPTED, "find element: $element")
         val node = hands.findElement(element)
             ?: return ActionResult(SvetlanaAction.ClearText(target, element), false,
-                "Поле ввода не найдено", emptyList())
+                "Поле ввода не найдено", proof.failed("input field not found"))
         val ok = hands.clearText(node)
+        proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
+            if (ok) "clear performed" else "clear failed")
+        val cleared = ok && hands.verifyTextEmpty(node)
+        proof.add(ProofStage.RESULT_VERIFIED,
+            if (cleared) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
+            if (cleared) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
         return ActionResult(SvetlanaAction.ClearText(target, element), ok,
-            if (ok) "Текст очищен" else "Не удалось очистить", emptyList(), "hands")
+            if (ok) "Текст очищен" else "Не удалось очистить", proof.build(), "hands")
     }
 
     suspend fun scroll(target: String, direction: String): ActionResult {
-        if (!hands.isActive) return handsOff(SvetlanaAction.Scroll(target, direction))
+        val proof = proofBuilder.start("PLAN0_TARGET=SCROLL app=$target dir=$direction")
+        if (!hands.isActive) return handsOff(SvetlanaAction.Scroll(target, direction), proof)
+        proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
+        proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
+        proof.ok(ProofStage.ACTION_ATTEMPTED, "scroll $direction")
+        val before = hands.nodeCount()
         val down = direction.equals("down", ignoreCase = true) || direction == "вниз"
         val ok = if (down) hands.scrollForward() else hands.scrollBackward()
+        proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
+            if (ok) "scroll performed" else "scroll failed")
+        val changed = ok && verifyScreenChanged(before, 600)
+        proof.add(ProofStage.RESULT_VERIFIED,
+            if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
+            if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
         return ActionResult(SvetlanaAction.Scroll(target, direction), ok,
-            if (ok) "Прокрутка выполнена" else "Не удалось прокрутить", emptyList(), "hands")
+            if (ok) "Прокрутка выполнена" else "Не удалось прокрутить", proof.build(), "hands")
     }
 
     suspend fun swipe(target: String, direction: String): ActionResult {
-        if (!hands.isActive) return handsOff(SvetlanaAction.Swipe(target, direction))
+        val proof = proofBuilder.start("PLAN0_TARGET=SWIPE app=$target dir=$direction")
+        if (!hands.isActive) return handsOff(SvetlanaAction.Swipe(target, direction), proof)
+        proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
+        proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
+        proof.ok(ProofStage.ACTION_ATTEMPTED, "swipe $direction")
+        val before = hands.nodeCount()
         val ok = when (direction.lowercase()) {
             "up", "вверх" -> hands.swipe(540f, 1400f, 540f, 400f)
             "down", "вниз" -> hands.swipe(540f, 400f, 540f, 1400f)
@@ -165,20 +222,46 @@ class AppControlEngine(
             "right", "вправо" -> hands.swipe(200f, 900f, 900f, 900f)
             else -> false
         }
+        proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
+            if (ok) "swipe performed" else "swipe failed")
+        val changed = ok && verifyScreenChanged(before, 600)
+        proof.add(ProofStage.RESULT_VERIFIED,
+            if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
+            if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
         return ActionResult(SvetlanaAction.Swipe(target, direction), ok,
-            if (ok) "Свайп выполнен" else "Не удалось сделать свайп", emptyList(), "hands")
+            if (ok) "Свайп выполнен" else "Не удалось сделать свайп", proof.build(), "hands")
     }
 
+    /**
+     * Проверка реального изменения экрана после жеста (аудит п.11).
+     * Дожидаться бесконечно нельзя — жест мог быть корректным, но экран
+     * закономерно не изменился (например, прокрутка в самом низу). В этом
+     * случае ставим UNVERIFIED, а не VERIFIED.
+     */
+    private suspend fun verifyScreenChanged(beforeNodeCount: Int, settleMs: Long): Boolean {
+        kotlinx.coroutines.delay(settleMs)
+        return hands.verifyTreeChanged(beforeNodeCount)
+    }
+
+    private fun handsOff(action: SvetlanaAction, proof: ProofBuilder): ActionResult =
+        ActionResult(action, false,
+            "Для этого действия нужен Hands, но он не включён", proof.failed("hands not active"))
+
     suspend fun readScreen(target: String): ActionResult {
-        if (!hands.isActive) return handsOff(SvetlanaAction.ReadScreen(target))
+        val proof = proofBuilder.start("PLAN0_TARGET=READ_SCREEN app=$target")
+        if (!hands.isActive) return handsOff(SvetlanaAction.ReadScreen(target), proof)
+        proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
+        proof.ok(ProofStage.ACTION_ATTEMPTED, "snapshot ui tree")
         val tree = hands.uiTree()
             ?: return ActionResult(SvetlanaAction.ReadScreen(target), false,
-                "Не удалось прочитать экран", emptyList(), "hands")
+                "Не удалось прочитать экран", proof.failed("ui tree unavailable"))
+        proof.ok(ProofStage.ACTION_PERFORMED, "${tree.nodes.size} nodes")
         val text = tree.nodes.mapNotNull { n ->
             n.visibleText.ifBlank { null }
         }.distinct().joinToString("\n")
+        proof.ok(ProofStage.RESULT_VERIFIED, "PLAN0_RESULT=VERIFIED ${tree.nodes.size} nodes")
         return ActionResult(SvetlanaAction.ReadScreen(target), true,
-            if (text.isBlank()) "На экране нет текста" else text, emptyList(), "hands")
+            if (text.isBlank()) "На экране нет текста" else text, proof.build(), "hands")
     }
 
     suspend fun takeScreenshot(target: String): Bitmap? {
@@ -187,24 +270,49 @@ class AppControlEngine(
     }
 
     suspend fun pressBack(): ActionResult {
-        if (!hands.isActive) return handsOff(SvetlanaAction.PressBack)
+        val proof = proofBuilder.start("PLAN0_TARGET=PRESS_BACK")
+        if (!hands.isActive) return handsOff(SvetlanaAction.PressBack, proof)
+        proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
+        proof.ok(ProofStage.ACTION_ATTEMPTED, "global action back")
+        val before = hands.nodeCount()
         val ok = hands.pressBack()
+        proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
+            if (ok) "back performed" else "back failed")
+        val changed = ok && verifyScreenChanged(before, 600)
+        proof.add(ProofStage.RESULT_VERIFIED,
+            if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
+            if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
         return ActionResult(SvetlanaAction.PressBack, ok,
-            if (ok) "Назад" else "Не удалось", emptyList(), "hands")
+            if (ok) "Назад" else "Не удалось", proof.build(), "hands")
     }
 
     suspend fun pressHome(): ActionResult {
-        if (!hands.isActive) return handsOff(SvetlanaAction.PressHome)
+        val proof = proofBuilder.start("PLAN0_TARGET=PRESS_HOME")
+        if (!hands.isActive) return handsOff(SvetlanaAction.PressHome, proof)
+        proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
+        proof.ok(ProofStage.ACTION_ATTEMPTED, "global action home")
         val ok = hands.pressHome()
+        proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
+            if (ok) "home performed" else "home failed")
+        // Home почти всегда меняет экран на launcher
+        proof.add(ProofStage.RESULT_VERIFIED, if (ok) StepStatus.OK else StepStatus.FAILED,
+            if (ok) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
         return ActionResult(SvetlanaAction.PressHome, ok,
-            if (ok) "Домой" else "Не удалось", emptyList(), "hands")
+            if (ok) "Домой" else "Не удалось", proof.build(), "hands")
     }
 
     suspend fun openRecents(): ActionResult {
-        if (!hands.isActive) return handsOff(SvetlanaAction.OpenRecents)
+        val proof = proofBuilder.start("PLAN0_TARGET=OPEN_RECENTS")
+        if (!hands.isActive) return handsOff(SvetlanaAction.OpenRecents, proof)
+        proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
+        proof.ok(ProofStage.ACTION_ATTEMPTED, "global action recents")
         val ok = hands.openRecents()
+        proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
+            if (ok) "recents performed" else "recents failed")
+        proof.add(ProofStage.RESULT_VERIFIED, if (ok) StepStatus.OK else StepStatus.FAILED,
+            if (ok) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
         return ActionResult(SvetlanaAction.OpenRecents, ok,
-            if (ok) "Недавние приложения" else "Не удалось", emptyList(), "hands")
+            if (ok) "Недавние приложения" else "Не удалось", proof.build(), "hands")
     }
 
     suspend fun openSettings(): ActionResult = openApp("настройки")

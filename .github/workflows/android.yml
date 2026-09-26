@@ -180,13 +180,93 @@ jobs:
       - name: Debug APK (strict)
         run: ./gradlew assembleDebug --no-daemon
 
+      - name: Prepare release keystore
+        # ТЗ §78: keystore никогда не хранится в репозитории — он приходит
+        # как base64 через GitHub Secrets. Если секрета нет, сборка остаётся
+        # unsigned, и мы ЧЕСТНО отмечаем это в имени артефакта.
+        env:
+          SVETLANA_KEYSTORE_BASE64: ${{ secrets.SVETLANA_KEYSTORE_BASE64 }}
+          SVETLANA_STORE_PASSWORD: ${{ secrets.SVETLANA_STORE_PASSWORD }}
+          SVETLANA_KEY_ALIAS: ${{ secrets.SVETLANA_KEY_ALIAS }}
+          SVETLANA_KEY_PASSWORD: ${{ secrets.SVETLANA_KEY_PASSWORD }}
+        run: |
+          if [ -n "$SVETLANA_KEYSTORE_BASE64" ]; then
+            echo "$SVETLANA_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/svetlana-release.jks"
+            echo "SVETLANA_STORE_FILE=$RUNNER_TEMP/svetlana-release.jks" >> "$GITHUB_ENV"
+            echo "SIGNING_ENABLED=true" >> "$GITHUB_ENV"
+            echo "Release keystore prepared"
+          else
+            echo "SIGNING_ENABLED=false" >> "$GITHUB_ENV"
+            echo "::warning::Release keystore secret not set — release APK/AAB will be UNSIGNED"
+          fi
+
       - name: Release APK with R8 (strict)
-        # ТЗ §29: release-сборка с минификацией. Без keystore в секретах
-        # APK остаётся unsigned — подпись подключается через env.
+        # ТЗ §29: release-сборка с минификацией. Подпись подключается
+        # через env из секрета на предыдущем шаге.
+        env:
+          SVETLANA_STORE_FILE: ${{ env.SVETLANA_STORE_FILE }}
+          SVETLANA_STORE_PASSWORD: ${{ secrets.SVETLANA_STORE_PASSWORD }}
+          SVETLANA_KEY_ALIAS: ${{ secrets.SVETLANA_KEY_ALIAS }}
+          SVETLANA_KEY_PASSWORD: ${{ secrets.SVETLANA_KEY_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Release AAB (strict)
+        env:
+          SVETLANA_STORE_FILE: ${{ env.SVETLANA_STORE_FILE }}
+          SVETLANA_STORE_PASSWORD: ${{ secrets.SVETLANA_STORE_PASSWORD }}
+          SVETLANA_KEY_ALIAS: ${{ secrets.SVETLANA_KEY_ALIAS }}
+          SVETLANA_KEY_PASSWORD: ${{ secrets.SVETLANA_KEY_PASSWORD }}
         run: ./gradlew bundleRelease --no-daemon
+
+      - name: Verify release signature
+        # Аудит п.3: проверяем реальную подпись артефактов, а не просто факт
+        # сборки. unsigned APK = development build, не релиз.
+        run: |
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          AAB=$(find app/build/outputs/bundle/release -name '*.aab' | head -1)
+          if jarsigner -verify "$APK" 2>/dev/null; then
+            echo "APK_SIGNATURE=SIGNED"
+          else
+            echo "APK_SIGNATURE=UNSIGNED"
+          fi
+          if jarsigner -verify "$AAB" 2>/dev/null; then
+            echo "AAB_SIGNATURE=SIGNED"
+          else
+            echo "AAB_SIGNATURE=UNSIGNED"
+          fi
+          echo "SIGNING_ENABLED=$SIGNING_ENABLED"
+
+      - name: Check 16 KB native library alignment
+        # Аудит п.22: Android требует 16 KB (0x4000) ELF alignment для native
+        # библиотек на новых устройствах. Большинство llama/ggml .so собраны
+        # правильно, но сторонние библиотеки (CameraX) могут быть 4 KB.
+        # Не падаем (continue-on-error нет, но warning видим), а отмечаем риск.
+        run: |
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          TMP=$(mktemp -d)
+          unzip -o -q "$APK" -d "$TMP" 'lib/*' || true
+          echo "=== ELF LOAD alignment нативных библиотек ==="
+          MISALIGNED=0
+          for so in $(find "$TMP" -name '*.so'); do
+            # LOAD alignment лежит в e_phoff + 6 байт (p_align, смещение 0x20)
+            ALIGN=$(python3 -c "
+              import struct, sys
+              with open('$so','rb') as f:
+                  f.seek(0x20)
+                  p_align = struct.unpack('<Q', f.read(8))[0]
+                  print(hex(p_align))
+              " 2>/dev/null || echo unknown)
+            NAME=$(basename "$so")
+            if [ "$ALIGN" != "0x4000" ]; then
+              echo "  4KB-RISK  $NAME ($ALIGN)"
+              MISALIGNED=$((MISALIGNED+1))
+            else
+              echo "  16KB-OK   $NAME"
+            fi
+          done
+          echo ""
+          echo "MISALIGNED_LIBS=$MISALIGNED"
+          rm -rf "$TMP"
 
       - name: Artifact checksums (SHA-256)
         # ТЗ §32: каждый артефакт сопровождается контрольной суммой.

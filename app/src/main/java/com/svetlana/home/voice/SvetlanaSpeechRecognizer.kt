@@ -36,8 +36,20 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
             SpeechRecognizer.isRecognitionAvailable(context)
         } catch (t: Throwable) { false }
 
+    /**
+     * Очистка предыдущего результата (аудит п.9).
+     *
+     * Без этого waitForSttResult() мог получить СТАРЫЙ результат прошлой
+     * сессии — например, последовательный перевод выдавал предыдущую фразу.
+     */
+    fun clearResult() {
+        _result.value = null
+        _partial.value = ""
+    }
+
     fun startListening(locale: Locale = Locale("ru", "RU")) {
         stopListening()
+        clearResult()
         if (!isAvailable) {
             _result.value = SttResult.Error("Распознавание речи недоступно на этом устройстве")
             return
@@ -72,6 +84,7 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
      */
     fun startListeningMultilingual() {
         stopListening()
+        clearResult()
         if (!isAvailable) {
             _result.value = SttResult.Error("Распознавание речи недоступно на этом устройстве")
             return

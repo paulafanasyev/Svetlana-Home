@@ -156,37 +156,57 @@ class AppRegistry(
     }
 
     /**
-     * Полное сканирование через LauncherApps / PackageManager.
+     * Полное сканирование через PackageManager / LauncherApps.
      * Учитываются ограничения Android на видимость пакетов.
+     *
+     * Аудит P0: основным источником служит queryIntentActivities по
+     * MAIN/LAUNCHER — он работает всегда (с объявленным в манифесте <queries>),
+     * даже когда Svetlana ещё не назначена главным экраном. LauncherApps же
+     * может возвращать пустой список для неприставленного launcher, и из-за
+     * этого App Drawer оказывался пустым.
      */
     fun scan(): List<AppModel> {
         val result = mutableListOf<AppModel>()
         val saved = repository.apps.value.associateBy { it.packageName }
+        val seen = HashSet<String>()
 
-        // Основной способ: LauncherApps (уважает visibility для launcher).
-        val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
-        val profiles = listOf(android.os.Process.myUserHandle())
-
-        for (profile in profiles) {
-            val activities = try {
-                launcherApps.getActivityList(null, profile)
-            } catch (t: Throwable) {
-                Log.w(TAG, "LauncherApps недоступен, переключаемся на PackageManager", t)
-                null
-            }
-
-            if (activities.isNullOrEmpty()) {
-                // Запасной путь: queryIntentActivities
-                val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                val resolved = pm.queryIntentActivities(intent, 0)
-                resolved.forEach { ri ->
-                    val pkg = ri.activityInfo.packageName
-                    result.add(build(pkg, saved[pkg]))
-                }
+        // Основной способ: queryIntentActivities по MAIN/LAUNCHER.
+        // Не требует роли launcher и уважает <queries> в манифесте.
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val resolved = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
             } else {
-                activities.forEach { la ->
+                @Suppress("DEPRECATION")
+                pm.queryIntentActivities(intent, 0)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "queryIntentActivities не удалось", t)
+            emptyList()
+        }
+        resolved.forEach { ri ->
+            val pkg = ri.activityInfo.packageName
+            if (seen.add(pkg)) result.add(build(pkg, saved[pkg]))
+        }
+
+        // Дополнительно: LauncherApps (уважает visibility для launcher).
+        // Используется как источник дополнительных entry-точек, а не как
+        // единственный — иначе список пуст, пока роль HOME не выдана.
+        if (resolved.isEmpty()) {
+            val launcherApps = try {
+                context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
+            } catch (t: Throwable) { null }
+            val profiles = listOf(android.os.Process.myUserHandle())
+            for (profile in profiles) {
+                val activities = try {
+                    launcherApps?.getActivityList(null, profile)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "LauncherApps недоступен", t)
+                    null
+                }
+                activities?.forEach { la ->
                     val pkg = la.applicationInfo.packageName
-                    result.add(build(pkg, saved[pkg], profile))
+                    if (seen.add(pkg)) result.add(build(pkg, saved[pkg], profile))
                 }
             }
         }

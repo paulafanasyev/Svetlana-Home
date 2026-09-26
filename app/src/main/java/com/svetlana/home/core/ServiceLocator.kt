@@ -65,8 +65,24 @@ object ServiceLocator {
     val wakeWord by lazy { WakeWordEngine(app, speechRecognizer, settings) }
     val modelRegistry by lazy { AIModelRegistry() }
     val localModelManager by lazy { LocalModelManager(app) }
-    val llamaRuntime by lazy { LlamaCppRuntime(app, localModelManager, modelRegistry) }
-    val localAiProvider by lazy { LocalAIProvider(localModelManager, modelRegistry, llamaRuntime) }
+
+    /**
+     * Синхронный доступ к идентификатору модели, выбранной пользователем
+     * основной. Провайдер и runtime читают именно его, а не «первую
+     * установленную» (аудит п.6).
+     */
+    private val activeLocalModelIdSync: () -> String? = {
+        runCatching {
+            kotlinx.coroutines.runBlocking { settings.activeLocalModelId.first() }
+        }.getOrNull()
+    }
+
+    val llamaRuntime by lazy {
+        LlamaCppRuntime(app, localModelManager, modelRegistry, activeLocalModelIdSync)
+    }
+    val localAiProvider by lazy {
+        LocalAIProvider(localModelManager, modelRegistry, llamaRuntime, activeLocalModelIdSync)
+    }
     val compatibility by lazy { AIModelCompatibilityEngine(device) }
     val serverManager by lazy { PersonalServerManager(app, settings) }
     val providerManager by lazy { ProviderManager(app, serverManager, localAiProvider) }
@@ -74,17 +90,20 @@ object ServiceLocator {
     val modelRouter by lazy { ModelRouter(device, settings, serverManager, privacyRouter) }
     val historyManager by lazy { HistoryManager(app) }
     val hybridPipeline by lazy {
-        // ТЗ §46: реальный гибридный pipeline. Remote-провайдер выбирается
-        // маршрутизатором (personal server или внешний провайдер).
+        // ТЗ §46: реальный гибридный pipeline. Remote-провайдер строится для
+        // backend'а, который выбрал маршрутизатор. Pipeline дополнительно
+        // проверяет совпадение backend'а, чтобы исключить отправку данных
+        // не на тот сервер (аудит п.17).
         HybridPipeline(
             localProvider = localAiProvider,
             remoteProviderFactory = {
-                // suspend лямбда: читаем активный провайдер; если внешний не
-                // выбран — гибрид идёт на personal server.
-                val activeId = settings.activeProviderId.first()
-                val cfg = activeId?.let { providerManager.byId(it) }
-                    ?: ProviderConfig(id = "personal-server", name = "Мой сервер",
-                        type = AIProvider.ProviderType.PERSONAL_SERVER)
+                // Personal server — единственный backend, на который Router
+                // отправляет HYBRID-задачи (см. ModelRouter). Строим его.
+                val cfg = ProviderConfig(
+                    id = "personal-server",
+                    name = "Мой сервер",
+                    type = AIProvider.ProviderType.PERSONAL_SERVER
+                )
                 providerManager.build(cfg)
             },
             recordHistory = { category, msg -> historyManager.record(category, msg) }

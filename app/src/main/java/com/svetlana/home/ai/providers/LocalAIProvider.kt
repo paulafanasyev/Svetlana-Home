@@ -21,7 +21,14 @@ import com.svetlana.home.core.SvetlanaStatus
 class LocalAIProvider(
     private val modelManager: com.svetlana.home.ai.LocalModelManager,
     private val registry: com.svetlana.home.ai.AIModelRegistry,
-    private val runtime: InferenceRuntime?
+    private val runtime: InferenceRuntime?,
+    /**
+     * Идентификатор модели, которую ПОЛЬЗОВАТЕЛЬ выбрал основной
+     * («Сделать основной»). Без этого провайдер брал бы первую установленную
+     * модель — это баг: пользователь выбрал B, установлены A и B, а runtime
+     * грузил A (аудит п.6).
+     */
+    private val activeModelId: () -> String? = { null }
 ) : AIProvider {
 
     override val id: String = "local"
@@ -43,7 +50,14 @@ class LocalAIProvider(
     override fun isAvailable(): Boolean = activeModel() != null && runtime?.isReady() == true
 
     private fun activeModel(): AIModel? {
-        val installed = modelManager.list().firstOrNull() ?: return null
+        // Пользователь мог явно выбрать основную модель («Сделать основной»).
+        // Только её и используем. Если выбор не сделан — берём первую
+        // установленную (это её нормальное значение по умолчанию).
+        val selected = activeModelId()
+        val installed = selected
+            ?.let { modelManager.byId(it) }
+            ?: modelManager.list().firstOrNull()
+            ?: return null
         return registry.byId(installed.modelId)
     }
 

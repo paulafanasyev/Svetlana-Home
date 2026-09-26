@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -79,13 +80,16 @@ private fun AppDrawerScreen() {
     var query by remember { mutableStateOf("") }
     var tab by remember { mutableStateOf(Tab.ALL) }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
+    var scanning by remember { mutableStateOf(true) }
 
     // ТЗ §11: список строится из реального PackageManager.
     // Сканируем при открытии drawer, чтобы состав был актуальным.
     LaunchedEffect(Unit) {
+        scanning = true
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             registry.scan()
         }
+        scanning = false
     }
 
     val apps by registry.apps.collectAsState()
@@ -124,12 +128,15 @@ private fun AppDrawerScreen() {
         ) {
             Text(
                 text = stringResource(R.string.title_apps),
-                style = MaterialTheme.typography.headlineMedium
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.fillMaxWidth()
             )
             Text(
-                text = "Установлено приложений: ${apps.size}",
+                text = if (scanning) "Поиск установленных приложений…"
+                else "Установлено приложений: ${apps.size}",
                 style = MaterialTheme.typography.bodySmall,
-                color = TextTertiary
+                color = TextTertiary,
+                modifier = Modifier.fillMaxWidth()
             )
             Spacer16()
 
@@ -217,9 +224,31 @@ private fun AppDrawerScreen() {
             // Список
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
             ) {
-                if (visible.isEmpty()) {
+                if (scanning) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                color = MintPrimary,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer8()
+                            Text(
+                                text = "Сканирование…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextTertiary
+                            )
+                        }
+                    }
+                } else if (visible.isEmpty()) {
                     item {
                         Text(
                             text = stringResource(R.string.search_no_results),
