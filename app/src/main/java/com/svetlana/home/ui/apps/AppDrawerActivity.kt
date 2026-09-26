@@ -52,6 +52,7 @@ import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
+import com.svetlana.home.ui.theme.MintSoft
 import com.svetlana.home.ui.theme.SvetlanaTheme
 import com.svetlana.home.ui.theme.TextPrimary
 import com.svetlana.home.ui.theme.TextTertiary
@@ -231,10 +232,31 @@ private fun AppRow(app: AppModel, onLaunch: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = TextTertiary
                 )
+                // ТЗ §66: показываем реальные возможности управления.
+                Text(
+                    text = capabilitySummary(app),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MintSoft
+                )
             }
             TextButton(text = stringResource(R.string.action_launch), onClick = onLaunch)
         }
     }
+}
+
+/**
+ * Краткая сводка того, какими способами Светлана может управлять приложением.
+ * ТЗ §66: пользователь видит реальные возможности, а не обещания.
+ */
+private fun capabilitySummary(app: AppModel): String {
+    val caps = app.control
+    val ways = buildList {
+        if (caps.canLaunch) add("запуск")
+        if (caps.canIntent) add("intent")
+        if (caps.canDeepLink) add("deep-link")
+        if (caps.canAccessibility) add("hands")
+    }
+    return if (ways.isEmpty()) "управление недоступно" else "управление: ${ways.joinToString(", ")}"
 }
 
 /** Конвертация Drawable в ImageBitmap для Compose. */
