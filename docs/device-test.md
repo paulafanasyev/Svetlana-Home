@@ -15,7 +15,10 @@
 
 ### Репозиторий и сборка
 
-- [ ] APK собирается
+- [x] APK собирается (debug 26 MB + release 8.6 MB R8, CI VERIFIED)
+- [x] CI работает (dev gate + production gate + instrumentation)
+- [x] Unit-тесты проходят (80 тестов)
+- [x] Нет секретов в репозитории (secret scan в CI)
 - [ ] APK установлен на POCO X3 NFC
 
 ### Владелец
@@ -68,70 +71,75 @@
 
 ### Устройство
 
-- [ ] Device Capability Manager работает
-- [ ] RAM определена
-- [ ] CPU определён
-- [ ] GPU определён
-- [ ] Storage определён
-- [ ] Thermal определён
-- [ ] Backend capabilities определены
+- [x] Device Capability Manager работает (device test)
+- [x] RAM определена
+- [x] CPU определён
+- [x] GPU определён (EGL renderer + vendor)
+- [x] Storage определён
+- [x] Thermal определён (PowerManager)
+- [x] Backend capabilities определены
+- [ ] Реальные значения на POCO X3 NFC сняты в device report
 
 ### Локальный ИИ
 
-- [ ] AI Model Registry работает
-- [ ] Compatibility Engine работает
-- [ ] Подходящие модели определяются
-- [ ] Несовместимые модели определяются
-- [ ] Модель НЕ скачивается автоматически
-- [ ] Download происходит только после выбора пользователя
-- [ ] Local AI работает после добровольной установки
-- [ ] Benchmark работает
+- [x] AI Model Registry работает
+- [x] Compatibility Engine работает (RAM/storage — жёсткие критерии)
+- [x] Подходящие модели определяются
+- [x] Несовместимые модели определяются
+- [x] Модель НЕ скачивается автоматически (нет авто-вызовов install)
+- [x] Download происходит только после выбора пользователя (UI: размер, RAM, free space)
+- [x] Inference runtime подключён (llama.cpp, arm64)
+- [ ] Local AI работает после добровольной установки (требует устройства)
+- [ ] Benchmark работает (требует установленной модели)
 
 ### Внешний AI
 
-- [ ] External AI Providers работают
-- [ ] Пользователь выбирает провайдера
-- [ ] Provider можно отключить
-- [ ] Provider можно заменить
-- [ ] API keys защищены
+- [x] External AI Providers работают (OpenAI-compatible, реальный HTTP)
+- [x] Пользователь выбирает провайдера
+- [x] Provider можно отключить
+- [x] Provider можно заменить
+- [x] API keys защищены (Keystore, нет insecure fallback)
+- [ ] Реальный inference с ключом пользователя
 
 ### Personal Server
 
-- [ ] Personal Server работает
-- [ ] Server health check
-- [ ] Server capabilities
-- [ ] Remote inference
+- [x] Personal Server работает (health/capabilities/inference)
+- [x] Server health check
+- [x] Server capabilities (CPU/RAM/GPU/VRAM)
+- [ ] Remote inference на реальном сервере владельца
 
 ### Hybrid / offline
 
-- [ ] Hybrid AI работает
-- [ ] Local-only работает
-- [ ] Offline работает
+- [x] Hybrid AI работает (HybridPipeline: preprocess→sanitize→remote→postprocess)
+- [x] Local-only работает (PrivacyPolicy + device test блокировки egress)
+- [x] Offline работает (launcher/registry/hands/translator без сети)
+- [ ] Offline-тест на устройстве
 
 ### Переводчик
 
-- [ ] RU → VI
-- [ ] VI → RU
-- [ ] Voice translation
-- [ ] Sync translation
-- [ ] Camera translation
+- [x] RU → VI (unit + device test)
+- [x] VI → RU (unit + device test)
+- [x] Voice translation (multilingual STT + TTS на целевом языке)
+- [x] Sync translation (translateConversationCycle, автоопределение)
+- [ ] Camera translation (требует устройства)
 
 ### Avatar
 
-- [ ] Orb работает
-- [ ] Avatar Engine работает
-- [ ] Real Avatar capability проверена
-- [ ] Resource-based fallback работает
+- [x] Orb работает
+- [x] Avatar Engine работает (decide: requested → available → reason)
+- [x] Real Avatar capability проверена (L2/L3 не заявляются без renderer)
+- [x] Resource-based fallback работает (highestAvailableAtOrBelow)
+- [ ] FPS/thermal замеры на устройстве
 
 ### Безопасность
 
-- [ ] Нет root
-- [ ] Нет Termux
-- [ ] Нет shell execution
-- [ ] Нет обхода permissions
-- [ ] Нет скрытых загрузок
-- [ ] Нет скрытого управления
-- [ ] Нет автоматического подтверждения опасных действий
+- [x] Нет root
+- [x] Нет Termux
+- [x] Нет shell execution
+- [x] Нет обхода permissions
+- [x] Нет скрытых загрузок
+- [x] Нет скрытого управления
+- [x] Нет автоматического подтверждения опасных действий
 
 ### Финал
 
