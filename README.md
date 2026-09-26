@@ -388,10 +388,10 @@ battery, screen, camera, mic, network.
 | Repository / CI | VERIFIED | public repo, GitHub Actions, APK artifact |
 | Сборка APK | VERIFIED | debug 25.9 MB + release 8.6 MB (R8), arm64-v8a |
 | Lint | VERIFIED | 0 errors (3 ошибки аудита устранены) |
-| Unit-тесты | VERIFIED | 88 тестов, 0 неудач |
-| Instrumented-тесты | CI VERIFIED | 18 androidTest-классов; эмулятор ≠ устройство |
+| Unit-тесты | VERIFIED | 98 тестов, 0 неудач |
+| Instrumented-тесты | CI VERIFIED | 19 androidTest-классов; эмулятор ≠ устройство |
 | Launcher (ROLE_HOME) | CODE VERIFIED | нужны device-тесты |
-| App Registry / Drawer | CODE VERIFIED | нужны device-тесты |
+| App Registry / Drawer | CODE VERIFIED | категории + capability matrix + поиск |
 | App Control + proof chain | CODE VERIFIED | `LaunchVerifier` ждёт foreground-переход |
 | Hands (dispatchGesture) | CODE VERIFIED | async-callback исправлен; нужен device-тест |
 | Mobile Harness | CODE VERIFIED | нужны device-тесты |
