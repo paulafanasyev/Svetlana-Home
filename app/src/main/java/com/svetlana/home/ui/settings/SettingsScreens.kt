@@ -68,6 +68,14 @@ fun VoiceSettingsScreen() {
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
+                Spacer(Modifier.height(4.dp))
+                // Аудит п.12: технический режим прослушивания видим
+                // пользователю — никаких скрытых характеристик.
+                Text(
+                    text = "Режим: ${ServiceLocator.wakeWord.listeningKind}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
             }
         }
 
