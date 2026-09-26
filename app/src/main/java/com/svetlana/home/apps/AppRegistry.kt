@@ -222,20 +222,10 @@ class AppRegistry(
      */
     private fun categorize(pkg: String, ai: android.content.pm.ApplicationInfo?): String {
         ai ?: return AppCategory.OTHER
-        if ((ai.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0) return AppCategory.SYSTEM
-        val game = (ai.flags and android.content.pm.ApplicationInfo.FLAG_IS_GAME) != 0 ||
-            pkg.contains("game", ignoreCase = true)
-        if (game) return AppCategory.GAMES
-        return when {
-            pkg.containsAny("tele", "gram", "whats", "vk", "viber", "discord", "signal") -> AppCategory.SOCIAL
-            pkg.containsAny("browser", "chrome", "firefox", "opera", "yandex.browser") -> AppCategory.BROWSER
-            pkg.containsAny("video", "player", "music", "media", "gallery", "photo", "camera") -> AppCategory.MEDIA
-            else -> AppCategory.OTHER
-        }
+        val isSystem = (ai.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+        val isGame = (ai.flags and android.content.pm.ApplicationInfo.FLAG_IS_GAME) != 0
+        return AppCategoryResolver.resolve(pkg, isSystem, isGame)
     }
-
-    private fun String.containsAny(vararg needles: String): Boolean =
-        needles.any { contains(it, ignoreCase = true) }
 
     private fun addSystemEntryPoints(result: MutableList<AppModel>, saved: Map<String, AppModel>) {
         val sysTargets = listOf(
