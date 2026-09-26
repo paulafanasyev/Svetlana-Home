@@ -208,5 +208,6 @@ runtime, а не только компилируется.
 | `LocalAiDeviceTest` | Совместимость → приоритеты → отчёт о inference |
 | `TranslatorDeviceTest` | RU → VI и VI → RU, backend указывается |
 | `VisionDeviceTest` | Скриншот, анализ изображения, честный отказ без провайдера |
+| `PerformanceDeviceTest` | Реальные замеры: probe, registry scan, перевод, proof chain |
 | `LocalOnlyDeviceTest` | LOCAL_ONLY физически блокирует egress любых данных |
 
