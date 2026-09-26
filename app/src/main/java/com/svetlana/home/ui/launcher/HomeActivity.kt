@@ -66,6 +66,7 @@ import com.svetlana.home.ui.apps.AppDrawerActivity
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.components.LivingOrb
 import com.svetlana.home.ui.history.HistoryActivity
+import com.svetlana.home.ui.onboarding.OnboardingFlowContent
 import com.svetlana.home.ui.settings.SettingsActivity
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
@@ -76,6 +77,7 @@ import com.svetlana.home.ui.theme.TextSecondary
 import com.svetlana.home.ui.theme.TextTertiary
 import com.svetlana.home.ui.translate.TranslateActivity
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 /**
  * Главный экран SVETLANA HOME.
@@ -96,6 +98,25 @@ class HomeActivity : ComponentActivity() {
 
     @Composable
     private fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
+        // P0: первый запуск — показываем onboarding (Owner + разрешения),
+        // иначе пользователь никогда не проходит настройку (ТЗ §65).
+        var showOnboarding by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            val done = ServiceLocator.settings.onboardingDone.first()
+            if (!done) showOnboarding = true
+        }
+        if (showOnboarding) {
+            OnboardingFlowContent(
+                launchHome = { /* Home уже на экране — ничего не делаем */ },
+                onFinished = { showOnboarding = false }
+            )
+        } else {
+            HomeContent(viewModel)
+        }
+    }
+
+    @Composable
+    private fun HomeContent(viewModel: HomeViewModel) {
         val context = LocalContext.current
         val uiState by viewModel.state.collectAsState()
         var inputText by remember { mutableStateOf("") }

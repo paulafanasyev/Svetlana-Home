@@ -161,11 +161,24 @@ class AIRouter(
             AIBackend.EXTERNAL -> {
                 val id = settings.activeProviderId.first()
                 val cfg = id?.let { providerManager.byId(it) }
-                if (cfg != null) providerManager.build(cfg)
-                else localProvider
+                if (cfg != null) providerManager.build(cfg) else null
             }
-            AIBackend.NONE -> localProvider
+            AIBackend.NONE -> null
             AIBackend.HYBRID -> localProvider // обработано выше; сюда не доходим
+        }
+
+        // ТЗ §51: внешние провайдеры опциональны. Если выбран внешний ИИ,
+        // но провайдер не настроен — честно говорим, как его подключить,
+        // а не подменяем тихо другим бэкендом.
+        if (provider == null) {
+            val msg = when (routing.backend) {
+                AIBackend.EXTERNAL -> "Внешний ИИ не настроен. Подключите провайдер в «Настройки» → «Внешние ИИ» — и я смогу отвечать на свободные вопросы."
+                AIBackend.NONE -> "Сейчас не выбран ни один ИИ. Локальную модель можно установить в «Локальный ИИ», либо подключить внешний провайдер."
+                else -> "Выбранный ИИ недоступен."
+            }
+            historyManager.record(HistoryCategory.AI,
+                "chat: провайдер не настроен (backend=${routing.backend}, mode=$mode)")
+            return AIResult(false, msg, routing.backend)
         }
 
         if (!provider.isAvailable() && provider is com.svetlana.home.ai.providers.LocalAIProvider && mode == AIMode.LOCAL_ONLY) {
