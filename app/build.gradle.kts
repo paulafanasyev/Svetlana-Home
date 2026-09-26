@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import java.io.File
 
 plugins {
     id("com.android.application")
@@ -26,6 +27,23 @@ android {
         }
     }
 
+    signingConfigs {
+        // ТЗ §78: keystore никогда не хранится в репозитории.
+        // Путь и пароли приходят через переменные окружения (CI/CD).
+        create("release") {
+            val storeFile = System.getenv("SVETLANA_STORE_FILE")
+            val storePass = System.getenv("SVETLANA_STORE_PASSWORD")
+            val keyAlias = System.getenv("SVETLANA_KEY_ALIAS")
+            val keyPass = System.getenv("SVETLANA_KEY_PASSWORD")
+            if (storeFile != null && File(storeFile).exists()) {
+                this.storeFile = File(storeFile)
+                this.storePassword = storePass
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPass
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isDebuggable = true
@@ -33,7 +51,19 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
-            isMinifyEnabled = false
+            val releaseConfig = signingConfigs.getByName("release")
+            val envKeysProvided = System.getenv("SVETLANA_STORE_FILE") != null &&
+                System.getenv("SVETLANA_STORE_PASSWORD") != null &&
+                System.getenv("SVETLANA_KEY_ALIAS") != null &&
+                System.getenv("SVETLANA_KEY_PASSWORD") != null
+            if (envKeysProvided && releaseConfig.storeFile != null) {
+                signingConfig = releaseConfig
+            } else {
+                // Без keystore в env — релиз не подписан (CI/CD должен задать секреты).
+                signingConfig = null
+            }
+            isMinifyEnabled = true
+            // R8: включаем оптимизацию и обфускацию для release.
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
