@@ -50,6 +50,47 @@ API Key хранятся в `SecureKeyStore` (AndroidX Security + Android
 Keystore) — **не попадают в репозиторий**, в логи и аналитику.
 `redactedConfig()` всегда выводит ключ как `скрыт`.
 
+### Полная цепочка настройки (аудит п.1)
+
+`ProviderEditScreen` реализует цепочку, где HTTP 200 на `/models` ещё
+**не** считается успехом:
+
+```
+Провайдер (шаблон)
+  ↓
+Endpoint       https://api.openai.com/v1
+  ↓
+API Key        ••••••••••••••••
+  ↓
+[Проверить подключение]  → testConnection() = реальный inference
+  ↓                     «✓ Подключено» / «✕ Ошибка: ...»
+[Получить модели]        → GET /v1/models
+  ↓                     список реальных моделей с сервера
+выбор модели из списка    ○ gpt-4o  ● gpt-4o-mini
+  ↓
+[Проверить модель]       → testModel(modelId) = реальный inference
+  ↓                     «✓ Модель ответила: ... (280мс)»
+[Сохранить]
+```
+
+Реализация: `OpenAiCompatibleProvider.listModels()` (GET `/v1/models`) +
+`testModel()` (реальный `/v1/chat/completions` с выбранной моделью).
+
+**Почему так:** ключ может быть действительным для endpoint, но не иметь
+доступа к выбранной модели. Поэтому успех — это ответ модели на тестовый
+запрос, а не 200 на список моделей.
+
+### Безопасность ключа
+
+OpenAI прямо не рекомендует размещать API keys в client-side/mobile
+приложениях. Поддерживается два режима:
+
+- **Прямое подключение (OpenAI-compatible)** — ключ в Keystore на
+  устройстве, предупреждение в UI. Подходит для self-hosted endpoint'ов
+  (vLLM, llama.cpp server, локальный сервер).
+- **Personal Gateway** — ключ остаётся на вашем сервере, приложение
+  обращается к нему (см. `personal-server.md`). Для production с OpenAI.
+
 ## Выбор провайдера (ТЗ §39)
 
 - Основной AI
@@ -86,8 +127,11 @@ Configuration → Authentication → Connection test →
 Model discovery → Inference → Result
 ```
 
-- [ ] Пользователь выбирает провайдера
-- [ ] Provider можно отключить
-- [ ] Provider можно заменить
-- [ ] API keys защищены (SecureKeyStore)
-- [ ] Проверка соединения работает
+- [x] Пользователь выбирает провайдера (`AiProvidersScreen`)
+- [x] Provider можно отключить (`provider_disable`)
+- [x] Provider можно заменить (`provider_use`)
+- [x] API keys защищены (SecureKeyStore, нет insecure fallback)
+- [x] Проверка соединения работает (`testConnection`)
+- [x] Получение реальных моделей (`listModels` → `/v1/models`)
+- [x] Проверка выбранной модели (`testModel` — реальный inference)
+- [ ] Полный device flow с реальным ключом пользователя (device, NOT PROVEN)
