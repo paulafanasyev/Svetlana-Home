@@ -142,6 +142,7 @@
     <string name="model_name">Название</string>
     <string name="model_size">Размер</string>
     <string name="model_ram_required">Требуется памяти</string>
+    <string name="model_free_space">Свободно</string>
     <string name="model_perf">Ожидаемая производительность</string>
     <string name="model_download">Скачать</string>
     <string name="model_details">Подробнее</string>

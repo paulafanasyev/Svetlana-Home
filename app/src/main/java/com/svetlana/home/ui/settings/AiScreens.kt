@@ -48,6 +48,7 @@ import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
 import com.svetlana.home.ui.theme.MintSoft
+import com.svetlana.home.ui.theme.TextTertiary
 import com.svetlana.home.ui.theme.WarnAmber
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -284,6 +285,12 @@ fun LocalAiScreen() {
                     Text("${stringResource(R.string.model_size)}: ${report.model.sizeMb} МБ · " +
                             "${stringResource(R.string.model_ram_required)}: ${report.model.ramRequirementMb} МБ",
                         style = MaterialTheme.typography.bodySmall)
+                    // ТЗ §33: всегда показываем свободное место — пользователь
+                    // видит, займёт ли модель слишком много storage.
+                    Text("${stringResource(R.string.model_free_space)}: ${manager.freeSpaceBytes() / (1024 * 1024)} МБ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (report.model.sizeMb > manager.freeSpaceBytes() / (1024 * 1024))
+                            WarnAmber else TextTertiary)
                     Text(report.reasons.joinToString("\n"), style = MaterialTheme.typography.bodySmall)
                     Text("${stringResource(R.string.model_perf)}: ${report.expectedPerf}",
                         style = MaterialTheme.typography.bodySmall)
