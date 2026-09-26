@@ -3,6 +3,7 @@ name: SvetlanaHome CI
 on:
   push:
     branches: [ main, master, develop ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main, master, develop ]
 
@@ -301,3 +302,89 @@ jobs:
 
       - name: Report gate result
         run: echo "PRODUCTION_GATE=PASSED"
+
+  # ─── Publish GitHub Release ─────────────────────────────────────
+  # Публикует подписанный release APK + AAB + checksums в GitHub Releases,
+  # чтобы любой пользователь мог скачать их прямо на Android-устройство.
+  # Запускается только при push тега v* и только если production gate прошёл.
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [ build, production-gate ]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Prepare release keystore
+        env:
+          SVETLANA_KEYSTORE_BASE64: ${{ secrets.SVETLANA_KEYSTORE_BASE64 }}
+          SVETLANA_STORE_PASSWORD: ${{ secrets.SVETLANA_STORE_PASSWORD }}
+          SVETLANA_KEY_ALIAS: ${{ secrets.SVETLANA_KEY_ALIAS }}
+          SVETLANA_KEY_PASSWORD: ${{ secrets.SVETLANA_KEY_PASSWORD }}
+        run: |
+          if [ -n "$SVETLANA_KEYSTORE_BASE64" ]; then
+            echo "$SVETLANA_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/svetlana-release.jks"
+            echo "SVETLANA_STORE_FILE=$RUNNER_TEMP/svetlana-release.jks" >> "$GITHUB_ENV"
+            echo "SIGNING_ENABLED=true" >> "$GITHUB_ENV"
+          else
+            echo "SIGNING_ENABLED=false" >> "$GITHUB_ENV"
+            echo "::warning::Release keystore secret not set — APK will be UNSIGNED"
+          fi
+
+      - name: Build signed release APK + AAB
+        env:
+          SVETLANA_STORE_FILE: ${{ env.SVETLANA_STORE_FILE }}
+          SVETLANA_STORE_PASSWORD: ${{ secrets.SVETLANA_STORE_PASSWORD }}
+          SVETLANA_KEY_ALIAS: ${{ secrets.SVETLANA_KEY_ALIAS }}
+          SVETLANA_KEY_PASSWORD: ${{ secrets.SVETLANA_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease bundleRelease --no-daemon
+
+      - name: Verify release signature
+        run: |
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          if jarsigner -verify "$APK" 2>/dev/null; then
+            echo "APK_SIGNATURE=SIGNED"
+          else
+            echo "APK_SIGNATURE=UNSIGNED"
+            echo "::warning::APK is unsigned — refusing to publish"
+            exit 1
+          fi
+
+      - name: Stage release assets
+        run: |
+          mkdir -p release-assets
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          AAB=$(find app/build/outputs/bundle/release -name '*.aab' | head -1)
+          cp "$APK" "release-assets/Svetlana-Home-${GITHUB_REF_NAME}-arm64.apk"
+          cp "$AAB" "release-assets/Svetlana-Home-${GITHUB_REF_NAME}.aab"
+          (cd release-assets && sha256sum *.apk *.aab > checksums.txt)
+          cat release-assets/checksums.txt
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Svetlana Home ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release-assets/Svetlana-Home-${{ github.ref_name }}-arm64.apk
+            release-assets/Svetlana-Home-${{ github.ref_name }}.aab
+            release-assets/checksums.txt
+          fail_on_unmatched_files: true

@@ -82,12 +82,35 @@ Hands + Voice + Vision + управление приложениями + Mobile 
 
 ## Установка
 
+### Скачать готовый APK
+
+Подписанный release APK доступен в [GitHub Releases](https://github.com/paulafanasyev/Svetlana-Home/releases/latest):
+
+[⬇ Скачать Svetlana Home](https://github.com/paulafanasyev/Svetlana-Home/releases/latest/download/Svetlana-Home-v1.0.0-arm64.apk)
+
+1. Откройте ссылку на Android-устройстве и скачайте APK;
+2. Разрешите установку из неизвестных источников
+   (Настройки → Приложения → Специальный доступ → Установка неизвестных приложений);
+3. Откройте скачанный APK и установите;
+4. Запустите Svetlana Home и пройдите онбординг.
+
+Проверить целостность можно по SHA-256 из `checksums.txt` в том же релизе.
+ APK подписан сертификатом `CN=Svetlana Home, OU=Mobile AI, O=Paul Afanasyev`.
+Сборка рассчитана на **arm64-v8a** (POCO X3 NFC и большинство современных устройств).
+
+### Собрать из исходного кода
+
 ```bash
 # Сборка debug APK
 ./gradlew assembleDebug
 
 # Установка на устройство
 adb install app/build/outputs/apk/debug/app-debug.apk
+
+# Подписанный release APK (нужен keystore в переменных окружения)
+SVETLANA_STORE_FILE=<путь> SVETLANA_STORE_PASSWORD=<пароль> \
+SVETLANA_KEY_ALIAS=svetlana SVETLANA_KEY_PASSWORD=<пароль> \
+./gradlew assembleRelease
 ```
 
 Требования: Android 8.0 (API 26)+. Приложение использует
