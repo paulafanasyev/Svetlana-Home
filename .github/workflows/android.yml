@@ -120,7 +120,14 @@ jobs:
         with:
           api-level: 30
           arch: x86_64
-          script: ./gradlew connectedDebugAndroidTest --no-daemon
+          # Даём эмулятору время на полную загрузку, иначе adb падает
+          # с "device offline" на медленных раннерах.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: |
+            adb wait-for-device
+            ./gradlew connectedDebugAndroidTest --no-daemon
 
   # ─── Production gate ──────────────────────────────────────────
   # Жёсткий: все шаги обязательны. Только этот джоб может разрешать
