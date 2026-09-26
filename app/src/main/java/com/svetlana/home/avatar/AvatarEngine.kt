@@ -89,16 +89,16 @@ class AvatarEngine(
      */
     fun decide(override: Int = -1): AvatarDecision {
         if (override >= 0) {
-            val requested = AvatarLevel.fromLevel(override)
-            val selected = AvatarRendererRegistry.highestAvailableAtOrBelow(requested)
+            // Делегируем в чистую логику деградации — она же покрыта тестами.
+            val fallback = AvatarFallback.decide(AvatarLevel.fromLevel(override))
             val decision = AvatarDecision(
-                requestedLevel = requested,
-                rendererAvailable = AvatarRendererRegistry.isAvailable(requested),
-                selectedLevel = selected,
-                reason = if (selected == requested) "явный выбор пользователя"
-                    else "запрошенный уровень недоступен, выбран ближайший доступный"
+                requestedLevel = fallback.requestedLevel,
+                rendererAvailable = fallback.rendererAvailable,
+                selectedLevel = fallback.selectedLevel,
+                reason = if (fallback.selectedLevel == fallback.requestedLevel)
+                    "явный выбор пользователя" else fallback.reason
             )
-            currentLevel = selected
+            currentLevel = decision.selectedLevel
             return decision
         }
         val caps = device.current()
