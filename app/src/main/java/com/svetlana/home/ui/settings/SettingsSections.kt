@@ -188,7 +188,10 @@ fun DeviceScreen() {
                     DeviceRow(R.string.device_storage, "${caps.storageTotalMb} МБ")
                     DeviceRow(R.string.device_storage_free, "${caps.storageAvailableMb} МБ")
                     DeviceRow(R.string.device_gpu, caps.gpu)
-                    DeviceRow(R.string.device_vulkan, if (caps.vulkanSupported) "да" else "нет")
+                    DeviceRow(R.string.device_gpu_vendor, caps.gpuVendor)
+                    DeviceRow(R.string.device_vulkan,
+                        if (caps.vulkanSupported) caps.vulkanVersion.ifBlank { "да" } else "нет")
+                    DeviceRow(R.string.device_gles, caps.openGlEsVersion)
                     DeviceRow(R.string.device_nnapi, if (caps.nnapiSupported) "да" else "нет")
                     DeviceRow(R.string.device_thermal, caps.thermalStatus)
                     DeviceRow(R.string.device_battery, "${caps.batteryPercent}%")

@@ -247,6 +247,7 @@
     <string name="device_cpu">Процессор</string>
     <string name="device_cores">Ядра</string>
     <string name="device_gpu">Графика</string>
+    <string name="device_gpu_vendor">GPU vendor</string>
     <string name="device_vulkan">Vulkan</string>
     <string name="device_gles">OpenGL ES</string>
     <string name="device_nnapi">NNAPI</string>
