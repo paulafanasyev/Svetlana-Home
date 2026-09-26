@@ -47,6 +47,23 @@ inference (`/inference`), отключение.
 Токен доступа хранится в `SecureKeyStore`, не попадает в репозиторий.
 `PersonalServerProvider.redactedConfig()` выводит токен как `скрыт`.
 
+## Граница ответственности: bootstrap сервера (аудит п.19, п.43)
+
+Svetlana Home — клиентское приложение. Установка runtime и моделей
+происходит **на стороне сервера** владельцем; приложение не выполняет
+и не имитирует этот процесс. Приложение отвечает за:
+
+- подключение (`setBaseUrl`, `setEnabled`);
+- аутентификацию (`setToken` — токен в Keystore);
+- health check (`/health`);
+- обнаружение возможностей (`/capabilities` — CPU, RAM, GPU, VRAM);
+- выбор модели и inference (`/inference`);
+- измерение latency и отчёт пользователю.
+
+Развёртывание самого сервера (docker/ollama/vllm и т.п.) — отдельная
+серверная часть, не входит в APK. Приложение честно показывает статус
+«сервер недоступен», если bootstrap не выполнен.
+
 ## Тест-план (ТЗ §72)
 
 ```
@@ -54,6 +71,9 @@ Server connection → Authentication → Health check →
 CPU/RAM/GPU detection → Model discovery → Inference → Latency → Result
 ```
 
-- [ ] Server health check
-- [ ] Server capabilities
-- [ ] Remote inference
+- [x] healthCheck реализован (реальный HTTP)
+- [x] capabilities: CPU/RAM/GPU/VRAM парсятся из ответа
+- [x] inference: реальный POST, latency измеряется
+- [x] Токен в Keystore, redacted в логах
+- [ ] Server health check на реальном сервере владельца
+- [ ] Remote inference на реальном сервере владельца

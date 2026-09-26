@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 data class HomeUiState(
     val clock: String = "",
     val orbLevel: AvatarLevel = AvatarLevel.L0_LIVING_ORB,
+    val orbReason: String = "",
     val orbActive: Boolean = false,
     val isListening: Boolean = false,
     val isThinking: Boolean = false,
@@ -46,8 +47,12 @@ class HomeViewModel : ViewModel() {
     }
 
     fun refreshAvatarLevel() {
-        val level = ServiceLocator.avatarEngine.evaluate()
-        _state.value = _state.value.copy(orbLevel = level)
+        val decision = ServiceLocator.avatarEngine.decide()
+        _state.value = _state.value.copy(
+            orbLevel = decision.selectedLevel,
+            orbReason = if (decision.selectedLevel != decision.requestedLevel)
+                decision.reason else ""
+        )
     }
 
     suspend fun refreshBackendLabel() {

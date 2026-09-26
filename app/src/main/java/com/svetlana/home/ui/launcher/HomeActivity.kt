@@ -173,6 +173,18 @@ class HomeActivity : ComponentActivity() {
                             color = TextTertiary
                         )
                     }
+                    // ТЗ §9: если режим деградирован, Светлана честно
+                    // объясняет причину (ресурсы устройства/недоступный renderer).
+                    if (uiState.orbReason.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = uiState.orbReason,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextTertiary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        )
+                    }
                 }
 
                 // Подтверждение опасного действия
