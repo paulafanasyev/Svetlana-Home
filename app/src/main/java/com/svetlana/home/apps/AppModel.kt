@@ -17,8 +17,25 @@ data class AppModel(
     val systemApp: Boolean = false,
     val enabled: Boolean = true,
     val versionName: String? = null,
+    val category: String = AppCategory.OTHER,
     val control: ControlCapabilities = ControlCapabilities()
 )
+
+/**
+ * Категории приложений для App Drawer (ТЗ §11).
+ * Определяются по пакету и известным Intent-категориям.
+ */
+object AppCategory {
+    const val SYSTEM = "Системные"
+    const val SOCIAL = "Общение"
+    const val BROWSER = "Браузеры"
+    const val TOOLS = "Инструменты"
+    const val GAMES = "Игры"
+    const val MEDIA = "Медиа"
+    const val OTHER = "Другие"
+
+    val ALL = listOf(SYSTEM, SOCIAL, BROWSER, TOOLS, GAMES, MEDIA, OTHER)
+}
 
 /**
  * App Capability Matrix: реальные возможности управления конкретным приложением.

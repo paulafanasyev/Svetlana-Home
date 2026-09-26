@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.svetlana.home.R
+import com.svetlana.home.apps.AppCategory
 import com.svetlana.home.apps.AppModel
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.ui.components.GlassCard
@@ -75,9 +77,10 @@ private fun AppDrawerScreen() {
     val registry = remember { ServiceLocator.appRegistry }
     var query by remember { mutableStateOf("") }
     var tab by remember { mutableStateOf(Tab.ALL) }
+    var selectedCategory by remember { mutableStateOf<String?>(null) }
 
     val apps by registry.apps.collectAsState()
-    val visible by remember(apps, query, tab) {
+    val visible by remember(apps, query, tab, selectedCategory) {
         derivedStateOf {
             when (tab) {
                 Tab.ALL -> registry.search(query).filterNot { it.isHidden }
@@ -87,8 +90,19 @@ private fun AppDrawerScreen() {
                 Tab.RECENT -> registry.recent().filter {
                     query.isBlank() || it.label.contains(query, ignoreCase = true)
                 }
+                Tab.CATEGORIES -> apps.filterNot { it.isHidden }.filter {
+                    (selectedCategory == null || it.category == selectedCategory) &&
+                        (query.isBlank() || it.label.contains(query, ignoreCase = true))
+                }
                 Tab.HIDDEN -> apps.filter { it.isHidden }
             }
+        }
+    }
+    val categories by remember(apps, tab) {
+        derivedStateOf {
+            if (tab == Tab.CATEGORIES) AppCategory.ALL.filter { c ->
+                apps.any { it.category == c && !it.isHidden }
+            } else emptyList()
         }
     }
 
@@ -162,6 +176,30 @@ private fun AppDrawerScreen() {
             }
             Spacer16()
 
+            // Категории (ТЗ §11)
+            if (tab == Tab.CATEGORIES && categories.isNotEmpty()) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    item {
+                        CategoryChip(
+                            label = "Все категории",
+                            selected = selectedCategory == null,
+                            onClick = { selectedCategory = null }
+                        )
+                    }
+                    items(categories) { category ->
+                        CategoryChip(
+                            label = category,
+                            selected = selectedCategory == category,
+                            onClick = { selectedCategory = category }
+                        )
+                    }
+                }
+                Spacer16()
+            }
+
             // Список
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -193,6 +231,24 @@ private fun AppDrawerScreen() {
                 }
             }
         }
+    }
+}
+@Composable
+private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (selected) MintPrimary.copy(alpha = 0.18f) else TextTertiary.copy(alpha = 0.06f)
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) MintPrimary else TextTertiary
+        )
     }
 }
 
@@ -287,6 +343,7 @@ private fun Spacer8() = Spacer(Modifier.size(8.dp))
 private fun Spacer16() = Spacer(Modifier.size(16.dp))
 
 private enum class Tab(val label: String) {
-    ALL("Все"), FAVORITES("Избранное"), RECENT("Недавние"), HIDDEN("Скрытые")
+    ALL("Все"), FAVORITES("Избранное"), RECENT("Недавние"),
+    CATEGORIES("Категории"), HIDDEN("Скрытые")
 }
 
