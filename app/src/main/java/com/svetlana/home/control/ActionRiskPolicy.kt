@@ -25,7 +25,14 @@ object ActionRiskPolicy {
 
     /**
      * Требует ли действие явного подтверждения пользователя.
+     * ТЗ §58: отправка сообщений, звонки, публикации — требуют.
      */
     fun requiresConfirmation(action: SvetlanaAction): Boolean =
-        riskOf(action) == ActionRisk.DANGEROUS
+        riskOf(action) in CONFIRM_REQUIRED
+
+    private val CONFIRM_REQUIRED = setOf(
+        ActionRisk.DANGEROUS,
+        // ТЗ §58: публикации/шеринг требуют подтверждения
+        ActionRisk.MODERATE
+    )
 }

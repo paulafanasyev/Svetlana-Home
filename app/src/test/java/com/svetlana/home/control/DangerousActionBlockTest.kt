@@ -34,8 +34,8 @@ class DangerousActionBlockTest {
     fun share_isModerate() {
         val risk = ActionRiskPolicy.riskOf(SvetlanaAction.Share("текст"))
         assertThat(risk).isEqualTo(ActionRisk.MODERATE)
-        // MODERATE не блокируется жёстко, но и не считается безопасным
-        assertThat(ActionRiskPolicy.requiresConfirmation(SvetlanaAction.Share("текст"))).isFalse()
+        // ТЗ §58: публикации/шеринг требуют подтверждения пользователя
+        assertThat(ActionRiskPolicy.requiresConfirmation(SvetlanaAction.Share("текст"))).isTrue()
     }
 
     @Test

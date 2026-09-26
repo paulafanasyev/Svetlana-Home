@@ -40,8 +40,9 @@ class ActionRouter(
      */
     @Suppress("UNUSED_PARAMETER")
     suspend fun execute(action: SvetlanaAction, confirmed: Boolean = false): ActionResult {
-        // Опасные действия требуют подтверждения пользователя (ТЗ §58)
-        if (engine.riskOf(action) == ActionRisk.DANGEROUS && !confirmed) {
+        // ТЗ §58: опасные действия (звонки, SMS) и публикации/шеринг
+        // требуют явного подтверждения пользователя.
+        if (ActionRiskPolicy.requiresConfirmation(action) && !confirmed) {
             historyManager.record(HistoryCategory.CONFIRMATIONS,
                 "Запрошено подтверждение: ${action.name}")
             return ActionResult(action, false, context.getString(R.string.reply_confirm_dangerous),
