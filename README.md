@@ -389,7 +389,7 @@ battery, screen, camera, mic, network.
 | Сборка APK | VERIFIED | debug 26.8 MB + release (R8), arm64-v8a |
 | Lint | VERIFIED | 0 errors |
 | Unit-тесты | VERIFIED | 101 тест, 0 неудач |
-| Instrumented-тесты | CI VERIFIED | 21 androidTest-класс; эмулятор ≠ устройство |
+| Instrumented-тесты | CI VERIFIED | 23 androidTest-класса; эмулятор ≠ устройство |
 | Launcher (ROLE_HOME) | CODE VERIFIED | Home-подсказка + раздел «Главный экран» с ActivityResult |
 | App Registry / Drawer | CODE VERIFIED | **scan() теперь вызывается** — drawer реален; категории + capability matrix |
 | App Control + proof chain | CODE VERIFIED | `LaunchVerifier` ждёт foreground-переход |

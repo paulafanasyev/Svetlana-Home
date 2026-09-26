@@ -207,7 +207,10 @@ runtime, а не только компилируется.
 | `ExternalProviderDeviceTest` | Конфигурация → соединение → inference |
 | `LocalAiDeviceTest` | Совместимость → приоритеты → отчёт о inference |
 | `TranslatorDeviceTest` | RU → VI и VI → RU, backend указывается |
+| `TranslatorRuntimeDeviceTest` | 4 режима перевода + авто-fallback на локальный |
 | `VisionDeviceTest` | Скриншот, анализ изображения, честный отказ без провайдера |
 | `PerformanceDeviceTest` | Реальные замеры: probe, registry scan, перевод, proof chain |
 | `LocalOnlyDeviceTest` | LOCAL_ONLY физически блокирует egress любых данных |
+| `AppDrawerScanDeviceTest` | **scan() строит реальный список из PackageManager** (P0) |
+| `RoleAndLocationDeviceTest` | ROLE_HOME intent + геолокация: 2 независимых состояния (P0) |
 
