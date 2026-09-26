@@ -102,8 +102,34 @@ class OpenAiCompatibleProvider(
         AIResult(false, "Vision-запросы требуют модели с поддержкой изображений", AIBackend.EXTERNAL)
 
     override suspend fun testConnection(): AIResult {
-        if (!isConfigured()) return AIResult(false, "Провайдер не настроен", AIBackend.EXTERNAL)
-        return chat("Ответь одним словом: работает.")
+        // Подключение проверяется без модели: endpoint + ключ → /models.
+        // Модель пользователь выберет на следующем шаге, и именно она
+        // проверяется реальным inference в testModel().
+        val key = apiKey()
+            ?: return AIResult(false, "API Key не задан", AIBackend.EXTERNAL)
+        if (config.baseUrl.isBlank())
+            return AIResult(false, "Endpoint не задан", AIBackend.EXTERNAL)
+        val started = System.currentTimeMillis()
+        return try {
+            val request = Request.Builder()
+                .url("${config.baseUrl.trimEnd('/')}/v1/models")
+                .addHeader("Authorization", "Bearer $key")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    AIResult(false, "HTTP ${response.code}: ключ или endpoint отклонены",
+                        AIBackend.EXTERNAL, latencyMs = System.currentTimeMillis() - started)
+                } else {
+                    val n = listModels().size
+                    AIResult(true, "Подключено. Доступно моделей: $n",
+                        AIBackend.EXTERNAL, latencyMs = System.currentTimeMillis() - started)
+                }
+            }
+        } catch (t: Throwable) {
+            AIResult(false, "Ошибка соединения: ${t.message}", AIBackend.EXTERNAL,
+                latencyMs = System.currentTimeMillis() - started)
+        }
     }
 
     /**
