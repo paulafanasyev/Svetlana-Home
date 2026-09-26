@@ -39,6 +39,32 @@ Home           ✓ Светлана
 Пользователь может изменить каждое состояние позже — открывается
 соответствующий системный экран.
 
+### Геолокация: два независимых состояния (аудит п.7)
+
+«Выключено» — недостаточно. Permission Center показывает раздельно:
+
+```
+Местоположение  ○ Выключено
+  Разрешение Светлане:     не выдано
+  Системная геолокация:    выключена
+```
+
+Возможные комбинации:
+
+| Разрешение | Системная геолокация | Что показывает Светлана |
+|------------|----------------------|-------------------------|
+| выдано     | включена             | «Разрешено, геолокация включена» |
+| выдано     | выключена            | «Разрешение есть, но системная геолокация выключена» |
+| не выдано  | включена             | «Системная геолокация включена, но разрешение не выдано» |
+| не выдано  | выключена            | оба выключены |
+
+Кнопка «Изменить» ведёт в правильный экран: если разрешение уже выдано —
+в системные настройки геолокации (`ACTION_LOCATION_SOURCE_SETTINGS`),
+иначе — в запрос runtime-разрешения.
+
+Реализация: `PermissionManager.locationDiagnostics()` +
+`systemLocationEnabled()` (LocationManager.isLocationEnabled, API 28+).
+
 ## Постоянные разрешения (ТЗ §26)
 
 Если Android позволяет постоянный доступ и пользователь его разрешил,
@@ -66,6 +92,31 @@ root, скрытый Accessibility, скрытый микрофон, скрыт�
 - `PermissionManager.list()` — реальные состояния.
 - `PermissionManager.settingsIntentFor(key)` — системный экран.
 - `PermissionManager.accessibilityEnabled()` — проверка Hands.
-- `PermissionManager.isHomeLauncher()` — проверка роли HOME.
+- `PermissionManager.isHomeLauncher()` — проверка роли HOME (`isRoleHeld`, API 29+).
+- `PermissionManager.homeRoleIntent()` — системный диалог `createRequestRoleIntent`.
+- `PermissionManager.locationDiagnostics()` — раздельная диагностика геолокации.
+- `PermissionManager.locationServicesIntent()` — системный экран геолокации.
 - `PermissionSetupScreen` — мастер последовательного запроса.
 - `PermissionCenterScreen` — центр разрешений.
+
+## Настройки (аудит п.8/п.9)
+
+Настройки Светланы и системные настройки Android разделены:
+
+- **Настройки Светланы**: ИИ, Локальные модели, Сервер, Голос, Hands,
+  Переводчик, Главный экран, Приложения, Аватар, Устройство, Владелец,
+  Разрешения, Память, Конфиденциальность, История.
+- **Системные настройки телефона** — отдельный раздел, который открывает
+  системные экраны Android (Wi-Fi, Bluetooth, Экран, Геолокация и др.),
+  а не дублирует их внутри приложения.
+
+## Тест-план
+
+| Проверка | Где | Статус |
+|----------|-----|--------|
+| Permission Center показывает реальные состояния | `PermissionCenterScreen` | CODE VERIFIED |
+| Геолокация: 2 независимых состояния | `RoleAndLocationDeviceTest` | CODE VERIFIED |
+| ROLE_HOME intent создаётся | `RoleAndLocationDeviceTest` | CODE VERIFIED |
+| Кнопка «Изменить» открывает правильный экран | `PermissionCenterScreen` | CODE VERIFIED |
+| Permission denied / granted / revoked | `PermissionLifecycleDeviceTest` | CODE VERIFIED |
+| Полный device flow (onboarding → owner → разрешения) | device | NOT PROVEN |
