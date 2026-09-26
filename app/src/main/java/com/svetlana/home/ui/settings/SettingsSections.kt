@@ -43,6 +43,7 @@ import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
 import com.svetlana.home.ui.theme.MintSoft
 import com.svetlana.home.ui.theme.TextSecondary
+import com.svetlana.home.ui.theme.WarnAmber
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 
@@ -71,6 +72,8 @@ fun PermissionCenterScreen() {
         ) {
             items(items.size) { i ->
                 val item = items[i]
+                // Аудит п.7: геолокация — два независимых состояния.
+                val isLocation = item.key == com.svetlana.home.permissions.PermissionManager.KEY_LOCATION
                 GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
@@ -85,6 +88,36 @@ fun PermissionCenterScreen() {
                                 style = MaterialTheme.typography.labelLarge,
                                 color = if (item.granted) MintPrimary else TextSecondary
                             )
+                            if (isLocation) {
+                                val diag = remember(item.key) {
+                                    ServiceLocator.permissionManager.locationDiagnostics()
+                                }
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    text = "Разрешение Светлане: ${if (diag.permissionGranted) "выдано" else "не выдано"}",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    text = "Системная геолокация: ${if (diag.locationServicesEnabled) "включена" else "выключена"}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (diag.locationServicesEnabled) MintPrimary else WarnAmber
+                                )
+                                if (diag.locationServicesEnabled && !diag.permissionGranted) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = "Нажмите «Изменить», чтобы выдать разрешение Светлане",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
+                                } else if (!diag.locationServicesEnabled && diag.permissionGranted) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = "Нажмите «Изменить», чтобы включить системную геолокацию Android",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
                         }
                         Text(
                             text = stringResource(R.string.perm_change),
@@ -92,7 +125,14 @@ fun PermissionCenterScreen() {
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
                                 .clickable {
-                                    val intent = pm.settingsIntentFor(item.key)
+                                    val intent = if (isLocation && ServiceLocator.permissionManager
+                                            .locationDiagnostics().permissionGranted) {
+                                        // Разрешение есть, но выключена системная геолокация —
+                                        // ведём в системные настройки геолокации.
+                                        ServiceLocator.permissionManager.locationServicesIntent()
+                                    } else {
+                                        pm.settingsIntentFor(item.key)
+                                    }
                                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     try { context.startActivity(intent) } catch (t: Throwable) { }
                                 }

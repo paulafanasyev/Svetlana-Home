@@ -106,6 +106,67 @@ class OpenAiCompatibleProvider(
         return chat("Ответь одним словом: работает.")
     }
 
+    /**
+     * Получение реального списка моделей с сервера (ТЗ §38 аудита).
+     * Endpoint → Authentication → /models → список.
+     *
+     * HTTP 200 на /models ещё не означает, что ключ годится для inference:
+     * поэтому список моделей — отдельный шаг, а проверка выбранной модели
+     * идёт через testModel() с реальным inference.
+     */
+    suspend fun listModels(): List<String> = withContext(Dispatchers.IO) {
+        val key = apiKey() ?: return@withContext emptyList()
+        try {
+            val request = Request.Builder()
+                .url("${config.baseUrl.trimEnd('/')}/v1/models")
+                .addHeader("Authorization", "Bearer $key")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
+                val root = json.parseToJsonElement(response.body?.string().orEmpty()).jsonObject
+                root["data"]?.jsonArray?.mapNotNull { el ->
+                    el.jsonObject["id"]?.jsonPrimitive?.content
+                } ?: emptyList()
+            }
+        } catch (t: Throwable) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Проверка конкретной модели реальным inference.
+     * Цепочка: выбрать модель → тестовый запрос → реальный ответ → VERIFIED.
+     */
+    suspend fun testModel(modelId: String): AIResult {
+        val payload = buildJsonObject {
+            put("model", modelId)
+            put("messages", buildJsonArray {
+                add(buildJsonObject { put("role", "user"); put("content", "Ответь одним словом: работает.") })
+            })
+            put("max_tokens", 16)
+            put("temperature", 0.0)
+        }.toString()
+        val started = System.currentTimeMillis()
+        val response = post("${config.baseUrl.trimEnd('/')}/v1/chat/completions", payload)
+            ?: return AIResult(false, "Нет ответа от провайдера для модели $modelId",
+                AIBackend.EXTERNAL, latencyMs = System.currentTimeMillis() - started)
+        return try {
+            val content = json.parseToJsonElement(response).jsonObject["choices"]?.jsonArray
+                ?.firstOrNull()?.jsonObject?.get("message")?.jsonObject?.get("content")
+                ?.jsonPrimitive?.content
+            if (content.isNullOrBlank()) {
+                AIResult(false, "Модель $modelId вернула пустой ответ", AIBackend.EXTERNAL)
+            } else {
+                AIResult(true, content, AIBackend.EXTERNAL,
+                    latencyMs = System.currentTimeMillis() - started, modelName = modelId)
+            }
+        } catch (t: Throwable) {
+            AIResult(false, "Ошибка разбора ответа модели $modelId: ${t.message}",
+                AIBackend.EXTERNAL)
+        }
+    }
+
     override fun redactedConfig(): String =
         "${config.name} @ ${config.baseUrl} model=${config.model} key=${if (apiKey().isNullOrEmpty()) "нет" else "скрыт"}"
 

@@ -39,6 +39,7 @@ import com.svetlana.home.R
 import com.svetlana.home.ai.AIMode
 import com.svetlana.home.ai.AIModel
 import com.svetlana.home.ai.CompatibilityLevel
+import com.svetlana.home.ai.ModelVerificationRunner
 import com.svetlana.home.ai.ProviderConfig
 import com.svetlana.home.core.SvetlanaStatus
 import com.svetlana.home.core.ServiceLocator
@@ -69,10 +70,20 @@ fun AiProvidersScreen() {
     var configs by remember { mutableStateOf(manager.list()) }
     var activeId by remember { mutableStateOf<String?>(null) }
     var mode by remember { mutableStateOf(AIMode.AUTO) }
+    var editing by remember { mutableStateOf<ProviderConfig?>(null) }
 
     LaunchedEffect(Unit) {
         activeId = settings.activeProviderId.first()
         mode = settings.aiMode.first()
+    }
+
+    // Полная цепочка настройки провайдера (аудит п.1)
+    editing?.let { cfg ->
+        ProviderEditScreen(config = cfg, onSaved = {
+            editing = null
+            configs = manager.list()
+        })
+        return
     }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -124,6 +135,9 @@ fun AiProvidersScreen() {
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ActionChip("Настроить") {
+                            editing = cfg
+                        }
                         ActionChip(stringResource(R.string.provider_test)) {
                             scope.launch(Dispatchers.IO) {
                                 val r = manager.build(cfg).testConnection()
@@ -211,6 +225,9 @@ fun LocalAiScreen() {
     var activeModelId by remember { mutableStateOf<String?>(null) }
     var downloading by remember { mutableStateOf<String?>(null) }
     val reports = remember { compat.compatibleModels(registry) }
+    // ТЗ §35/аудит п.2: автоматическая проверка модели после установки.
+    var verification by remember { mutableStateOf<ModelVerificationRunner.Report?>(null) }
+    var verifying by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { activeModelId = settings.activeLocalModelId.first() }
 
@@ -263,10 +280,37 @@ fun LocalAiScreen() {
                                     "Benchmark ${model.name}: ${result.tokensPerSecond} ток/с, ${result.status}")
                             }
                         }
+                        // Аудит п.2: «Проверить модель» — реальная цепочка
+                        ActionChip("Проверить модель") {
+                            verifying = model.modelId
+                            scope.launch(Dispatchers.IO) {
+                                val report = ModelVerificationRunner.verify(
+                                    model.modelId, manager, registry, llamaRuntime,
+                                    ServiceLocator.device)
+                                withContext(Dispatchers.Main) {
+                                    verification = report
+                                    verifying = null
+                                    ServiceLocator.historyManager.record(HistoryCategory.MODELS,
+                                        "Проверка ${model.name}: " +
+                                                if (report.inferenceOk) "inference OK, ${report.tokensPerSecond} ток/с"
+                                                else "inference не запущен: ${report.failureReason}")
+                                }
+                            }
+                        }
                         ActionChip(stringResource(R.string.model_delete)) {
                             manager.uninstall(model.modelId)
                             installed = manager.list()
+                            verification = null
                         }
+                    }
+                    // Результат проверки модели (аудит п.2)
+                    if (verifying == model.modelId) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("Проверяю модель…", style = MaterialTheme.typography.bodySmall)
+                    }
+                    verification?.takeIf { it.modelId == model.modelId }?.let { rep ->
+                        Spacer(Modifier.height(8.dp))
+                        Text(rep.summary(), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -309,10 +353,28 @@ fun LocalAiScreen() {
                                     }
                                     downloading = null
                                     installed = manager.list()
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(context,
-                                            if (result.isSuccess) "Модель загружена" else "Ошибка загрузки",
-                                            Toast.LENGTH_LONG).show()
+                                    // Аудит п.2: после установки автоматически
+                                    // проверяем модель — «установлена» ≠ «работает».
+                                    val installedModel = result.getOrNull()
+                                    if (installedModel != null) {
+                                        val rep = ModelVerificationRunner.verify(
+                                            installedModel.modelId, manager, registry,
+                                            llamaRuntime, ServiceLocator.device)
+                                        withContext(Dispatchers.Main) {
+                                            verification = rep
+                                            ServiceLocator.historyManager.record(
+                                                HistoryCategory.MODELS,
+                                                "Проверка после установки ${installedModel.name}: " +
+                                                    if (rep.inferenceOk)
+                                                        "inference OK, ${rep.tokensPerSecond} ток/с"
+                                                    else "inference не запущен: ${rep.failureReason}")
+                                        }
+                                    } else {
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context,
+                                                if (result.isSuccess) "Модель загружена" else "Ошибка загрузки",
+                                                Toast.LENGTH_LONG).show()
+                                        }
                                     }
                                 }
                             }

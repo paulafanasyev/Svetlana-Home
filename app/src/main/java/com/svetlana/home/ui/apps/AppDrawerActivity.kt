@@ -30,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -79,6 +80,14 @@ private fun AppDrawerScreen() {
     var tab by remember { mutableStateOf(Tab.ALL) }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
 
+    // ТЗ §11: список строится из реального PackageManager.
+    // Сканируем при открытии drawer, чтобы состав был актуальным.
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            registry.scan()
+        }
+    }
+
     val apps by registry.apps.collectAsState()
     val visible by remember(apps, query, tab, selectedCategory) {
         derivedStateOf {
@@ -116,6 +125,11 @@ private fun AppDrawerScreen() {
             Text(
                 text = stringResource(R.string.title_apps),
                 style = MaterialTheme.typography.headlineMedium
+            )
+            Text(
+                text = "Установлено приложений: ${apps.size}",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextTertiary
             )
             Spacer16()
 

@@ -154,6 +154,53 @@ class PermissionManager(private val context: Context) {
     }
 
     /**
+     * Аудит п.7: состояние геолокации — это ДВА независимых состояния.
+     *   1. Разрешение Светлане (runtime permission)
+     *   2. Системная геолокация Android (Location Services)
+     *
+     * Нельзя показывать одно общее «Выключено»: пользователь должен понимать,
+     * что именно нужно включить.
+     */
+    fun locationDiagnostics(): LocationDiagnostics {
+        val permissionGranted = isGranted(Manifest.permission.ACCESS_COARSE_LOCATION)
+        val servicesOn = systemLocationEnabled()
+        return LocationDiagnostics(
+            permissionGranted = permissionGranted,
+            locationServicesEnabled = servicesOn,
+            summary = when {
+                permissionGranted && servicesOn -> "Разрешено, геолокация включена"
+                permissionGranted && !servicesOn -> "Разрешение есть, но системная геолокация выключена"
+                !permissionGranted && servicesOn -> "Системная геолокация включена, но разрешение Светлане не выдано"
+                else -> "Разрешение не выдано и системная геолокация выключена"
+            }
+        )
+    }
+
+    data class LocationDiagnostics(
+        val permissionGranted: Boolean,
+        val locationServicesEnabled: Boolean,
+        val summary: String
+    )
+
+    /**
+     * Системная геолокация Android (Location Services), а не разрешение приложения.
+     */
+    private fun systemLocationEnabled(): Boolean = try {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lm.isLocationEnabled
+        else lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) ||
+                lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+    } catch (t: Throwable) { false }
+
+    /**
+     * Куда вести пользователя для включения системной геолокации.
+     */
+    fun locationServicesIntent(): Intent =
+        Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+    /**
      * Проверка, включён ли Hands (AccessibilityService), через Settings.Secure.
      */
     fun accessibilityEnabled(): Boolean {

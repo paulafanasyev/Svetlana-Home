@@ -114,6 +114,10 @@ object ServiceLocator {
         app = application
         // Повторная инициализация подсистем, которым важен контекст приложения
         device.refresh()
+        // App Registry: реальное сканирование установленных приложений через
+        // PackageManager. Без этого App Drawer пустой (ТЗ §10, §11).
+        // Сканирование идёт в фоновом потоке — не блокирует запуск.
+        appRegistry.scanAsync()
     }
 
     fun onTrimMemory(level: Int) {

@@ -88,6 +88,44 @@
     <string name="title_about">О приложении</string>
     <string name="title_diagnostics">Диагностика</string>
 
+    <!-- Launcher (ТЗ §4) -->
+    <string name="title_launcher">Главный экран</string>
+    <string name="launcher_make_home">Сделать Светлану главным экраном</string>
+    <string name="launcher_already_home">Светлана назначена главным экраном</string>
+    <string name="launcher_not_home">Не назначен</string>
+    <string name="launcher_status_current">Текущий статус</string>
+    <string name="launcher_hint">После назначения нажатие Home будет открывать Светлану. Работает после перезагрузки.</string>
+
+    <!-- Системные настройки телефона -->
+    <string name="title_system_settings">Системные настройки телефона</string>
+    <string name="system_settings_note">Светлана не дублирует настройки Android. Она открывает нужный системный экран.</string>
+    <string name="system_open_settings">Открыть настройки Android</string>
+
+    <!-- Разделы настроек Светланы -->
+    <string name="voice_settings">Голос</string>
+    <string name="hands_settings">Hands</string>
+    <string name="privacy_settings">Конфиденциальность</string>
+
+    <!-- Системные переходы -->
+    <string name="sys_wifi">Wi-Fi</string>
+    <string name="sys_bluetooth">Bluetooth</string>
+    <string name="sys_mobile_network">SIM и мобильная сеть</string>
+    <string name="sys_display">Экран</string>
+    <string name="sys_sound">Звук</string>
+    <string name="sys_battery">Батарея</string>
+    <string name="sys_apps">Приложения</string>
+    <string name="sys_notifications">Уведомления</string>
+    <string name="sys_location">Геолокация</string>
+    <string name="sys_security">Безопасность</string>
+    <string name="sys_accessibility">Специальные возможности</string>
+    <string name="sys_date_time">Дата и время</string>
+    <string name="sys_storage">Хранилище</string>
+
+    <!-- Геолокация -->
+    <string name="loc_permission_label">Разрешение Светлане</string>
+    <string name="loc_services_label">Системная геолокация</string>
+    <string name="loc_open_settings">Открыть настройки геолокации</string>
+
     <!-- Поиск приложений -->
     <string name="search_hint">Поиск приложений</string>
     <string name="search_no_results">Ничего не найдено</string>

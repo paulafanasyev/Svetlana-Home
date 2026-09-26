@@ -386,30 +386,31 @@ battery, screen, camera, mic, network.
 | Подсистема | Статус | Основание |
 |------------|--------|-----------|
 | Repository / CI | VERIFIED | public repo, GitHub Actions, APK artifact |
-| Сборка APK | VERIFIED | debug 25.9 MB + release 8.6 MB (R8), arm64-v8a |
-| Lint | VERIFIED | 0 errors (3 ошибки аудита устранены) |
-| Unit-тесты | VERIFIED | 98 тестов, 0 неудач |
-| Instrumented-тесты | CI VERIFIED | 19 androidTest-классов; эмулятор ≠ устройство |
-| Launcher (ROLE_HOME) | CODE VERIFIED | нужны device-тесты |
-| App Registry / Drawer | CODE VERIFIED | категории + capability matrix + поиск |
+| Сборка APK | VERIFIED | debug 26.8 MB + release (R8), arm64-v8a |
+| Lint | VERIFIED | 0 errors |
+| Unit-тесты | VERIFIED | 101 тест, 0 неудач |
+| Instrumented-тесты | CI VERIFIED | 21 androidTest-класс; эмулятор ≠ устройство |
+| Launcher (ROLE_HOME) | CODE VERIFIED | Home-подсказка + раздел «Главный экран» с ActivityResult |
+| App Registry / Drawer | CODE VERIFIED | **scan() теперь вызывается** — drawer реален; категории + capability matrix |
 | App Control + proof chain | CODE VERIFIED | `LaunchVerifier` ждёт foreground-переход |
 | Hands (dispatchGesture) | CODE VERIFIED | async-callback исправлен; нужен device-тест |
 | Mobile Harness | CODE VERIFIED | нужны device-тесты |
 | Voice (STT/TTS) | CODE VERIFIED | системные STT/TTS; wake word — polling |
 | Wake word | NOT PROVEN | не always-on low-power детектор |
 | Vision | CODE VERIFIED | нужны device-тесты |
-| Local AI runtime | CODE VERIFIED | llama.cpp встроен; inference возможен только на arm64 |
+| Local AI runtime | CODE VERIFIED | llama.cpp встроен; **проверка модели после установки** (chain) |
 | Model Registry / Compatibility | CODE VERIFIED | требуется device-проверка совместимости |
-| External AI Providers | CODE VERIFIED | OpenAI-compatible, реальный HTTP; нужен ключ пользователя |
+| External AI Providers | CODE VERIFIED | **полный config UI**: endpoint→key→/models→выбор→test inference→save |
 | Personal Server | CODE VERIFIED | /health, /capabilities, /inference |
 | Hybrid AI | CODE VERIFIED | `HybridPipeline`: privacy→preprocess→sanitize→remote→postprocess |
 | Privacy / LOCAL_ONLY | CODE VERIFIED | `PrivacyPolicy` + device-тест блокировки egress |
 | Translator RU↔VI | CODE VERIFIED | multilingual STT + device-тест обоих направлений |
 | Owner Identity | CODE VERIFIED | Android Keystore; `Build.SERIAL` убран |
-| Permissions | CODE VERIFIED | Permission Center; полный device-flow не проверен |
-| Avatar Engine | CODE VERIFIED | `AvatarFallback`: L0/L1 доступны; false-capability покрыт 8 unit-тестами |
+| Permissions | CODE VERIFIED | **геолокация разделена**: permission vs location services |
+| Avatar Engine | CODE VERIFIED | `AvatarFallback`: L0/L1 доступны; false-capability покрыт unit-тестами |
 | Device Capability | CODE VERIFIED | GPU через EGL + vendor; thermal через PowerManager |
 | Опасные действия | CODE VERIFIED | `ActionRiskPolicy` блокирует SendMessage/MakeCall/Share |
+| Настройки | CODE VERIFIED | **разделены**: настройки Светланы vs «Системные настройки телефона» |
 | Physical POCO X3 NFC | NOT PROVEN | устройство не подключено к этой среде |
 | Production release | NOT PROVEN | R8+AAB собираются; подпись требует keystore в секретах |
 

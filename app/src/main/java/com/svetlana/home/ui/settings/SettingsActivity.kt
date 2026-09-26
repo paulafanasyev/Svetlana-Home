@@ -58,17 +58,23 @@ class SettingsActivity : ComponentActivity() {
 
 enum class SettingsSection(val titleRes: Int) {
     HOME(R.string.title_settings),
-    PERMISSIONS(R.string.permission_center),
-    OWNER(R.string.title_owner),
     AI(R.string.title_providers),
     LOCAL_AI(R.string.title_local_ai),
     MODELS(R.string.title_model_registry),
     SERVER(R.string.title_server),
+    VOICE(R.string.voice_settings),
+    HANDS(R.string.hands_settings),
     TRANSLATOR(R.string.title_translator),
+    LAUNCHER(R.string.title_launcher),
+    APPS(R.string.title_apps),
     AVATAR(R.string.title_avatar),
-    MEMORY(R.string.title_memory),
     DEVICE(R.string.title_device),
+    OWNER(R.string.title_owner),
+    PERMISSIONS(R.string.permission_center),
+    MEMORY(R.string.title_memory),
+    PRIVACY(R.string.privacy_settings),
     HISTORY(R.string.title_history),
+    SYSTEM(R.string.title_system_settings),
     ABOUT(R.string.title_about)
 }
 
@@ -98,17 +104,23 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             when (section) {
                 SettingsSection.HOME -> SectionsList { section = it }
-                SettingsSection.PERMISSIONS -> PermissionCenterScreen()
-                SettingsSection.OWNER -> OwnerScreen()
                 SettingsSection.AI -> AiProvidersScreen()
                 SettingsSection.LOCAL_AI -> LocalAiScreen()
                 SettingsSection.MODELS -> ModelRegistryScreen()
                 SettingsSection.SERVER -> ServerScreen()
+                SettingsSection.VOICE -> VoiceSettingsScreen()
+                SettingsSection.HANDS -> HandsSettingsScreen()
                 SettingsSection.TRANSLATOR -> TranslatorSettingsScreen()
+                SettingsSection.LAUNCHER -> LauncherSettingsScreen()
+                SettingsSection.APPS -> AppDrawerSettingsScreen()
                 SettingsSection.AVATAR -> AvatarScreen()
-                SettingsSection.MEMORY -> MemoryScreen()
                 SettingsSection.DEVICE -> DeviceScreen()
+                SettingsSection.OWNER -> OwnerScreen()
+                SettingsSection.PERMISSIONS -> PermissionCenterScreen()
+                SettingsSection.MEMORY -> MemoryScreen()
+                SettingsSection.PRIVACY -> PrivacySettingsScreen()
                 SettingsSection.HISTORY -> HistoryScreen()
+                SettingsSection.SYSTEM -> SystemSettingsScreen()
                 SettingsSection.ABOUT -> AboutScreen()
             }
         }
@@ -117,18 +129,27 @@ fun SettingsScreen(onBack: () -> Unit) {
 
 @Composable
 private fun SectionsList(onOpen: (SettingsSection) -> Unit) {
+    // Аудит п.8: настройки Светланы отделены от системных настроек Android.
+    // Системные настройки — отдельный раздел в конце, который открывает
+    // системные экраны, а не дублирует их.
     val sections = listOf(
-        SettingsSection.PERMISSIONS,
-        SettingsSection.OWNER,
         SettingsSection.AI,
         SettingsSection.LOCAL_AI,
         SettingsSection.MODELS,
         SettingsSection.SERVER,
+        SettingsSection.VOICE,
+        SettingsSection.HANDS,
         SettingsSection.TRANSLATOR,
+        SettingsSection.LAUNCHER,
+        SettingsSection.APPS,
         SettingsSection.AVATAR,
-        SettingsSection.MEMORY,
         SettingsSection.DEVICE,
+        SettingsSection.OWNER,
+        SettingsSection.PERMISSIONS,
+        SettingsSection.MEMORY,
+        SettingsSection.PRIVACY,
         SettingsSection.HISTORY,
+        SettingsSection.SYSTEM,
         SettingsSection.ABOUT
     )
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {

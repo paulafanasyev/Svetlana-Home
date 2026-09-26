@@ -198,6 +198,22 @@ class AppRegistry(
         return result
     }
 
+    /**
+     * Фоновое сканирование — не блокирует вызывающий поток.
+     * Используется при старте приложения, чтобы App Drawer был готов.
+     */
+    fun scanAsync() {
+        scope.launch {
+            try {
+                scan()
+                startWatching()
+                Log.i(TAG, "Реестр приложений обновлён в фоне: ${apps.value.size}")
+            } catch (t: Throwable) {
+                Log.e(TAG, "Фоновое сканирование не удалось", t)
+            }
+        }
+    }
+
     private fun build(
         pkg: String,
         saved: AppModel?,

@@ -8,9 +8,20 @@ Svetlana Home — настоящий Android launcher и поддерживае�
 
 - Запрос роли: `RoleManager.createRequestRoleIntent(RoleManager.ROLE_HOME)`
   через `PermissionManager.homeRoleIntent()`.
-- Проверка: `RoleManager.getRoleHolders(RoleManager.ROLE_HOME)`.
+- Проверка: `RoleManager.isRoleHeld(RoleManager.ROLE_HOME)` (API 29+).
 - Запасной путь для API < 29: `Settings.ACTION_HOME_SETTINGS` и
   разрешение `CATEGORY_HOME` в манифесте `HomeActivity`.
+
+## UI-точки назначения (P0 аудита)
+
+Главный экран предлагает назначение в двух местах:
+
+1. **Подсказка на Home** — если `isRoleHeld(ROLE_HOME)` false, над орбом
+   показывается карточка «Светлана ещё не назначена главным экраном»
+   с кнопкой **Назначить**, открывающей системный диалог ROLE_HOME.
+2. **Настройки → Главный экран** — отдельный раздел с кнопкой
+   «Сделать Светланой главным экраном» и реальной проверкой статуса
+   после возврата из системного диалога (ActivityResult).
 
 ## Декларация в манифесте
 

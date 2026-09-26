@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.svetlana.home.R
+import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.ui.apps.AppDrawerActivity
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.components.LivingOrb
@@ -144,6 +145,41 @@ class HomeActivity : ComponentActivity() {
                     style = TextStyle(fontSize = 44.sp, color = TextPrimary, textAlign = TextAlign.Center),
                     modifier = Modifier.padding(top = 24.dp)
                 )
+
+                // Аудит P0: если Светлана ещё не главный экран — показываем
+                // подсказку с переходом к системному ROLE_HOME.
+                val pm = remember { ServiceLocator.permissionManager }
+                val isHome = remember { pm.isHomeLauncher() }
+                if (!isHome) {
+                    GlassCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Светлана ещё не назначена главным экраном",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "Назначить",
+                                color = MintPrimary,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        val intent = pm.homeRoleIntent()
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        try { context.startActivity(intent) } catch (t: Throwable) { }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
 
                 // Орб
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
