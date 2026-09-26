@@ -153,7 +153,14 @@ class TranslatorProviderManager(
 
     suspend fun translate(text: String, direction: TranslateDirection, backendId: String?): TranslateResult {
         val provider = backendId?.let { id -> providers.firstOrNull { it.id == id } } ?: ai
-        // Если выбран AI, а он не смог — честно сообщаем, без скрытых подмен.
-        return provider.translate(text, direction)
+        val result = provider.translate(text, direction)
+        // Аудит: в режиме «Авто» если AI не смог — честно пробуем локальный
+        // переводчик, чтобы пользователь получил ответ, а не ошибку. Backend
+        // в результате показывает, чем реально сделан перевод.
+        if (!result.success && backendId == null && provider != local) {
+            val localResult = local.translate(text, direction)
+            if (localResult.success) return localResult.copy(backend = localResult.backend)
+        }
+        return result
     }
 }
