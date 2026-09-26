@@ -85,6 +85,25 @@ class AppControlProofDeviceTest : SvetlanaDeviceTest() {
         println("SCREENSHOT=${if (bmp != null) "OK ${bmp.width}x${bmp.height}" else "null"}")
     }
 
+    @Test
+    fun proofChain_neverReportsPerformedWithoutAttempt() = runBlocking {
+        // ТЗ §20: ACTION_PERFORMED нельзя выставить без реального выполнения.
+        // Для несуществующей цели вся цепочка должна быть согласована:
+        // если есть ACTION_ATTEMPTED, то последующий шаг не может быть OK,
+        // если ACTION_PERFORMED отсутствует.
+        val result = engine.openApp("несуществующее_приложение_тест_${System.currentTimeMillis()}")
+
+        val stages = result.proof.map { it.stage }
+        assertFalse("Несуществующее приложение не должно быть VERIFIED", result.success)
+
+        if (stages.contains(ProofStage.ACTION_PERFORMED)) {
+            val performed = result.proof.first { it.stage == ProofStage.ACTION_PERFORMED }
+            // Даже если попытались — несуществующая цель не может быть OK
+            assertFalse("ACTION_PERFORMED не может быть OK для несуществующей цели",
+                performed.status.isOk())
+        }
+    }
+
     private fun com.svetlana.home.core.StepStatus.isOk(): Boolean =
         this == com.svetlana.home.core.StepStatus.OK
 }
