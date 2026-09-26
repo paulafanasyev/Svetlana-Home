@@ -52,7 +52,7 @@ object ServiceLocator {
     val permissionManager by lazy { PermissionManager(app) }
     val ownerIdentity by lazy { OwnerIdentity(app) }
     val appRepository by lazy { AppRepository(app) }
-    val appRegistry by lazy { AppRegistry(app, appRepository) }
+    val appRegistry by lazy { AppRegistry(app, appRepository, permissionManager) }
     val intentResolver by lazy { IntentResolver(app, appRegistry) }
     val hands by lazy { HandsController(app) }
     val harness by lazy { MobileHarnessController(app, appRegistry, hands) }

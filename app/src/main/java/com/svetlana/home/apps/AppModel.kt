@@ -46,12 +46,20 @@ data class ControlCapabilities(
     val canLaunch: Boolean = true,
     val canDeepLink: Boolean = false,
     val canIntent: Boolean = false,
-    val canAccessibility: Boolean = true,
-    val canReadUI: Boolean = true,
-    val canClick: Boolean = true,
-    val canInput: Boolean = true,
-    val canScreenshot: Boolean = true,
-    val canVerify: Boolean = true
+    /**
+     * Аудит п.5: Hands-возможности по умолчанию НЕ оптимистичны.
+     * canAccessibility/canReadUI/canClick/canInput — это возможности
+     * управления через Accessibility-сервис, которые определяются
+     * реальной доступностью Hands, а не фактом установки приложения.
+     * Раньше они были = true для всех — это ложная capability matrix.
+     * См. AppRegistry.build(): они выставляются по реальному состоянию.
+     */
+    val canAccessibility: Boolean = false,
+    val canReadUI: Boolean = false,
+    val canClick: Boolean = false,
+    val canInput: Boolean = false,
+    val canScreenshot: Boolean = false,
+    val canVerify: Boolean = false
 ) {
     /** Способ управления, выбранный по приоритету из ТЗ. */
     fun preferredWay(): String {

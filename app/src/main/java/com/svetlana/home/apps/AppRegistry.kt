@@ -110,7 +110,8 @@ class AppRepository(private val context: Context) {
  */
 class AppRegistry(
     private val context: Context,
-    private val repository: AppRepository
+    private val repository: AppRepository,
+    private val permissionManager: com.svetlana.home.permissions.PermissionManager
 ) {
 
     private val pm: PackageManager get() = context.packageManager
@@ -241,6 +242,10 @@ class AppRegistry(
     ): AppModel {
         val ai = try { pm.getApplicationInfo(pkg, 0) } catch (t: Throwable) { null }
         val base = saved ?: AppModel(packageName = pkg, label = ai?.loadLabel(pm)?.toString() ?: pkg)
+        // Аудит п.5: Hands-возможности — реальные, а не оптимистичные.
+        // Accessibility может управлять окном, но только если пользователь
+        // сам включил сервис. Если выключен — эти capability недоступны.
+        val handsActive = permissionManager.accessibilityEnabled()
         return base.copy(
             label = ai?.loadLabel(pm)?.toString() ?: base.label,
             systemApp = ai != null && (ai.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0,
@@ -248,7 +253,15 @@ class AppRegistry(
             versionName = try { pm.getPackageInfo(pkg, 0).versionName } catch (t: Throwable) { null },
             installedAt = try { pm.getPackageInfo(pkg, 0).firstInstallTime } catch (t: Throwable) { 0L },
             category = if (base.category != AppCategory.OTHER) base.category else categorize(pkg, ai),
-            aliases = (AppAliases.builtIn[pkg] ?: emptyList()) + base.aliases
+            aliases = (AppAliases.builtIn[pkg] ?: emptyList()) + base.aliases,
+            control = base.control.copy(
+                canAccessibility = handsActive,
+                canReadUI = handsActive,
+                canClick = handsActive,
+                canInput = handsActive,
+                canScreenshot = handsActive,
+                canVerify = handsActive
+            )
         )
     }
 
