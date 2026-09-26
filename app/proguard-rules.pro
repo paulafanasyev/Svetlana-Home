@@ -24,3 +24,11 @@
 
 # ── DataStore ──────────────────────────────────────────────────
 -keep class androidx.datastore.** { *; }
+
+# ── Tink (SecureKeyStore / AndroidX Security) ──────────────────
+# Tink ссылается на errorprone-аннотации, которых нет в runtime —
+# это безопасные dontwarn, сгенерированные R8.
+-dontwarn com.google.errorprone.annotations.CanIgnoreReturnValue
+-dontwarn com.google.errorprone.annotations.CheckReturnValue
+-dontwarn com.google.errorprone.annotations.Immutable
+-dontwarn com.google.errorprone.annotations.RestrictedApi

@@ -173,3 +173,31 @@ Model → Inference → Verified
 Диагностика → Устройство показывает все измеренные параметры.
 Лог доказательной цепочки пишется в историю
 (`История Светланы` → Mobile Harness / Hands).
+
+## Автоматизированные instrumented-тесты
+
+Инструментальные тесты (`app/src/androidTest/`) реализуют те же
+цепочки в автоматическом режиме. Они работают на эмуляторе/устройстве
+через CI и не заменяют ручной acceptance-тест выше, но доказывают, что
+каждая подсистема действительно выполняет свои операции на Android
+runtime, а не только компилируется.
+
+| Тест | Что доказывает |
+|------|----------------|
+| `SvetlanaDeviceTest` | Базовый запуск, ServiceLocator, настройки |
+| `LauncherDeviceTest` | CATEGORY_HOME, resolve launcher Activity, ROLE_HOME API |
+| `OwnerIdentityDeviceTest` | Создание владельца, Keystore, challenge/verify |
+| `SecureKeyStoreDeviceTest` | Keystore без небезопасного fallback, отказ при отсутствии |
+| `AppRegistryDeviceTest` | Реальный список приложений, aliases, favorites |
+| `AppControlDeviceTest` | Действия над приложениями, capability matrix |
+| `AppControlProofDeviceTest` | Proof chain: PLAN → IDENTIFIED → PERFORMED → VERIFIED |
+| `DangerousActionDeviceTest` | DANGEROUS действия блокируются без подтверждения |
+| `HandsDeviceTest` | Async dispatchGesture: await callback → ACTION_PERFORMED |
+| `MobileHarnessDeviceTest` | Обнаружение → запуск → UI tree → действие → verification |
+| `DeviceCapabilityManagerDeviceTest` | CPU/RAM/GPU/storage/thermal — реальные значения |
+| `AvatarEngineDeviceTest` | Выбирается только доступный renderer (no false capability) |
+| `ExternalProviderDeviceTest` | Конфигурация → соединение → inference |
+| `LocalAiDeviceTest` | Совместимость → приоритеты → отчёт о inference |
+| `TranslatorDeviceTest` | RU → VI и VI → RU, backend указывается |
+| `LocalOnlyDeviceTest` | LOCAL_ONLY физически блокирует egress любых данных |
+
