@@ -60,6 +60,24 @@ Svetlana Home — настоящий Android launcher и поддерживае�
 `idle / listening / thinking / speaking`. Уровень (Orb → Light →
 Realistic → Full Real) выбирается `AvatarEngine` (см. `avatar.md`).
 
+## Onboarding при первом запуске (ТЗ §65)
+
+Раньже `HomeActivity` показывался сразу, и пользователь никогда не проходил
+настройку владельца и разрешений. Теперь:
+
+- `HomeScreen` проверяет `settings.onboardingDone` при старте.
+- Если onboarding не пройден — показывается `OnboardingFlowContent`
+  ( reuse того же флоу, что и в `OnboardingActivity`):
+  1. **Приветствие** — краткий список возможностей Светланы.
+  2. **Создание профиля владельца** — имя + ключ в Android Keystore
+     (PIN и пароли не сохраняются, ТЗ §23).
+  3. **Разрешения** — `PermissionSetupScreen` запрашивает реально
+     необходимые доступы.
+- По завершении выставляются флаги `onboardingDone` / `setupDone`,
+  на Home `launchHome` — no-op (Home уже на экране).
+
+На обычном старте (onboarding пройден) показывается `HomeContent`.
+
 ## Тест-план launcher
 
 - [ ] Назначить Светлану главным экраном
