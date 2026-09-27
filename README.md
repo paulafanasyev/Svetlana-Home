@@ -86,7 +86,11 @@ Hands + Voice + Vision + управление приложениями + Mobile 
 
 Подписанный release APK доступен в [GitHub Releases](https://github.com/paulafanasyev/Svetlana-Home/releases/latest):
 
-[⬇ Скачать Svetlana Home](https://github.com/paulafanasyev/Svetlana-Home/releases/latest/download/Svetlana-Home-v1.0.0-arm64.apk)
+[⬇ Скачать Svetlana Home](https://github.com/paulafanasyev/Svetlana-Home/releases/latest/download/Svetlana-Home-v1.1.0-arm64.apk)
+
+> **v1.1.0** — исправлен краш при запуске (`LocalLifecycleOwner`, Lifecycle 2.8.3),
+> все нативные библиотеки 16 KB-совместимы, автоматически публикуется из CI
+> по тегу `v*` с проверкой подписи через `apksigner`.
 
 1. Откройте ссылку на Android-устройстве и скачайте APK;
 2. Разрешите установку из неизвестных источников
