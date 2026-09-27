@@ -63,8 +63,12 @@ class AppControlLaunchDeviceTest : SvetlanaDeviceTest() {
             assertTrue("Сообщение об успехе должно быть на русском",
                 result.message.contains("открыто"))
         }
-        // Возвращаемся на главный экран, чтобы не мешать другим тестам
+        // Возвращаемся на главный экран, чтобы не мешать другим тестам.
+        // pressHome() возвращает Boolean — явно отбрасываем результат:
+        // JUnit4 не допускает test-методы с non-Unit возвращаемым типом
+        // (runtime: Failed to instantiate test runner class).
         ServiceLocator.hands.pressHome()
+        Unit
     }
 
     @Test
