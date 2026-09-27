@@ -3,6 +3,7 @@ package com.svetlana.home.avatar
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.svetlana.home.SvetlanaDeviceTest
 import com.svetlana.home.core.ServiceLocator
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -47,7 +48,7 @@ class AvatarEngineDeviceTest : SvetlanaDeviceTest() {
     fun resourceBasedEvaluationSelectsAvailableLevel() {
         val engine = ServiceLocator.avatarEngine
         engine.updateFps(60)
-        val decision = engine.decide()
+        val decision = runBlocking { engine.decide() }
 
         println("AUTO_DECISION=${decision.selectedLevel} reason=${decision.reason}")
         assertTrue("Автовыбор всегда доступный уровень",
@@ -58,7 +59,7 @@ class AvatarEngineDeviceTest : SvetlanaDeviceTest() {
     fun degradesToAvailableLevel() {
         val engine = ServiceLocator.avatarEngine
         engine.updateFps(5) // очень низкий FPS — должна быть деградация
-        engine.evaluate()
+        runBlocking { engine.evaluate() }
         val degraded = engine.degrade()
 
         println("DEGRADED_TO=$degraded")

@@ -120,7 +120,10 @@ class LlamaCppRuntime(
             LlamaConfig(
                 contextSize = model.context.coerceAtMost(MAX_CONTEXT),
                 threads = optimalThreads(),
-                gpuLayers = 0, // CPU-only сборка: GPU offload недоступен
+                gpuLayers = 0, // CPU-only: bundled llama-android собран без
+                              // Vulkan/OpenCL backends. Метаданные моделей
+                              // (gpuSupport=false) согласованы с этим (аудит 7.1):
+                              // мы не заявляем GPU там, где его нет.
                 temperature = 0.7f,
                 topP = 0.9f,
                 topK = 40,

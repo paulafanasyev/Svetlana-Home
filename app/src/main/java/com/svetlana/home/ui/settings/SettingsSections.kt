@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -276,8 +277,10 @@ private fun DeviceRow(labelRes: Int, value: String) {
 @Composable
 fun AvatarScreen() {
     val engine = remember { ServiceLocator.avatarEngine }
-    val level = remember { engine.evaluate() }
-    val reason = remember { engine.reason(level) }
+    // evaluate() проверяет доступность сервера — асинхронно, в корутине.
+    var level by remember { mutableStateOf(AvatarLevel.L0_LIVING_ORB) }
+    LaunchedEffect(Unit) { level = engine.evaluate() }
+    val reason = engine.reason(level)
 
     GlassCard(modifier = Modifier.fillMaxWidth()) {
         Column {

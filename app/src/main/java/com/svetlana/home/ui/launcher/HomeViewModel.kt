@@ -68,12 +68,15 @@ class HomeViewModel : ViewModel() {
     }
 
     fun refreshAvatarLevel() {
-        val decision = ServiceLocator.avatarEngine.decide()
-        _state.value = _state.value.copy(
-            orbLevel = decision.selectedLevel,
-            orbReason = if (decision.selectedLevel != decision.requestedLevel)
-                decision.reason else ""
-        )
+        // isReachable() делает сетевой запрос к серверу — только в корутине.
+        viewModelScope.launch(Dispatchers.Default) {
+            val decision = ServiceLocator.avatarEngine.decide()
+            _state.value = _state.value.copy(
+                orbLevel = decision.selectedLevel,
+                orbReason = if (decision.selectedLevel != decision.requestedLevel)
+                    decision.reason else ""
+            )
+        }
     }
 
     suspend fun refreshBackendLabel() {

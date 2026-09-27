@@ -78,7 +78,7 @@ class AvatarEngine(
      * @return детальное решение: желаемый уровень, доступность renderer'а,
      *         итоговый выбранный уровень и причина.
      */
-    fun evaluate(override: Int = -1): AvatarLevel {
+    suspend fun evaluate(override: Int = -1): AvatarLevel {
         currentLevel = decide(override).selectedLevel
         return currentLevel
     }
@@ -87,7 +87,7 @@ class AvatarEngine(
      * Полная версия evaluate: возвращает, что было запрошено и что реально выбрано.
      * UI показывает пользователю честную картину возможностей.
      */
-    fun decide(override: Int = -1): AvatarDecision {
+    suspend fun decide(override: Int = -1): AvatarDecision {
         if (override >= 0) {
             // Делегируем в чистую логику деградации — она же покрыта тестами.
             val fallback = AvatarFallback.decide(AvatarLevel.fromLevel(override))
@@ -177,11 +177,13 @@ class AvatarEngine(
      */
     fun reason(level: AvatarLevel): String {
         val caps = device.current()
+        // isReachable() — suspend; для синхронного описания используем
+        // состояние настройки, а не реальную сетевую проверку (аудит 18).
         return buildString {
             append("RAM ${caps.ramTotalMb}MB, ядер ${caps.cpuCores}, GPU=${caps.backendSupport.gpu}, ")
             append("thermal=${caps.thermalStatus}, батарея ${caps.batteryPercent}%, ")
             append("FPS=$measuredFps, ")
-            append("сервер=${if (serverManager.isReachable()) "доступен" else "недоступен"}")
+            append("сервер=${if (serverManager.isConfigured()) "настроен" else "не настроен"}")
             append(" → уровень ${level.level}")
         }
     }

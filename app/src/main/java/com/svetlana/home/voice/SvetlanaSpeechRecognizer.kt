@@ -111,9 +111,27 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         }
     }
 
+    /**
+     * Мягкий стоп: завершаем слушание, но НЕ уничтожаем распознаватель.
+     *
+     * Аудит п.11: немедленный cancel()+destroy() после stopListening() мог
+     * отменить выдачу финального результата — onResults() не вызывался,
+     * и wake word/переводчик получали пустой ответ. Сначала даём системе
+     * отдать результат, уничтожаем только в release().
+     */
     fun stopListening() {
         try {
             recognizer?.stopListening()
+        } catch (t: Throwable) { /* ignore */ }
+        _listening.value = false
+    }
+
+    /**
+     * Полное освобождение ресурсов. Вызывать после получения результата
+     * или при выходе из экрана.
+     */
+    fun release() {
+        try {
             recognizer?.cancel()
             recognizer?.destroy()
         } catch (t: Throwable) { /* ignore */ }

@@ -25,6 +25,8 @@ data class InstalledModel(
     val filePath: String,
     val sizeBytes: Long,
     val installedAt: Long,
+    val sha256: String? = null,
+    val formatVerified: Boolean = false,
     val benchmark: BenchmarkResult? = null
 )
 
@@ -105,10 +107,20 @@ open class LocalModelManager(private val context: Context) {
                 target.delete()
                 return Result.failure(IllegalStateException("Файл загрузился не полностью"))
             }
+            // Аудит п.9: криптографическая и форматная проверка файла.
+            // Файл мог скачаться страницей 404/HTML вместо модели.
+            val sha = sha256(target)
+            if (!verifyFormat(target, model)) {
+                target.delete()
+                return Result.failure(IllegalStateException(
+                    "Скачанный файл не является моделью формата ${model.backend}"))
+            }
             val installedModel = InstalledModel(
                 modelId = model.id, name = model.name,
                 filePath = target.absolutePath, sizeBytes = target.length(),
-                installedAt = System.currentTimeMillis()
+                installedAt = System.currentTimeMillis(),
+                sha256 = sha,
+                formatVerified = true
             )
             installed = installed + installedModel
             save()
@@ -148,6 +160,60 @@ open class LocalModelManager(private val context: Context) {
 
     private fun isSpaceEnough(model: AIModel): Boolean =
         freeSpaceBytes() > model.storageRequirementMb * 1024L * 1024L * 1.1
+
+    /**
+     * Аудит п.9: проверка magic bytes скачанного файла.
+     * GGUF (llama.cpp) начинается с "GGUF" (0x46554747).
+     * ONNX — protobuf; первый field ModelProto имеет тег 0x0c (field 1, wire 4)?
+     * Надёжнее: ONNX-модели от HF не имеют стабильного magic, поэтому для
+     * onnxruntime принимаем любой непустой бинарный файл нетекстового вида.
+     */
+    private fun verifyFormat(file: File, model: AIModel): Boolean {
+        return try {
+            when (model.backend) {
+                "llama.cpp" -> {
+                    val magic = readHead(file, 4)
+                    magic.size == 4 &&
+                        (magic[0] == 'G'.code.toByte() && magic[1] == 'G'.code.toByte() &&
+                         magic[2] == 'U'.code.toByte() && magic[3] == 'F'.code.toByte())
+                }
+                else -> {
+                    // Не текст (HTML-страница 404 и т.п.) и достаточно большой.
+                    if (file.length() < 1024) return false
+                    val head = readHead(file, 16)
+                    !head.all { it in 9..126 || it == '\n'.code.toByte() || it == '\r'.code.toByte() }
+                }
+            }
+        } catch (t: Throwable) { false }
+    }
+
+    /**
+     * readNBytes требует API 33; minSdk = 26 — читаем вручную.
+     */
+    private fun readHead(file: File, n: Int): ByteArray =
+        file.inputStream().use { input ->
+            val buffer = ByteArray(n)
+            var read = 0
+            while (read < n) {
+                val r = input.read(buffer, read, n - read)
+                if (r <= 0) break
+                read += r
+            }
+            if (read == n) buffer else buffer.copyOf(read)
+        }
+
+    private fun sha256(file: File): String = try {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buffer)
+                if (n <= 0) break
+                digest.update(buffer, 0, n)
+            }
+        }
+        digest.digest().joinToString("") { "%02x".format(it) }
+    } catch (t: Throwable) { "" }
 
     private fun load(): List<InstalledModel> = try {
         if (storeFile.exists() && storeFile.length() > 0)

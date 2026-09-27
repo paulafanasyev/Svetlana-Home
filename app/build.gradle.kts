@@ -97,9 +97,17 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.activity:activity-compose:1.9.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.0")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.0")
+    // P0: Lifecycle 2.8.0 + Compose 1.6.x (BOM 2024.05.00) + R8 вызывают
+    // IllegalStateException: CompositionLocal LocalLifecycleOwner not present.
+    // Исправлено в Lifecycle 2.8.2 (CompositionLocal) и 2.8.3 (R8/back-compat).
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.3")
+    // Выравниваем транзитивные lifecycle-модули (camera-lifecycle тянет 2.6.1
+    // и вызывает DuplicateClass с viewmodel-android 2.8.3).
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.3")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-savedstate:2.8.3")
+    implementation("androidx.lifecycle:lifecycle-process:2.8.3")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")

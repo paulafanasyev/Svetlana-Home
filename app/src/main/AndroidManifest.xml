@@ -57,6 +57,7 @@
         android:theme="@style/Theme.SvetlanaHome"
         android:enableOnBackInvokedCallback="true"
         android:usesCleartextTraffic="false"
+        android:networkSecurityConfig="@xml/network_security_config"
         tools:targetApi="34">
 
         <!-- Главный экран: официальный механизм ROLE_HOME -->

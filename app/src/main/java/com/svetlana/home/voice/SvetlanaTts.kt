@@ -17,8 +17,20 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ready = false
 
+    /**
+     * Аудит п.12: TTS инициализируется асинхронно. Если пользователь
+     * отправит команду до завершения onInit(), фраза молча терялась.
+     * Теперь ждём готовности и затем проигрываем очередь.
+     */
+    private val pending = mutableListOf<Pair<String, java.util.Locale?>>()
+    private val lock = Any()
+
     private val _speaking = MutableStateFlow(false)
     val speaking: StateFlow<Boolean> = _speaking.asStateFlow()
+
+    enum class TtsState { INITIALIZING, READY, UNAVAILABLE }
+    private val _state = MutableStateFlow(TtsState.INITIALIZING)
+    val state: StateFlow<TtsState> = _state.asStateFlow()
 
     init {
         try {
@@ -31,6 +43,7 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
             })
         } catch (t: Throwable) {
             Log.w(TAG, "TTS недоступен", t)
+            _state.value = TtsState.UNAVAILABLE
         }
     }
 
@@ -43,8 +56,18 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
                 tts?.setLanguage(Locale.getDefault())
                 ready = true
             }
+            _state.value = TtsState.READY
+            // Проигрываем всё, что накопилось во время инициализации.
+            synchronized(lock) {
+                pending.forEach { (text, locale) ->
+                    if (locale != null) speakInternal(text, locale)
+                    else speakInternal(text)
+                }
+                pending.clear()
+            }
         } else {
             ready = false
+            _state.value = TtsState.UNAVAILABLE
         }
     }
 
@@ -54,7 +77,21 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
      * Озвучить текст на русском.
      */
     fun speak(text: String, flush: Boolean = true) {
-        if (!isAvailable || text.isBlank()) return
+        if (text.isBlank()) return
+        if (!isAvailable) {
+            // Аудит п.12: ещё инициализируется — поставим в очередь, а не
+            // молча выбросим.
+            if (_state.value == TtsState.INITIALIZING) {
+                synchronized(lock) { pending.add(text to null) }
+            } else {
+                Log.w(TAG, "TTS не готов, фраза утеряна: ${text.take(40)}")
+            }
+            return
+        }
+        speakInternal(text, flush)
+    }
+
+    private fun speakInternal(text: String, flush: Boolean = true) {
         try {
             tts?.speak(text, if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "svetlana_${System.currentTimeMillis()}")
         } catch (t: Throwable) {
@@ -67,7 +104,19 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
      * на целевом языке — RU→VI говорит по-вьетнамски и наоборот).
      */
     fun speak(text: String, locale: java.util.Locale, flush: Boolean = true) {
-        if (!isAvailable || text.isBlank()) return
+        if (text.isBlank()) return
+        if (!isAvailable) {
+            if (_state.value == TtsState.INITIALIZING) {
+                synchronized(lock) { pending.add(text to locale) }
+            } else {
+                Log.w(TAG, "TTS не готов, фраза утеряна: ${text.take(40)}")
+            }
+            return
+        }
+        speakInternal(text, locale)
+    }
+
+    private fun speakInternal(text: String, locale: java.util.Locale, flush: Boolean = true) {
         try {
             // Переключаем язык только если он поддерживается; иначе остаётся
             // язык по умолчанию (лучше сказать с акцентом, чем промолчать).

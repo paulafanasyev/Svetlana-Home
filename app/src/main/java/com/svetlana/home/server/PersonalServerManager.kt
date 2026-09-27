@@ -156,7 +156,26 @@ class PersonalServerManager(
         }
     }
 
-    fun isReachable(): Boolean = config.enabled && config.baseUrl.isNotBlank()
+    /**
+     * Аудит п.18: это НЕ проверка доступности — это "настроен и включён".
+     * Реальная доступность проверяется только healthCheck-запросом /health.
+     * Маршрутизация не должна считать сервер доступным по одному полю.
+     */
+    fun isConfigured(): Boolean = config.enabled && config.baseUrl.isNotBlank()
+
+    /**
+     * Реальная доступность: сетевой запрос к серверу.
+     * Используется routing-логикой вместо isConfigured().
+     */
+    suspend fun isReachable(): Boolean = withContext(Dispatchers.IO) {
+        if (!isConfigured()) return@withContext false
+        healthCheck() != null
+    }
+
+    @Deprecated("Переименовано в isConfigured() — имя вводило в заблуждение (аудит 18). " +
+        "Для реальной проверки доступности используйте suspend isReachable().",
+        ReplaceWith("isConfigured()"))
+    fun isReachableLegacy(): Boolean = isConfigured()
 
     private fun request(path: String) = client.newCall(
         Request.Builder()
