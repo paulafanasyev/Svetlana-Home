@@ -96,18 +96,6 @@
             android:theme="@style/Theme.SvetlanaHome" />
 
         <activity
-            android:name=".ui.translate.TranslateActivity"
-            android:exported="false"
-            android:label="@string/title_translator"
-            android:theme="@style/Theme.SvetlanaHome" />
-
-        <activity
-            android:name=".ui.vision.CameraTranslateActivity"
-            android:exported="false"
-            android:label="@string/title_camera_translate"
-            android:theme="@style/Theme.SvetlanaHome" />
-
-        <activity
             android:name=".ui.history.HistoryActivity"
             android:exported="false"
             android:label="@string/title_history"
@@ -132,6 +120,14 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="svetlana_hands_accessibility_ui_automation" />
         </service>
+
+        <!-- Фоновый голосовой ассистент: слушает wake word и исполняет
+             команды, когда приложение свёрнуто. Foreground-сервис с типом
+             microphone — виден пользователю через постоянное уведомление. -->
+        <service
+            android:name=".voice.VoiceAssistantService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <receiver
             android:name=".core.BootCompletedReceiver"

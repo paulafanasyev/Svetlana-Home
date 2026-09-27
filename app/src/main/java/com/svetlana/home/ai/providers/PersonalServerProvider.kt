@@ -25,7 +25,6 @@ class PersonalServerProvider(
             chat = caps.enabled,
             vision = true,
             embeddings = true,
-            translation = true,
             maxContext = 16384
         )
     }

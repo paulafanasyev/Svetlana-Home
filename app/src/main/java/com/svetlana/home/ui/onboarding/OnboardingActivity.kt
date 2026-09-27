@@ -163,7 +163,6 @@ private fun IntroStage() {
             R.string.onboarding_ability_harness,
             R.string.onboarding_ability_voice,
             R.string.onboarding_ability_vision,
-            R.string.onboarding_ability_translate,
             R.string.onboarding_ability_local,
             R.string.onboarding_ability_external,
             R.string.onboarding_ability_server

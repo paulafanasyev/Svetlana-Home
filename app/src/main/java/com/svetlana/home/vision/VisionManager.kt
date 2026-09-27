@@ -3,14 +3,11 @@ package com.svetlana.home.vision
 import android.content.Context
 import android.graphics.Bitmap
 import com.svetlana.home.hands.HandsController
-import com.svetlana.home.translate.TranslateDirection
-import com.svetlana.home.translate.TranslatorProviderManager
 
 /**
  * VisionManager — зрение Светланы (ТЗ §22).
  *
  * Поддерживается:
- *  - camera (через CameraX в CameraTranslateActivity);
  *  - screenshots (через Hands);
  *  - чтение текста с экрана (UI tree — доступно всегда, когда включён Hands);
  *  - анализ изображения через провайдера (VLM на сервере/внешнем AI).
@@ -21,8 +18,7 @@ import com.svetlana.home.translate.TranslatorProviderManager
  */
 class VisionManager(
     private val context: Context,
-    private val hands: HandsController,
-    private val translatorProvider: TranslatorProviderManager
+    private val hands: HandsController
 ) {
 
     data class ScreenText(
@@ -58,16 +54,6 @@ class VisionManager(
      * Визуальная верификация результата: текст появился на экране?
      */
     fun verifyTextVisible(text: String): Boolean = hands.verifyTextVisible(text)
-
-    /**
-     * Перевод текста с экрана.
-     */
-    suspend fun translateScreenText(direction: TranslateDirection): com.svetlana.home.translate.TranslateResult {
-        val screen = readScreen()
-            ?: return com.svetlana.home.translate.TranslateResult(
-                false, "", "", direction, "vision", "Не удалось прочитать экран")
-        return translatorProvider.translate(screen.raw, direction, null)
-    }
 
     /**
      * Анализ изображения через VLM-провайдера (тяжёлая задача — на сервере/внешнем AI).

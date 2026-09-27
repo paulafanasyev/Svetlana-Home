@@ -61,7 +61,7 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
      * Очистка предыдущего результата (аудит п.9).
      *
      * Без этого waitForSttResult() мог получить СТАРЫЙ результат прошлой
-     * сессии — например, последовательный перевод выдавал предыдущую фразу.
+     * сессии — например, повторный запрос получал предыдущую фразу.
      */
     fun clearResult() {
         _result.value = null
@@ -102,48 +102,11 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
     }
 
     /**
-     * Многоязычный запуск для синхронного переводчика: система слушает оба
-     * языка, а итоговый язык определяется по распознанному тексту
-     * (см. SvetlanaTranslator.detectRussian).
-     */
-    fun startListeningMultilingual() {
-        stopListening()
-        clearResult()
-        if (!isAvailable) {
-            _result.value = SttResult.Error("Распознавание речи недоступно на этом устройстве")
-            return
-        }
-        _foregroundSession.value = true
-        try {
-            onMain {
-                recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-                    setRecognitionListener(listener)
-                }
-                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    // Основной язык — русский, но добавляем вьетнамский как
-                    // поддерживаемый. Часть реализаций IGNORE это, поэтому
-                    // финальное определение языка делаем по тексту.
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
-                    putExtra(RecognizerIntent.EXTRA_SUPPORTED_LANGUAGES, arrayListOf("ru-RU", "vi-VN"))
-                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                }
-                recognizer?.startListening(intent)
-                _listening.value = true
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Не удалось начать multilingual распознавание", t)
-            _result.value = SttResult.Error(t.message ?: "Ошибка распознавания")
-        }
-    }
-
-    /**
      * Мягкий стоп: завершаем слушание, но НЕ уничтожаем распознаватель.
      *
      * Аудит п.11: немедленный cancel()+destroy() после stopListening() мог
      * отменить выдачу финального результата — onResults() не вызывался,
-     * и wake word/переводчик получали пустой ответ. Сначала даём системе
+     * и wake word получал пустой ответ. Сначала даём системе
      * отдать результат, уничтожаем только в release().
      */
     fun stopListening() {

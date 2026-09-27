@@ -8,6 +8,8 @@ import com.svetlana.home.ai.ProviderCapabilities
 import com.svetlana.home.ai.ProviderConfig
 import com.svetlana.home.store.SecureKeyStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -57,10 +59,81 @@ class OpenAiCompatibleProvider(
         vision = config.model.contains("vision", ignoreCase = true) ||
                 config.model.contains("gpt-4o", ignoreCase = true),
         embeddings = true,
-        translation = true,
         maxContext = 8192
     )
 
+    /**
+     * Отдельный клиент для стриминга: длинный readTimeout, чтобы долго
+     * живущее SSE-соединение не закрывалось посреди генерации.
+     */
+    private val streamClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(300, TimeUnit.SECONDS)
+        .build()
+
+    /**
+     * Стриминг ответа через SSE (data: chunks).
+     *
+     * Требование: голос начинает говорить ответ сразу, не дожидаясь
+     * полного завершения генерации. Дельты отдаются по мере поступления.
+     */
+    override fun supportsStreaming(): Boolean = true
+
+    override fun chatStream(prompt: String, systemPrompt: String?): Flow<String> = flow {
+        if (!isConfigured()) return@flow
+        val payload = buildJsonObject {
+            put("model", config.model)
+            put("messages", buildJsonArray {
+                systemPrompt?.let { add(buildJsonObject { put("role", "system"); put("content", it) }) }
+                add(buildJsonObject { put("role", "user"); put("content", prompt) })
+            })
+            put("temperature", 0.7)
+            put("max_tokens", 512)
+            put("stream", true)
+        }.toString()
+
+        val key = apiKey() ?: return@flow
+        val body = payload.toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url("${normalizedEndpoint()}/chat/completions")
+            .addHeader("Authorization", "Bearer $key")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Accept", "text/event-stream")
+            .post(body)
+            .build()
+
+        try {
+            streamClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@flow
+                val source = response.body?.source() ?: return@flow
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: break
+                    if (!line.startsWith("data:")) continue
+                    val data = line.removePrefix("data:").trim()
+                    if (data.isEmpty() || data == "[DONE]") continue
+                    val delta = parseDelta(data) ?: continue
+                    if (delta.isNotEmpty()) emit(delta)
+                }
+            }
+        } catch (t: Throwable) {
+            // Стриминг оборвался — накопленное уже отдано.
+        }
+    }
+
+    private fun parseDelta(data: String): String? = try {
+        json.parseToJsonElement(data).jsonObject["choices"]?.jsonArray?.firstOrNull()
+            ?.jsonObject?.get("delta")?.jsonObject?.get("content")?.jsonPrimitive?.content
+    } catch (t: Throwable) { null }
+
+    /**
+     * Нормализация endpoint (аудит п.3 — «тест не проходит для рабочих ключей»).
+     *
+     * Пользователь может ввести как базу «https://api.openai.com», так и
+     * канонический «https://api.openai.com/v1» из документации OpenAI.
+     * Раньше второй вариант давал двойной «/v1/v1/chat/completions» → 404.
+     * Теперь оба варианта работают.
+     */
+    private fun normalizedEndpoint(): String = normalizeEndpoint(config.baseUrl)
     override fun isConfigured(): Boolean =
         config.baseUrl.isNotBlank() && apiKey()?.isNotBlank() == true && config.model.isNotBlank()
 
@@ -82,7 +155,7 @@ class OpenAiCompatibleProvider(
                 put("max_tokens", 512)
             }.toString()
 
-            val response = post("${config.baseUrl.trimEnd('/')}/v1/chat/completions", payload)
+            val response = post("${normalizedEndpoint()}/chat/completions", payload)
                 ?: return@withContext AIResult(false, "Нет ответа от провайдера", AIBackend.EXTERNAL,
                     latencyMs = System.currentTimeMillis() - started)
 
@@ -112,7 +185,7 @@ class OpenAiCompatibleProvider(
         val started = System.currentTimeMillis()
         return try {
             val request = Request.Builder()
-                .url("${config.baseUrl.trimEnd('/')}/v1/models")
+                .url("${normalizedEndpoint()}/models")
                 .addHeader("Authorization", "Bearer $key")
                 .get()
                 .build()
@@ -144,7 +217,7 @@ class OpenAiCompatibleProvider(
         val key = apiKey() ?: return@withContext emptyList()
         try {
             val request = Request.Builder()
-                .url("${config.baseUrl.trimEnd('/')}/v1/models")
+                .url("${normalizedEndpoint()}/models")
                 .addHeader("Authorization", "Bearer $key")
                 .get()
                 .build()
@@ -174,7 +247,7 @@ class OpenAiCompatibleProvider(
             put("temperature", 0.0)
         }.toString()
         val started = System.currentTimeMillis()
-        val response = post("${config.baseUrl.trimEnd('/')}/v1/chat/completions", payload)
+        val response = post("${normalizedEndpoint()}/chat/completions", payload)
             ?: return AIResult(false, "Нет ответа от провайдера для модели $modelId",
                 AIBackend.EXTERNAL, latencyMs = System.currentTimeMillis() - started)
         return try {
@@ -210,4 +283,42 @@ class OpenAiCompatibleProvider(
             return response.body?.string()
         }
     }
+}
+
+/**
+ * Нормализация endpoint (аудит п.3 — «тест не проходит для рабочих ключей»).
+ *
+ * Провайдеры OpenAI-compatible принимают запросы по пути
+ * «/v1/chat/completions». Пользователь может ввести:
+ *  - «https://api.openai.com» (база)     → нужен «…/v1/chat/completions»
+ *  - «https://api.openai.com/v1» (канон) → нужен «…/v1/chat/completions»
+ *  - «https://api.groq.com/openai/v1»    → путь /v1 уже внутри
+ *
+ * Раньше либо приклеивался второй «/v1/v1/…» → 404, либо «/v1» удалялся
+ * и запрос уходил на «…/chat/completions» → 404. Теперь гарантируется
+ * ровно один сегмент «/v1».
+ *
+ * Чистая функция — не зависит от Android, полностью покрывается unit-тестами.
+ */
+fun normalizeEndpoint(baseUrl: String): String {
+    val trimmed = baseUrl.trim()
+    if (trimmed.isEmpty()) return ""
+    // Сохраняем схему «https://», а двойные слеши в пути схлопываем.
+    val scheme = when {
+        trimmed.startsWith("https://", ignoreCase = true) -> "https://"
+        trimmed.startsWith("http://", ignoreCase = true) -> "http://"
+        else -> ""
+    }
+    var url = if (scheme.isEmpty()) trimmed else trimmed.substring(scheme.length)
+    url = url.trimEnd('/')
+    if (url.isEmpty()) return scheme.trimEnd('/')
+    // Схлопываем двойные слеши в пути (не трогая схему)
+    while (url.contains("//")) url = url.replace("//", "/")
+    // Убираем дублирующийся «/v1/v1» в конце
+    while (url.endsWith("/v1/v1", ignoreCase = true)) {
+        url = url.removeSuffix("/v1/v1").removeSuffix("/V1/V1").trimEnd('/') + "/v1"
+    }
+    // Гарантируем ровно один «/v1»: если его нет в пути вообще — добавляем.
+    if (!url.contains("/v1", ignoreCase = true)) url += "/v1"
+    return scheme + url
 }

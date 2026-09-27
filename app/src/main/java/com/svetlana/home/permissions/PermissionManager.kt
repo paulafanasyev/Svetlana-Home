@@ -44,14 +44,14 @@ class PermissionManager(private val context: Context) {
         return listOf(
             PermissionItem(
                 key = KEY_MIC, title = "Микрофон",
-                description = "Нужно для голосовых команд и перевода",
+                description = "Нужно для голосовых команд и wake word",
                 required = true, kind = PermissionItem.Kind.RUNTIME,
                 statusText = if (isGranted(Manifest.permission.RECORD_AUDIO)) "Разрешён" else "Не разрешён",
                 granted = isGranted(Manifest.permission.RECORD_AUDIO)
             ),
             PermissionItem(
                 key = KEY_CAMERA, title = "Камера",
-                description = "Нужно для зрения и перевода через камеру",
+                description = "Нужно для зрения и анализа изображений",
                 required = false, kind = PermissionItem.Kind.RUNTIME,
                 statusText = if (isGranted(Manifest.permission.CAMERA)) "Разрешена" else "Не разрешена",
                 granted = isGranted(Manifest.permission.CAMERA)

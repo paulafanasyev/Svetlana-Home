@@ -41,7 +41,6 @@ open class SettingsRepository(private val context: Context) {
         MemoryMode.fromName(it[KEY_MEMORY_MODE]) ?: MemoryMode.LOCAL
     }
 
-    val translatorBackend: Flow<String> = ds.data.map { it[KEY_TRANSLATOR_BACKEND] ?: "auto" }
     val wakeWordEnabled: Flow<Boolean> = ds.data.map { it[KEY_WAKE_WORD] ?: true }
     val avatarLevelOverride: Flow<Int> = ds.data.map { it[KEY_AVATAR_LEVEL] ?: -1 }
 
@@ -52,7 +51,6 @@ open class SettingsRepository(private val context: Context) {
     suspend fun setFallbackProvider(id: String?) { ds.edit { if (id == null) it.remove(KEY_FALLBACK_PROVIDER) else it[KEY_FALLBACK_PROVIDER] = id } }
     suspend fun setActiveLocalModel(id: String?) { ds.edit { if (id == null) it.remove(KEY_LOCAL_MODEL) else it[KEY_LOCAL_MODEL] = id } }
     suspend fun setMemoryMode(mode: MemoryMode) { ds.edit { it[KEY_MEMORY_MODE] = mode.name } }
-    suspend fun setTranslatorBackend(value: String) { ds.edit { it[KEY_TRANSLATOR_BACKEND] = value } }
     suspend fun setWakeWordEnabled(value: Boolean) { ds.edit { it[KEY_WAKE_WORD] = value } }
     suspend fun setAvatarLevelOverride(level: Int) { ds.edit { it[KEY_AVATAR_LEVEL] = level } }
     suspend fun setOwnerName(value: String) { ds.edit { it[KEY_OWNER_NAME] = value } }
@@ -70,7 +68,6 @@ open class SettingsRepository(private val context: Context) {
         private val KEY_FALLBACK_PROVIDER = stringPreferencesKey("fallback_provider")
         private val KEY_LOCAL_MODEL = stringPreferencesKey("active_local_model")
         private val KEY_MEMORY_MODE = stringPreferencesKey("memory_mode")
-        private val KEY_TRANSLATOR_BACKEND = stringPreferencesKey("translator_backend")
         private val KEY_WAKE_WORD = booleanPreferencesKey("wake_word_enabled")
         private val KEY_AVATAR_LEVEL = intPreferencesKey("avatar_level_override")
         private val KEY_OWNER_NAME = stringPreferencesKey("owner_name")

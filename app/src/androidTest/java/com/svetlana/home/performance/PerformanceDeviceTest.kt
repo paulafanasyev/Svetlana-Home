@@ -53,18 +53,6 @@ class PerformanceDeviceTest {
     }
 
     @Test
-    fun measure_translator_localLatency() = runBlocking {
-        // Локальный словарь — самый быстрый путь
-        val started = System.currentTimeMillis()
-        val result = ServiceLocator.translator.translateText(
-            "привет", com.svetlana.home.translate.TranslateDirection.RU_TO_VI)
-        val ms = System.currentTimeMillis() - started
-
-        println("PERF_TRANSLATE_LOCAL=${ms}ms success=${result.success}")
-        assertTrue("Локальный перевод должен работать", result.success)
-    }
-
-    @Test
     fun measure_avatarDecision_latency() {
         val started = System.currentTimeMillis()
         val decision = runBlocking { ServiceLocator.avatarEngine.decide() }

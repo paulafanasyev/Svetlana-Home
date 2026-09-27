@@ -257,20 +257,26 @@ private fun AppDrawerScreen() {
                     }
                 }
                 items(visible, key = { it.packageName }) { app ->
-                    AppRow(app = app, onLaunch = {
-                        try {
-                            context.packageManager.getLaunchIntentForPackage(app.packageName)?.let { intent ->
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                context.startActivity(intent)
-                                ServiceLocator.appRepository.markUsed(app.packageName)
+                    AppRow(
+                        app = app,
+                        onLaunch = {
+                            try {
+                                context.packageManager.getLaunchIntentForPackage(app.packageName)?.let { intent ->
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
+                                    ServiceLocator.appRepository.markUsed(app.packageName)
+                                }
+                            } catch (t: Throwable) {
+                                ServiceLocator.historyManager.record(
+                                    com.svetlana.home.memory.HistoryCategory.APPS,
+                                    "Не удалось открыть ${app.label}: ${t.message}"
+                                )
                             }
-                        } catch (t: Throwable) {
-                            ServiceLocator.historyManager.record(
-                                com.svetlana.home.memory.HistoryCategory.APPS,
-                                "Не удалось открыть ${app.label}: ${t.message}"
-                            )
+                        },
+                        onTogglePin = {
+                            ServiceLocator.appRepository.setFavorite(app.packageName, !app.isFavorite)
                         }
-                    })
+                    )
                 }
             }
         }
@@ -296,7 +302,7 @@ private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) 
 }
 
 @Composable
-private fun AppRow(app: AppModel, onLaunch: () -> Unit) {
+private fun AppRow(app: AppModel, onLaunch: () -> Unit, onTogglePin: () -> Unit) {
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
@@ -338,6 +344,12 @@ private fun AppRow(app: AppModel, onLaunch: () -> Unit) {
                     color = MintSoft
                 )
             }
+            // ТЗ §11: перенос приложения на главный экран (экран 3).
+            TextButton(
+                text = if (app.isFavorite) "✓ ${stringResource(R.string.apps_pin)}"
+                else stringResource(R.string.apps_pin),
+                onClick = onTogglePin
+            )
             TextButton(text = stringResource(R.string.action_launch), onClick = onLaunch)
         }
     }

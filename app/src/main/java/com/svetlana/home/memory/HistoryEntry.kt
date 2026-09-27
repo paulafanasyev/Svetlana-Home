@@ -14,7 +14,6 @@ enum class HistoryCategory(val label: String) {
     AI("AI"),
     MODELS("Модели"),
     SERVER("Сервер"),
-    TRANSLATE("Переводы"),
     ERRORS("Ошибки"),
     CONFIRMATIONS("Подтверждения")
 }

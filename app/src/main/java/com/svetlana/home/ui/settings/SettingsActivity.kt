@@ -64,7 +64,6 @@ enum class SettingsSection(val titleRes: Int) {
     SERVER(R.string.title_server),
     VOICE(R.string.voice_settings),
     HANDS(R.string.hands_settings),
-    TRANSLATOR(R.string.title_translator),
     LAUNCHER(R.string.title_launcher),
     APPS(R.string.title_apps),
     AVATAR(R.string.title_avatar),
@@ -110,7 +109,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                 SettingsSection.SERVER -> ServerScreen()
                 SettingsSection.VOICE -> VoiceSettingsScreen()
                 SettingsSection.HANDS -> HandsSettingsScreen()
-                SettingsSection.TRANSLATOR -> TranslatorSettingsScreen()
                 SettingsSection.LAUNCHER -> LauncherSettingsScreen()
                 SettingsSection.APPS -> AppDrawerSettingsScreen()
                 SettingsSection.AVATAR -> AvatarScreen()
@@ -139,7 +137,6 @@ private fun SectionsList(onOpen: (SettingsSection) -> Unit) {
         SettingsSection.SERVER,
         SettingsSection.VOICE,
         SettingsSection.HANDS,
-        SettingsSection.TRANSLATOR,
         SettingsSection.LAUNCHER,
         SettingsSection.APPS,
         SettingsSection.AVATAR,

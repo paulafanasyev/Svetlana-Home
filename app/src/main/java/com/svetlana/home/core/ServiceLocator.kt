@@ -29,14 +29,13 @@ import com.svetlana.home.owner.OwnerIdentity
 import com.svetlana.home.permissions.PermissionManager
 import com.svetlana.home.server.PersonalServerManager
 import com.svetlana.home.store.SettingsRepository
-import com.svetlana.home.translate.SvetlanaTranslator
-import com.svetlana.home.translate.TranslatorProviderManager
 import com.svetlana.home.avatar.AvatarEngine
 import com.svetlana.home.avatar.AvatarLevel
 import com.svetlana.home.avatar.AvatarRendererRegistry
 import com.svetlana.home.vision.VisionManager
 import com.svetlana.home.voice.SvetlanaSpeechRecognizer
 import com.svetlana.home.voice.SvetlanaTts
+import com.svetlana.home.voice.VoiceAgent
 import com.svetlana.home.voice.WakeWordEngine
 
 /**
@@ -114,9 +113,26 @@ object ServiceLocator {
             providerManager, localAiProvider, hybridPipeline)
     }
     val personalMemory by lazy { PersonalMemory(app, settings) }
-    val translatorProvider by lazy { TranslatorProviderManager(app, aiRouter) }
-    val translator by lazy { SvetlanaTranslator(app, translatorProvider, tts, speechRecognizer) }
-    val vision by lazy { VisionManager(app, hands, translatorProvider) }
+    val vision by lazy { VisionManager(app, hands) }
+
+    /**
+     * VoiceAgent — единое ядро диалога для UI и фонового сервиса.
+     * Используется и HomeViewModel, и VoiceAssistantService, поэтому
+     * поведение диалога одинаково на экране и в фоне.
+     */
+    val voiceAgent by lazy {
+        VoiceAgent(
+            context = app,
+            actionRouter = actionRouter,
+            aiRouter = aiRouter,
+            historyManager = historyManager,
+            personalMemory = personalMemory,
+            settings = settings,
+            compatibility = compatibility,
+            modelRegistry = modelRegistry,
+            device = device
+        )
+    }
     val avatarEngine by lazy {
         // Регистрация renderer'ов, которые реально есть в этой сборке.
         // L0 (Orb) и L1 (Light Avatar на Compose) — точно присутствуют.

@@ -170,6 +170,47 @@ class HandsController(private val context: Context) {
         return findByViewId(root, id)
     }
 
+    /**
+     * Поиск поля ввода на текущем экране. Используется в длинных
+     * Hands-цепочках (написать сообщение в мессенджере): поле ввода
+     * определяется по классу EditText и доступности для правки.
+     */
+    fun findEditableField(): UiNode? {
+        val tree = uiTree() ?: return null
+        return tree.nodes.firstOrNull { isEditable(it) }
+    }
+
+    private fun isEditable(node: UiNode): Boolean {
+        if (!node.isEnabled) return false
+        if (node.isPassword) return true
+        val cls = node.className.lowercase()
+        if (!cls.contains("edittext") && !cls.contains("textview") &&
+            !cls.contains("autofill") && !cls.contains("input")) return false
+        return node.isClickable || node.isFocused || node.text.isNotBlank()
+    }
+
+    /**
+     * Поиск кнопки отправки на текущем экране (для мессенджеров):
+     * кликабельный элемент, чей id / contentDescription / текст
+     * содержит типичные признаки send-кнопки.
+     */
+    fun findSendButton(): UiNode? {
+        val tree = uiTree() ?: return null
+        return tree.nodes.firstOrNull { node ->
+            if (!node.isClickable || !node.isEnabled) false
+            else SEND_MARKERS.any { marker ->
+                node.id.contains(marker, ignoreCase = true) ||
+                    node.contentDescription.contains(marker, ignoreCase = true) ||
+                    node.text.contains(marker, ignoreCase = true)
+            }
+        }
+    }
+
+    private val SEND_MARKERS = listOf(
+        "send", "отправить", "отправка", "sendmessage", "submit_message",
+        "action_send", "btn_send", "ui_send"
+    )
+
     private fun findByViewId(node: AccessibilityNodeInfo, id: String): AccessibilityNodeInfo? {
         if (node.viewIdResourceName?.equals(id, ignoreCase = true) == true) return node
         for (i in 0 until node.childCount) {

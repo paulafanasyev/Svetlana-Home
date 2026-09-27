@@ -193,7 +193,7 @@ class HybridPipelineTest {
         override val displayName = "Stub"
         override val type = AIProvider.ProviderType.CUSTOM
         override val backend = AIBackend.LOCAL
-        override fun capabilities() = ProviderCapabilities(true, false, false, false, 2048)
+        override fun capabilities() = ProviderCapabilities(true, false, false, 2048)
         override fun isConfigured() = true
         override fun isAvailable() = true
         override suspend fun chat(prompt: String, systemPrompt: String?) =

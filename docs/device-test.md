@@ -112,16 +112,8 @@
 
 - [x] Hybrid AI работает (HybridPipeline: preprocess→sanitize→remote→postprocess)
 - [x] Local-only работает (PrivacyPolicy + device test блокировки egress)
-- [x] Offline работает (launcher/registry/hands/translator без сети)
+- [x] Offline работает (launcher/registry/hands без сети)
 - [ ] Offline-тест на устройстве
-
-### Переводчик
-
-- [x] RU → VI (unit + device test)
-- [x] VI → RU (unit + device test)
-- [x] Voice translation (multilingual STT + TTS на целевом языке)
-- [x] Sync translation (translateConversationCycle, автоопределение)
-- [ ] Camera translation (требует устройства)
 
 ### Avatar
 
@@ -205,10 +197,8 @@ runtime, а не только компилируется.
 | `AvatarEngineDeviceTest` | Выбирается только доступный renderer (no false capability) |
 | `ExternalProviderDeviceTest` | Конфигурация → соединение → inference |
 | `LocalAiDeviceTest` | Совместимость → приоритеты → отчёт о inference |
-| `TranslatorDeviceTest` | RU → VI и VI → RU, backend указывается |
-| `TranslatorRuntimeDeviceTest` | 4 режима перевода + авто-fallback на локальный |
 | `VisionDeviceTest` | Скриншот, анализ изображения, честный отказ без провайдера |
-| `PerformanceDeviceTest` | Реальные замеры: probe, registry scan, перевод, proof chain |
+| `PerformanceDeviceTest` | Реальные замеры: probe, registry scan, proof chain |
 | `LocalOnlyDeviceTest` | LOCAL_ONLY физически блокирует egress любых данных |
 | `AppDrawerScanDeviceTest` | **scan() строит реальный список из PackageManager** (P0) |
 | `RoleAndLocationDeviceTest` | ROLE_HOME intent + геолокация: 2 независимых состояния (P0) |

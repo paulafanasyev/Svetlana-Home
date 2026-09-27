@@ -2,6 +2,7 @@ package com.svetlana.home.control
 
 import com.google.common.truth.Truth.assertWithMessage
 import com.google.common.truth.Truth.assertThat
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /**
@@ -64,8 +65,38 @@ class DangerousActionBlockTest {
     }
 
     @Test
-    fun translate_isSafe() {
-        val risk = ActionRiskPolicy.riskOf(SvetlanaAction.Translate("привет", "ru_to_vi"))
-        assertThat(risk).isEqualTo(ActionRisk.SAFE)
+    fun composeMessage_isDangerous_andRequiresConfirmation() {
+        // Отправка сообщения в мессенджере через Hands — необратимое
+        // действие, поэтому требует явного подтверждения (ТЗ §58).
+        val action = SvetlanaAction.ComposeMessage("whatsapp", "серый", "привет")
+        assertWithMessage("ComposeMessage должна быть DANGEROUS")
+            .that(ActionRiskPolicy.riskOf(action)).isEqualTo(ActionRisk.DANGEROUS)
+        assertThat(ActionRiskPolicy.requiresConfirmation(action)).isTrue()
     }
+
+    @Test
+    fun compound_riskEqualsMostDangerousStep() {
+        // Цепочка «открой Whatsapp и напиши контакту» — внутри есть отправка
+        // сообщения, значит вся цепочка требует подтверждения.
+        val safe = SvetlanaAction.Compound(listOf(
+            SvetlanaAction.OpenApp("whatsapp"),
+            SvetlanaAction.Click("whatsapp", "поиск")
+        ))
+        assertThat(ActionRiskPolicy.riskOf(safe)).isEqualTo(ActionRisk.SAFE)
+
+        val dangerous = SvetlanaAction.Compound(listOf(
+            SvetlanaAction.OpenApp("whatsapp"),
+            SvetlanaAction.ComposeMessage("whatsapp", "серый", "привет")
+        ))
+        assertThat(ActionRiskPolicy.riskOf(dangerous)).isEqualTo(ActionRisk.DANGEROUS)
+        assertThat(ActionRiskPolicy.requiresConfirmation(dangerous)).isTrue()
+    }
+
+    @Test
+    fun compound_requiresAtLeastOneStep() {
+        assertThrows(IllegalArgumentException::class.java) {
+            SvetlanaAction.Compound(emptyList())
+        }
+    }
+
 }

@@ -16,8 +16,14 @@ object ActionRiskPolicy {
         // ТЗ §58: отправка сообщений и звонки — критические действия
         is SvetlanaAction.SendMessage -> ActionRisk.DANGEROUS
         is SvetlanaAction.MakeCall -> ActionRisk.DANGEROUS
+        // Многошаговая отправка сообщения в мессенджере — то же самое
+        // необратимое действие, выполняемое через Hands.
+        is SvetlanaAction.ComposeMessage -> ActionRisk.DANGEROUS
         // Публикации / шеринг — умеренный риск
         is SvetlanaAction.Share -> ActionRisk.MODERATE
+        // Цепочка: опасность равна самому опасному шагу
+        is SvetlanaAction.Compound -> action.steps.map(::riskOf).maxByOrNull { it.ordinal }
+            ?: ActionRisk.SAFE
         // Остальное управление телефоном — безопасно (выполняется в рамках
         // выданных разрешений и не имеет необратимых последствий)
         else -> ActionRisk.SAFE

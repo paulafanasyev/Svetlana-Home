@@ -17,6 +17,10 @@ object CommandParser {
         "открой приложения", "вернись в", "перейди в"
     )
 
+    /**
+     * Главная точка разбора. Сначала пытается разобрать составную команду
+     * (действия, соединённые союзом «и»), затем — одиночную.
+     */
     fun parse(rawCommand: String): SvetlanaAction? {
         val c = rawCommand.trim()
         if (c.isEmpty()) return null
@@ -26,6 +30,17 @@ object CommandParser {
         // Оригинальный текст нужен для сохранения регистра элементов и фраз
         // (светлана должна нажать именно «Отправить», а не «отправить»).
         val original = stripWakeWord(c).trim()
+
+        // Составные команды: «открой Whatsapp и напиши контакту Серый привет как дела»
+        parseCompound(body, original)?.let { return it }
+
+        return parseSingle(body, original)
+    }
+
+    /**
+     * Разбор одной команды (без союзов).
+     */
+    private fun parseSingle(body: String, original: String): SvetlanaAction? {
 
         // Навигация
         when {
@@ -97,19 +112,6 @@ object CommandParser {
             }
         }
 
-        // Перевод
-        Regex("^(переведи|перевести|перевод|translate)\\s+(.*)").matchEntire(body)?.let {
-            val rest = it.groups[2]!!.value.trim()
-            val direction = if (body.contains("вьетнамск") || body.contains("vietnamese")) "ru-vi"
-            else if (body.contains("русск")) "vi-ru"
-            else "ru-vi"
-            // Текст может быть в кавычках или идти после "фразу"
-            val text = extractQuoted(rest) ?: rest.removePrefix("фразу").trim().removePrefix("это").trim()
-            // Сохраняем оригинальный регистр фразы, если она была в кавычках
-            val finalText = if (text.isNotBlank()) originalElement(original, body, text) else text
-            return SvetlanaAction.Translate(finalText, direction)
-        }
-
         // Звонок / сообщения
         Regex("^(позвони|звонок|call|набери)\\s+(.*)").matchEntire(body)?.let {
             return SvetlanaAction.MakeCall(it.groupValues[2].trim())
@@ -123,6 +125,145 @@ object CommandParser {
 
         return null
     }
+
+    // ------------------------------------------------------------------
+    // Составные команды (длинные Hands-цепочки)
+    // ------------------------------------------------------------------
+
+    private val conjunctions = listOf(" и ", " затем ", " потом ", " а потом ")
+
+    /**
+     * Разбор составной команды.
+     *
+     * Поддержанные формы:
+     *  - «открой Whatsapp и напиши контакту Серый привет как дела»
+     *    → ComposeMessage(app, contact, text)
+     *  - «напиши контакту Серый привет как дела»
+     *    → ComposeMessage(мессенджер по умолчанию, contact, text)
+     *  - «открой Telegram и нажми поиск»
+     *    → Compound([OpenApp, Click])
+     *  - «открой Telegram и введи привет»
+     *    → Compound([OpenApp, TypeText])
+     */
+    private fun parseCompound(body: String, original: String): SvetlanaAction? {
+        // 1. Спецпаттерн: открыть приложение и написать контакту.
+        parseComposeWithApp(body, original)?.let { return it }
+
+        // 2. Написать контакту без явного приложения.
+        parseComposeNoApp(body, original)?.let { return it }
+
+        // 3. Общий случай: две команды, соединённые союзом.
+        for (conj in conjunctions) {
+            val idx = body.indexOf(conj)
+            if (idx <= 0) continue
+            val left = body.substring(0, idx).trim()
+            val right = body.substring(idx + conj.length - 1).trim()
+            if (left.isEmpty() || right.isEmpty()) continue
+            val leftAction = parseSingle(left, originalSubstring(original, body, left)) ?: continue
+            val rightAction = parseSingle(right, originalSubstring(original, body, right)) ?: continue
+
+            // Правая часть должна выполняться в контексте приложения из левой:
+            // «открой Telegram и нажми поиск» — поиск ищется в Telegram.
+            val retargeted = retarget(rightAction, leftAction)
+            return SvetlanaAction.Compound(listOf(leftAction, retargeted))
+        }
+        return null
+    }
+
+    /**
+     * «открой/запусти <app> и напиши [контакту] <contact> <text>»
+     */
+    private fun parseComposeWithApp(body: String, original: String): SvetlanaAction? {
+        val regex = Regex(
+            "^(открой|запусти|перейди в|открой приложение|запусти приложение)\\s+(.+?)\\s+и\\s+" +
+                "напиши\\s+(?:контакту\\s+)?(.+)$"
+        )
+        val m = regex.matchEntire(body) ?: return null
+        val app = m.groupValues[2].trim().trim(' ', '.', ',', '!', '?')
+        val restLow = m.groupValues[3].trim()
+        val restOrig = originalSubstring(original, body, restLow)
+        val (contact, text) = splitContactAndText(restLow, restOrig)
+        if (contact.isBlank() || text.isBlank()) return null
+        return SvetlanaAction.ComposeMessage(app, contact, text)
+    }
+
+    /**
+     * «напиши [контакту] <contact> <text>» — приложение не названо,
+     * значит используем мессенджер по умолчанию (appTarget пустой).
+     */
+    private fun parseComposeNoApp(body: String, original: String): SvetlanaAction? {
+        val regex = Regex("^напиши\\s+(?:контакту\\s+)?(.+)$")
+        val m = regex.matchEntire(body) ?: return null
+        // «напиши сообщение» / «напиши смс» — это старый шаблон SMS, не чат.
+        if (m.groupValues[1].startsWith("сообщение") || m.groupValues[1].startsWith("смс")) return null
+        val restLow = m.groupValues[1].trim()
+        val restOrig = originalSubstring(original, body, restLow)
+        val (contact, text) = splitContactAndText(restLow, restOrig)
+        if (contact.isBlank() || text.isBlank()) return null
+        return SvetlanaAction.ComposeMessage("", contact, text)
+    }
+
+    /**
+     * Разделение «контакт | текст сообщения».
+     *
+     * Контакт — это 1–3 слова в начале. Если контакт не в кавычках, то
+     * границу определяем по регистру оригинала: имя контакта может быть
+     * «Серый» или «Серый Друг» (оба слова с заглавной), а сообщение
+     * («привет как дела») продолжается со строчной.
+     */
+    private fun splitContactAndText(restLow: String, restOrig: String): Pair<String, String> {
+        // Кавычки: «напиши контакту "Серый Друг" привет»
+        extractQuoted(restOrig)?.let { quoted ->
+            val text = restOrig.substringAfter('"').substringAfter('"').trim()
+                .ifBlank { restOrig.substringAfter('«').substringAfter('»').trim() }
+            val cleanText = text.trim(' ', '.', ',', '!', '?')
+            if (cleanText.isNotBlank()) return quoted to cleanText
+        }
+        val lowTokens = restLow.split(Regex("\\s+")).filter { it.isNotBlank() }
+        val origTokens = restOrig.split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (lowTokens.isEmpty()) return "" to ""
+        var n = 1
+        while (n < lowTokens.size - 1 && n < 3) {
+            val orig = origTokens.getOrNull(n) ?: break
+            // Имя контакта продолжается, только если слово с заглавной буквы
+            // и не является типичным началом сообщения.
+            if (orig.first().isUpperCase() && orig.length > 1) n++ else break
+        }
+        val contact = lowTokens.take(n).joinToString(" ")
+        val text = lowTokens.drop(n).joinToString(" ")
+        return contact to text
+    }
+
+    /**
+     * Перенаправить действие на приложение из левой части составной команды.
+     * «открой Telegram и нажми поиск» → Click должен искать «поиск» в Telegram,
+     * а не в «current».
+     */
+    private fun retarget(action: SvetlanaAction, context: SvetlanaAction): SvetlanaAction {
+        val app = (context as? SvetlanaAction.OpenApp)?.target ?: return action
+        return when (action) {
+            is SvetlanaAction.Click -> action.copy(target = app)
+            is SvetlanaAction.LongClick -> action.copy(target = app)
+            is SvetlanaAction.TypeText -> action.copy(target = app)
+            is SvetlanaAction.ClearText -> action.copy(target = app)
+            is SvetlanaAction.ReadScreen -> action.copy(target = app)
+            is SvetlanaAction.FindElement -> action.copy(target = app)
+            is SvetlanaAction.TakeScreenshot -> action.copy(target = app)
+            is SvetlanaAction.Scroll -> action.copy(target = app)
+            is SvetlanaAction.Swipe -> action.copy(target = app)
+            else -> action
+        }
+    }
+
+    /**
+     * Вырезать из [original] подстроку, соответствующую [lowPart] из [body].
+     */
+    private fun originalSubstring(original: String, body: String, lowPart: String): String {
+        val idx = body.indexOf(lowPart)
+        if (idx < 0 || idx + lowPart.length > original.length) return original
+        return original.substring(idx, idx + lowPart.length)
+    }
+
 
     fun stripWakeWord(command: String): String {
         val low = command.lowercase().replace("ё", "е")

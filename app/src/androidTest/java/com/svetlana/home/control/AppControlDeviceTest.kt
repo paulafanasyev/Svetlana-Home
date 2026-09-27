@@ -97,4 +97,36 @@ class AppControlDeviceTest : SvetlanaDeviceTest() {
         val read = engine.riskOf(SvetlanaAction.ReadScreen("любое"))
         assertTrue("ReadScreen — безопасное действие", read == ActionRisk.SAFE)
     }
+
+    /**
+     * Многошаговая цепочка ComposeMessage: если Hands выключен, цепочка
+     * честно сообщает об этом и НЕ пытается отправить сообщение.
+     *
+     * На устройстве с включённым Hands этот тест может пройти полный путь:
+     * открыть мессенджер → найти контакт → напечатать → отправить.
+     * Без Hands доказывается только корректный отказ.
+     */
+    @Test
+    fun composeMessageReportsHonestResult() = runBlocking {
+        val engine = ServiceLocator.controlEngine
+        val result = engine.composeMessage("whatsapp", "Серый", "привет как дела")
+
+        println("COMPOSE_SUCCESS=${result.success}")
+        println("COMPOSE_MESSAGE=${result.message}")
+        println("COMPOSE_PROOF=${result.proofLog().lines().joinToString(" | ")}")
+
+        if (!ServiceLocator.hands.isActive) {
+            // Hands выключен — честный отказ, без ложного «отправлено».
+            assertFalse("Без Hands сообщение не должно быть отправлено", result.success)
+            assertTrue("Должна быть понятная причина",
+                result.message.contains("Hands", ignoreCase = true))
+        } else {
+            // Hands включён — доказательная цепочка должна содержать план
+            // составного действия и все шаги.
+            val plan = result.proof.firstOrNull { it.stage == ProofStage.PLAN }
+            assertNotNull("Должен быть PLAN с описанием цепочки", plan)
+            assertTrue("План должен описывать COMPOSE_MESSAGE",
+                plan!!.detail.contains("COMPOSE_MESSAGE"))
+        }
+    }
 }

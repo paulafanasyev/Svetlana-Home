@@ -28,7 +28,33 @@ sealed class SvetlanaAction {
     @Serializable data class SendMessage(val contact: String, val text: String) : SvetlanaAction() { override val name = "SendMessage" }
     @Serializable data class MakeCall(val contact: String) : SvetlanaAction() { override val name = "MakeCall" }
     @Serializable data class Share(val text: String) : SvetlanaAction() { override val name = "Share" }
-    @Serializable data class Translate(val text: String, val direction: String) : SvetlanaAction() { override val name = "Translate" }
+
+    /**
+     * Длинная многошаговая Hands-цепочка.
+     *
+     * Пример: «открой Whatsapp и напиши контакту Серый привет как дела».
+     *
+     * Шаги исполняются последовательно, каждый со своей proof chain:
+     * открыть приложение → дождаться перехода → найти контакт → открыть чат →
+     * найти поле ввода → напечатать текст → нажать «Отправить» → проверить.
+     *
+     * Отправка сообщения — необратимое действие, поэтому [ComposeMessage]
+     * классифицируется как DANGEROUS и требует подтверждения (ТЗ §58).
+     */
+    @Serializable data class ComposeMessage(
+        val appTarget: String,
+        val contact: String,
+        val text: String
+    ) : SvetlanaAction() { override val name = "ComposeMessage" }
+
+    /**
+     * Последовательность действий, связанных союзом «и».
+     * Каждый шаг выполняется только после успеха предыдущего.
+     */
+    @Serializable data class Compound(val steps: List<SvetlanaAction>) : SvetlanaAction() {
+        override val name = "Compound"
+        init { require(steps.isNotEmpty()) { "Compound должен содержать хотя бы один шаг" } }
+    }
 }
 
 /**

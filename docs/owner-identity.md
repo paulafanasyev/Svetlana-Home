@@ -29,7 +29,7 @@
 
 После успешной настройки владельцу доступны все разрешённые функции:
 Voice, Hands, Vision, App Control, Mobile Harness, Local AI, External
-AI, Personal Server, Model Manager, Translator, Avatar, Settings.
+AI, Personal Server, Model Manager, Avatar, Settings.
 
 Но Owner Mode не обходит Android security model.
 

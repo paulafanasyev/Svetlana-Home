@@ -16,7 +16,6 @@
 | App launch latency | intent → `waitForPackage` (мс) |
 | Local AI latency | `BenchmarkResult.firstTokenMs` |
 | Remote AI latency | `AIResult.latencyMs` |
-| Translation latency | STT → translate → TTS (мс) |
 | Avatar FPS | frame clock |
 
 ## ResourceManager (ТЗ §62)
@@ -54,7 +53,6 @@ Battery 10%  +  High thermal  =  не запускать тяжёлую лока
 | Launcher startup | < 1.5 c |
 | Orb FPS | 60 (с лёгкими анимациями) |
 | Hands latency (click) | < 500 мс |
-| Translation latency (text) | < 2 c (локальный словарь < 50 мс) |
 | RAM приложения | < 250 МБ базово |
 
 Фактические значения вносятся в device report после тестирования.

@@ -55,7 +55,6 @@ data class ProviderCapabilities(
     val chat: Boolean,
     val vision: Boolean,
     val embeddings: Boolean,
-    val translation: Boolean,
     val maxContext: Int
 )
 
@@ -77,6 +76,25 @@ interface AIProvider {
     fun capabilities(): ProviderCapabilities
     fun isConfigured(): Boolean
     fun isAvailable(): Boolean
+
+    /**
+     * Поддерживает ли провайдер стриминг ответа (SSE).
+     *
+     * Требование: голос должен начинать говорить ответ ДО того, как он
+     * полностью получен. Если стриминг недоступен, VoiceAgent использует
+     * filler-фразу («Дай подумать…»), чтобы пользователь сразу слышал отклик.
+     */
+    fun supportsStreaming(): Boolean = false
+
+    /**
+     * Стриминг ответа: поток инкрементальных порций текста (дельт).
+     * По умолчанию провайдер отдаёт весь ответ одним куском после [chat].
+     */
+    fun chatStream(prompt: String, systemPrompt: String? = null): kotlinx.coroutines.flow.Flow<String> =
+        kotlinx.coroutines.flow.flow {
+            val result = chat(prompt, systemPrompt)
+            if (result.success) emit(result.text)
+        }
 
     suspend fun chat(prompt: String, systemPrompt: String? = null): AIResult
     suspend fun vision(prompt: String, imageBytes: ByteArray): AIResult

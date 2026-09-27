@@ -41,7 +41,6 @@ class LocalAIProvider(
             chat = isAvailable(),
             vision = false,
             embeddings = false,
-            translation = false,
             maxContext = activeModel()?.context ?: 0
         )
 

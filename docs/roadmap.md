@@ -23,8 +23,7 @@
 | Local AI runtime | CODE VERIFIED | llama.cpp (GGUF) интегрирован; inference требует устройства |
 | AI Provider abstraction + маршрутизаторы | CODE VERIFIED | HybridPipeline — реальный local→remote pipeline |
 | Personal Server Manager | CODE VERIFIED | /health, /capabilities, /inference |
-| Translator RU ↔ VI | CODE VERIFIED | локальный фразовый + AI-провайдер |
-| Vision | CODE VERIFIED | camera translation требует устройства |
+| Vision | CODE VERIFIED | анализ изображения требует устройства |
 | Avatar Engine | CODE VERIFIED | L0/L1 доступны; L2/L3 не заявляются |
 | Owner Identity (Keystore) | CODE VERIFIED | `Build.SERIAL` удалён |
 | Permission Manager + Center | CODE VERIFIED | + device test |
@@ -43,7 +42,6 @@
 - ROLE_HOME назначение/снятие/перезагрузка;
 - Реальный Mobile Harness pipeline;
 - Установка локальной модели (решение пользователя) → load → inference → benchmark;
-- Camera translation с провайдером зрения;
 - Измерение performance-метрик;
 - Permission revoke/regrant циклы;
 - Offline-тест и LOCAL_ONLY data-egress тест.
@@ -55,7 +53,6 @@
 3. Рендер Real Avatar (реалистичный аватар с синхронизацией речи и губ)
    — отдельный движок, подключается при наличии ресурсов; AvatarEngine
    выбирает только зарегистрированные renderer'ы.
-4. Локальный OCR для camera translation без провайдера.
 5. Подписанный release: keystore в CI-секретах → signed APK + AAB + SHA-256.
 
 ## Технический долг: устранено
@@ -65,7 +62,7 @@
 - `DisplayMetrics` + `defaultDisplay.getRealMetrics` → `WindowMetrics` (API 30+)
   с fallback для старых устройств — `DeviceCapabilityManager`;
 - `Locale("ru","RU")` конструкторы → `Locale.forLanguageTag("ru-RU")` /
-  `"vi-VN"` — voice, translator, HomeViewModel;
+  HomeViewModel (русский интерфейс);
 - `FLAG_IS_GAME` (deprecated с API 29) → `ApplicationInfo.CATEGORY_GAME`
   с fallback — `AppRegistry`;
 - неиспользуемый `stream`/PNG-компрессия в `VisionManager.analyzeImage`;

@@ -49,7 +49,6 @@
 | ИИ | `AIModelRegistry`, `AIModelCompatibilityEngine`, `AIRouter`, `ModelRouter`, `PrivacyRouter` | Модели, маршрутизация, приватность |
 | Провайдеры | `AIProvider` + реализации | Local / OpenAI-compatible / Personal Server |
 | Сервер | `PersonalServerManager` | Подключение пользовательского compute |
-| Перевод | `TranslatorProviderManager`, `SvetlanaTranslator` | RU ↔ VI |
 | Аватар | `AvatarEngine` | Адаптивный выбор режима |
 | Владелец | `OwnerIdentity` | Профиль владельца, Android Keystore |
 | Разрешения | `PermissionManager` | Мастер и Permission Center |

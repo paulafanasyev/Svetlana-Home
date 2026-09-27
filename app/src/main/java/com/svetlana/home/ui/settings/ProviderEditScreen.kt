@@ -162,6 +162,66 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
             }
         }
 
+        // Ручной ввод модели: не все провайдеры отдают /models, а пользователь
+        // может знать название модели из документации (аудит п.3 —
+        // «нет выбора моделей»). Поле всегда доступно.
+        item {
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Column {
+                    Text("Модель", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = model, onValueChange = {
+                            model = it
+                            verifiedModel = null
+                            modelTestStatus = ""
+                        },
+                        label = { Text("Например: gpt-4o-mini") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Можно ввести вручную или выбрать из списка ниже " +
+                                "после «Получить модели».",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ActionChip("Проверить модель") {
+                            if (model.isBlank()) {
+                                modelTestStatus = "Укажите модель"
+                                return@ActionChip
+                            }
+                            isWorking = true
+                            modelTestStatus = "Тестирую inference…"
+                            scope.launch(Dispatchers.IO) {
+                                manager.update(config.copy(name = name, baseUrl = baseUrl, model = model))
+                                manager.setApiKey(config.id, apiKey)
+                                val provider = OpenAiCompatibleProvider(
+                                    ServiceLocator.context(), config.copy(baseUrl = baseUrl, model = model)
+                                )
+                                val r: AIResult = provider.testModel(model)
+                                withContext(Dispatchers.Main) {
+                                    isWorking = false
+                                    modelTestStatus = if (r.success) {
+                                        verifiedModel = model
+                                        "✓ Модель «$model» ответила: «${r.text.take(40)}» (${r.latencyMs}мс)"
+                                    } else "✕ ${r.text.take(100)}"
+                                }
+                            }
+                        }
+                    }
+                    if (modelTestStatus.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(modelTestStatus, style = MaterialTheme.typography.bodySmall,
+                            color = if (modelTestStatus.startsWith("✓")) MintPrimary else WarnAmber)
+                    }
+                }
+            }
+        }
+
         // Реальный список моделей с сервера
         if (remoteModels.isNotEmpty()) {
             item {
@@ -187,35 +247,11 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                 }
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ActionChip("Проверить модель") {
-                        if (model.isBlank()) {
-                            modelTestStatus = "Выберите модель из списка"
-                            return@ActionChip
-                        }
-                        isWorking = true
-                        modelTestStatus = "Тестирую inference…"
-                        scope.launch(Dispatchers.IO) {
-                            val provider = OpenAiCompatibleProvider(
-                                ServiceLocator.context(), config.copy(baseUrl = baseUrl, model = model)
-                            )
-                            manager.setApiKey(config.id, apiKey)
-                            val r: AIResult = provider.testModel(model)
-                            withContext(Dispatchers.Main) {
-                                isWorking = false
-                                modelTestStatus = if (r.success) {
-                                    verifiedModel = model
-                                    "✓ Модель «$model» ответила: «${r.text.take(40)}» (${r.latencyMs}мс)"
-                                } else "✕ ${r.text.take(100)}"
-                            }
-                        }
-                    }
-                }
-                if (modelTestStatus.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(modelTestStatus, style = MaterialTheme.typography.bodySmall,
-                        color = if (modelTestStatus.startsWith("✓")) MintPrimary else WarnAmber)
-                }
+                Text(
+                    text = "Выберите модель из списка, затем проверьте её кнопкой выше.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
             }
         }
 

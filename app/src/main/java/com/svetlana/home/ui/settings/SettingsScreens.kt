@@ -13,11 +13,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +34,9 @@ import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
 import com.svetlana.home.ui.theme.TextSecondary
+import com.svetlana.home.voice.VoiceAssistantService
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * Настройки голоса (аудит п.8): STT, TTS, wake word, язык.
@@ -38,9 +44,9 @@ import com.svetlana.home.ui.theme.TextSecondary
 @Composable
 fun VoiceSettingsScreen() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val tts = remember { ServiceLocator.tts }
     val recognizer = remember { ServiceLocator.speechRecognizer }
-    var selectedLang by remember { mutableStateOf("ru-RU") }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         GlassCard(modifier = Modifier.fillMaxWidth()) {
@@ -55,6 +61,10 @@ fun VoiceSettingsScreen() {
         }
 
         GlassCard(modifier = Modifier.fillMaxWidth()) {
+            var wakeOn by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                wakeOn = ServiceLocator.settings.wakeWordEnabled.first()
+            }
             Column {
                 Text("Wake word", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
@@ -62,9 +72,10 @@ fun VoiceSettingsScreen() {
                     style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Слушатель работает через системный STT по таймеру, " +
-                            "а не как low-power always-on детектор. Это ограничение " +
-                            "текущей реализации.",
+                    text = "Фоновый ассистент слушает слово пробуждения, даже " +
+                            "когда приложение свёрнуто. Работает через системный " +
+                            "STT по таймеру, а не как low-power always-on детектор — " +
+                            "это ограничение текущей реализации.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
@@ -76,27 +87,24 @@ fun VoiceSettingsScreen() {
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
-            }
-        }
-
-        // Язык распознавания
-        GlassCard(modifier = Modifier.fillMaxWidth()) {
-            Column {
-                Text("Язык STT", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(6.dp))
-                listOf("ru-RU" to "Русский", "vi-VN" to "Вьетнамский").forEach { (id, label) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (selectedLang == id) MintPrimary.copy(alpha = 0.15f) else AlmostBlack)
-                            .clickable { selectedLang = id }
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(label, modifier = Modifier.weight(1f))
-                        if (selectedLang == id) Text("✓", color = MintPrimary)
-                    }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (wakeOn) "Фоновый ассистент включён" else "Фоновый ассистент выключен",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = wakeOn,
+                        onCheckedChange = { enabled ->
+                            wakeOn = enabled
+                            scope.launch {
+                                ServiceLocator.settings.setWakeWordEnabled(enabled)
+                                if (enabled) VoiceAssistantService.startIfEnabled(context)
+                                else VoiceAssistantService.stop(context)
+                            }
+                        }
+                    )
                 }
             }
         }

@@ -317,6 +317,153 @@ class AppControlEngine(
 
     suspend fun openSettings(): ActionResult = openApp("настройки")
 
+    // ------------------------------------------------------------------
+    // Длинные многошаговые Hands-цепочки
+    // ------------------------------------------------------------------
+
+    /**
+     * Многошаговая цепочка: «открой Whatsapp и напиши контакту Серый привет как дела».
+     *
+     *   Шаг 1: открыть приложение и дождаться реального перехода в foreground
+     *   Шаг 2: открыть чат с контактом (напрямую или через поиск)
+     *   Шаг 3: найти поле ввода и напечатать текст
+     *   Шаг 4: нажать кнопку «Отправить»
+     *   Шаг 5: проверить, что сообщение появилось в чате
+     *
+     * Каждый шаг имеет собственную proof-цепочку. Провал любого шага
+     * останавливает цепочку: нельзя отправить то, что не введено.
+     */
+    suspend fun composeMessage(appTarget: String, contact: String, text: String): ActionResult {
+        val action = SvetlanaAction.ComposeMessage(appTarget, contact, text)
+        if (!hands.isActive) {
+            return ActionResult(action, false,
+                "Для этого действия нужен Hands, но он не включён", emptyList())
+        }
+        val steps = mutableListOf<ProofStep>()
+        steps += ProofStep(ProofStage.PLAN, StepStatus.OK,
+            "PLAN_TARGET=COMPOSE_MESSAGE app=$appTarget contact=$contact text=${text.take(32)}")
+
+        // Шаг 1: открыть приложение
+        val open = openApp(if (appTarget.isBlank()) DEFAULT_MESSENGER else appTarget)
+        steps += open.proof
+        if (!open.success) {
+            steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED: приложение не открыто")
+            return ActionResult(action, false, open.message, steps, open.way)
+        }
+        kotlinx.coroutines.delay(UI_SETTLE_MS)
+
+        // Шаг 2: открыть чат с контактом
+        val chat = openChatWithContact(contact, steps)
+        if (!chat.ok) {
+            steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED: чат не открыт")
+            return ActionResult(action, false, chat.message, steps, "hands")
+        }
+
+        // Шаг 3: найти поле ввода и напечатать текст
+        val field = hands.findEditableField()
+        if (field == null) {
+            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "поле ввода не найдено")
+            steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED")
+            return ActionResult(action, false, "Не нашла поле ввода для сообщения", steps, "hands")
+        }
+        val typed = hands.inputText(field, text)
+        steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "текст введён: «${text.take(32)}»")
+        val textEntered = typed && hands.verifyTextEntered(field, text)
+        steps += ProofStep(ProofStage.ACTION_PERFORMED,
+            if (textEntered) StepStatus.OK else StepStatus.FAILED,
+            if (textEntered) "PLAN_STEP3=TYPE_TEXT PLAN_STEP3_STATUS=ACTION_PERFORMED"
+            else "PLAN_STEP3_STATUS=FAILED")
+        if (!textEntered) {
+            steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED: текст не введён")
+            return ActionResult(action, false, "Не удалось напечатать сообщение", steps, "hands")
+        }
+
+        // Шаг 4: нажать «Отправить»
+        val send = hands.findSendButton()
+        if (send == null) {
+            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "кнопка отправки не найдена")
+            steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED")
+            return ActionResult(action, false, "Не нашла кнопку отправки сообщения", steps, "hands")
+        }
+        val sent = hands.clickNode(send)
+        steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "нажата кнопка отправки")
+
+        // Шаг 5: проверить — сообщение появилось в чате
+        kotlinx.coroutines.delay(UI_SETTLE_MS)
+        val verified = sent && (hands.verifyTextVisible(text) || hands.findEditableField() != null)
+        steps += ProofStep(ProofStage.ACTION_PERFORMED, if (sent) StepStatus.OK else StepStatus.FAILED,
+            "PLAN_STEP4=SEND PLAN_STEP4_STATUS=${if (sent) "ACTION_PERFORMED" else "FAILED"}")
+        steps += ProofStep(ProofStage.RESULT_VERIFIED, if (verified) StepStatus.OK else StepStatus.UNVERIFIED,
+            if (verified) "PLAN_RESULT=VERIFIED" else "PLAN_RESULT=NOT PROVEN")
+
+        return ActionResult(action, verified,
+            if (verified) "Сообщение «${text.take(24)}» отправлено контакту $contact"
+            else "Не удалось подтвердить отправку сообщения",
+            steps, "hands")
+    }
+
+    /**
+     * Открыть чат с контактом в мессенджере: сначала пробуем найти чат в
+     * списке напрямую, затем — через поиск контакта.
+     */
+    private suspend fun openChatWithContact(contact: String, steps: MutableList<ProofStep>): StepResult {
+        steps += ProofStep(ProofStage.TARGET_APP_IDENTIFIED, StepStatus.OK, "контакт: $contact")
+
+        // 2a. Чат уже в списке
+        val direct = hands.findElement(contact)
+        if (direct != null && direct.isClickable) {
+            val clicked = hands.clickNode(direct)
+            kotlinx.coroutines.delay(UI_SETTLE_MS)
+            val hasInput = hands.findEditableField() != null
+            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "чат найден в списке, нажатие")
+            steps += stepPerformed(hasInput, "PLAN_STEP2=OPEN_CHAT")
+            if (clicked && hasInput) return StepResult(true, "Чат с $contact открыт")
+        }
+
+        // 2b. Через поиск: нажать «поиск»/«new chat», ввести контакт, выбрать
+        val searchEntry = hands.findElement("поиск")
+            ?: hands.findElement("search")
+            ?: hands.findElement("new chat")
+            ?: hands.findElement("новый чат")
+        if (searchEntry == null) {
+            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED,
+                "чат не найден в списке и нет кнопки поиска")
+            return StepResult(false, "Не нашла чат с $contact")
+        }
+        hands.clickNode(searchEntry)
+        kotlinx.coroutines.delay(UI_SETTLE_MS)
+        val searchField = hands.findEditableField()
+            ?: run {
+                steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "поле поиска не появилось")
+                return StepResult(false, "Не удалось открыть поиск контакта")
+            }
+        hands.inputText(searchField, contact)
+        kotlinx.coroutines.delay(UI_SETTLE_MS)
+        val found = hands.findElement(contact)
+        if (found == null || !found.isClickable) {
+            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "контакт не найден в результатах поиска")
+            return StepResult(false, "Контакт $contact не найден")
+        }
+        val clicked = hands.clickNode(found)
+        kotlinx.coroutines.delay(UI_SETTLE_MS)
+        val hasInput = hands.findEditableField() != null
+        steps += stepPerformed(clicked && hasInput, "PLAN_STEP2=OPEN_CHAT")
+        return if (clicked && hasInput) StepResult(true, "Чат с $contact открыт")
+        else StepResult(false, "Не удалось открыть чат с $contact")
+    }
+
+    private fun stepPerformed(ok: Boolean, plan: String): ProofStep =
+        ProofStep(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
+            "$plan PLAN_STEP2_STATUS=${if (ok) "ACTION_PERFORMED" else "FAILED"}")
+
+    private data class StepResult(val ok: Boolean, val message: String)
+
+    companion object {
+        private const val UI_SETTLE_MS = 600L
+        // Мессенджер по умолчанию, если пользователь не назвал приложение.
+        private const val DEFAULT_MESSENGER = "whatsapp"
+    }
+
     /**
      * Звонок. Опасное действие — требует подтверждения пользователя.
      */

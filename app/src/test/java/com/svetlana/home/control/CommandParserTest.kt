@@ -97,18 +97,7 @@ class CommandParserTest {
         assertThat(action.element).isEqualTo("Поиск")
     }
 
-    @Test
-    fun `translate to vietnamese parses direction`() {
-        val action = CommandParser.parse("Света, переведи на вьетнамский «Привет»") as SvetlanaAction.Translate
-        assertThat(action.text).isEqualTo("Привет")
-        assertThat(action.direction).isEqualTo("ru-vi")
-    }
 
-    @Test
-    fun `translate to russian direction`() {
-        val action = CommandParser.parse("переведи на русский xin chào") as SvetlanaAction.Translate
-        assertThat(action.direction).isEqualTo("vi-ru")
-    }
 
     @Test
     fun `call parses contact`() {
@@ -132,5 +121,67 @@ class CommandParserTest {
         assertThat(CommandParser.parse("какая сегодня погода")).isNull()
         assertThat(CommandParser.parse("")).isNull()
         assertThat(CommandParser.parse("Света")).isNull()
+    }
+
+    // ---------- Составные команды (длинные Hands-цепочки) ----------
+
+    @Test
+    fun `compose message with app parses`() {
+        val action = CommandParser.parse("Света, открой Whatsapp и напиши контакту Серый привет как дела")
+        assertThat(action).isInstanceOf(SvetlanaAction.ComposeMessage::class.java)
+        val msg = action as SvetlanaAction.ComposeMessage
+        assertThat(msg.appTarget).isEqualTo("whatsapp")
+        assertThat(msg.contact).isEqualTo("серый")
+        assertThat(msg.text).isEqualTo("привет как дела")
+    }
+
+    @Test
+    fun `compose message without app uses default messenger`() {
+        val action = CommandParser.parse("напиши контакту Серый привет как дела")
+        assertThat(action).isInstanceOf(SvetlanaAction.ComposeMessage::class.java)
+        val msg = action as SvetlanaAction.ComposeMessage
+        assertThat(msg.contact).isEqualTo("серый")
+        assertThat(msg.text).isEqualTo("привет как дела")
+    }
+
+    @Test
+    fun `compose message keeps multiword contact name`() {
+        val action = CommandParser.parse("открой Telegram и напиши контакту Серый Друг привет")
+        assertThat(action).isInstanceOf(SvetlanaAction.ComposeMessage::class.java)
+        val msg = action as SvetlanaAction.ComposeMessage
+        assertThat(msg.contact).isEqualTo("серый друг")
+        assertThat(msg.text).isEqualTo("привет")
+    }
+
+    @Test
+    fun `compose message quoted contact`() {
+        val action = CommandParser.parse("открой Whatsapp и напиши «Серый» привет как дела")
+        assertThat(action).isInstanceOf(SvetlanaAction.ComposeMessage::class.java)
+        val msg = action as SvetlanaAction.ComposeMessage
+        assertThat(msg.contact).isEqualTo("Серый")
+        assertThat(msg.text).contains("привет")
+    }
+
+    @Test
+    fun `compound open and click parses as sequence`() {
+        val action = CommandParser.parse("Света, открой Telegram и нажми поиск")
+        assertThat(action).isInstanceOf(SvetlanaAction.Compound::class.java)
+        val compound = action as SvetlanaAction.Compound
+        assertThat(compound.steps).hasSize(2)
+        assertThat(compound.steps[0]).isInstanceOf(SvetlanaAction.OpenApp::class.java)
+        assertThat(compound.steps[1]).isInstanceOf(SvetlanaAction.Click::class.java)
+        // Поиск должен выполняться в контексте Telegram, а не «current»
+        assertThat((compound.steps[1] as SvetlanaAction.Click).target).isEqualTo("telegram")
+        assertThat((compound.steps[1] as SvetlanaAction.Click).element).contains("поиск")
+    }
+
+    @Test
+    fun `compound open and type retargets to app`() {
+        val action = CommandParser.parse("открой Telegram и введи привет")
+        assertThat(action).isInstanceOf(SvetlanaAction.Compound::class.java)
+        val compound = action as SvetlanaAction.Compound
+        val type = compound.steps[1] as SvetlanaAction.TypeText
+        assertThat(type.target).isEqualTo("telegram")
+        assertThat(type.text).isEqualTo("привет")
     }
 }

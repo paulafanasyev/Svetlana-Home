@@ -73,6 +73,6 @@ Svetlana Home работает без подключённого внешнег�
 
 Без интернета работают: launcher, app drawer, app registry, запуск
 приложений, базовый Hands, local AI, local STT/TTS, local OCR-чтение
-экрана, local translation, настройки.
+экрана, настройки.
 
 Облачные функции честно показывают отсутствие сети.

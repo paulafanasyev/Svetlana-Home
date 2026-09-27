@@ -44,7 +44,6 @@ import com.svetlana.home.ai.ProviderConfig
 import com.svetlana.home.core.SvetlanaStatus
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.memory.HistoryCategory
-import com.svetlana.home.translate.TranslateDirection
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
@@ -189,7 +188,7 @@ fun AiProvidersScreen() {
         item {
             Text(
                 text = if (configs.isEmpty()) stringResource(R.string.provider_none)
-                else "Внешние AI не обязательны: launcher, Hands и переводчик работают и без них.",
+                else "Внешние AI не обязательны: launcher, Hands и голос работают и без них.",
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -531,33 +530,3 @@ fun ServerScreen() {
     }
 }
 
-@Composable
-fun TranslatorSettingsScreen() {
-    val settings = ServiceLocator.settings
-    val scope = rememberCoroutineScope()
-    var backend by remember { mutableStateOf("auto") }
-    LaunchedEffect(Unit) { backend = settings.translatorBackend.first() }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.translate_backend), style = MaterialTheme.typography.titleMedium)
-        listOf("auto" to "Авто (AI, если доступен)", "ai" to "AI-перевод", "local-phrase" to "Локальный (фразы)")
-            .forEach { (id, label) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (backend == id) MintPrimary.copy(alpha = 0.15f) else AlmostBlack)
-                        .clickable { backend = id; scope.launch { settings.setTranslatorBackend(id) } }
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(label, modifier = Modifier.weight(1f))
-                    if (backend == id) Text("✓", color = MintPrimary)
-                }
-            }
-        Text(
-            text = "Направления: ${TranslateDirection.RU_TO_VI.label} и ${TranslateDirection.VI_TO_RU.label}",
-            style = MaterialTheme.typography.bodySmall
-        )
-    }
-}

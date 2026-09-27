@@ -3,6 +3,7 @@ package com.svetlana.home
 import android.app.Application
 import android.content.ComponentCallbacks2
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.voice.VoiceAssistantService
 
 /**
  * Точка входа приложения SVETLANA HOME.
@@ -14,6 +15,9 @@ class SvetlanaApp : Application() {
         super.onCreate()
         instance = this
         ServiceLocator.init(this)
+        // ТЗ §21: фоновый голосовой ассистент. Запускается только если
+        // пользователь включил wake word и выдал разрешение на микрофон.
+        VoiceAssistantService.startIfEnabled(this)
     }
 
     override fun onTrimMemory(level: Int) {

@@ -6,12 +6,10 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.svetlana.home.R
-import com.svetlana.home.ai.AIMode
 import com.svetlana.home.avatar.AvatarLevel
-import com.svetlana.home.control.ActionRouter
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.memory.HistoryCategory
-import com.svetlana.home.translate.TranslateDirection
+import com.svetlana.home.voice.VoiceAgent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,21 +46,29 @@ class HomeViewModel : ViewModel() {
     }
 
     /**
-     * ТЗ §21: слово пробуждения, обнаруженное WakeWordEngine в фоне.
+     * Наблюдение за событиями диалога из единого ядра (VoiceAgent).
      *
-     * Цепочка: Микрофон → STT → WakeWordMatcher → DETECTED → команда → Action Router.
-     * Аудит п.8: раньше результат STT никогда не читался, поэтому «Света»
-     * физически не могла быть обнаружена. Теперь WakeWordEngine публикует
-     * команду сюда, и она обрабатывается как обычный голосовой ввод.
+     * Фоновый сервис — единственный исполнитель голосовых команд (чтобы
+     * команда не выполнялась дважды). Этот наблюдатель только отображает
+     * ответы Светланы на экране, когда приложение открыто.
+     *
+     * Цепочка: Микрофон → STT → WakeWordMatcher → VoiceAgent → ответ → экран.
      */
-    fun observeWakeWord(context: Context) {
+    fun observeDialogueEvents() {
         viewModelScope.launch(Dispatchers.Default) {
-            ServiceLocator.wakeWord.detection.collect { command ->
-                if (command.isNullOrBlank()) return@collect
-                ServiceLocator.wakeWord.consumeDetection()
-                ServiceLocator.historyManager.record(
-                    HistoryCategory.COMMANDS, "Wake word: ${command.take(120)}")
-                handleInput(context, command)
+            ServiceLocator.voiceAgent.events.collect { event ->
+                when (event) {
+                    is VoiceAgent.DialogueEvent.Reply -> _state.value = _state.value.copy(
+                        isThinking = false,
+                        isSpeaking = ServiceLocator.tts.isAvailable,
+                        lastReply = event.text
+                    )
+                    is VoiceAgent.DialogueEvent.ConfirmationRequired -> _state.value = _state.value.copy(
+                        isThinking = false,
+                        lastReply = event.message,
+                        pendingConfirmation = event.action
+                    )
+                }
             }
         }
     }
@@ -86,103 +92,37 @@ class HomeViewModel : ViewModel() {
 
     /**
      * Обработать команду пользователя: текстом или голосом.
-     * Сначала — Action Router (управление устройством), потом — AI-чат.
+     *
+     * Делегирует в VoiceAgent — единое ядро диалога, которое используется
+     * и главным экраном, и фоновым голосовым сервисом. Поэтому поведение
+     * диалога одинаково, где бы пользователь ни обратился к Светлане.
      */
     fun handleInput(context: Context, text: String) {
         if (text.isBlank()) return
-        ServiceLocator.historyManager.record(HistoryCategory.COMMANDS, "Ввод: ${text.take(120)}")
         _state.value = _state.value.copy(isThinking = true, lastReply = context.getString(R.string.home_thinking))
 
         viewModelScope.launch(Dispatchers.Default) {
-            // 1. Команды управления устройством
-            val router: ActionRouter = ServiceLocator.actionRouter
-            val actionResult = router.route(text)
-            if (actionResult != null) {
-                val reply = actionResult.message
-                _state.value = _state.value.copy(
+            val outcome = ServiceLocator.voiceAgent.handle(
+                text = text,
+                speak = true,
+                tts = ServiceLocator.tts,
+                onPartial = { partial ->
+                    // Ответ ИИ стримится: пользователь сразу видит текст,
+                    // не дожидаясь полного ответа.
+                    _state.value = _state.value.copy(lastReply = partial)
+                }
+            )
+            when (outcome) {
+                is VoiceAgent.Outcome.Replied -> _state.value = _state.value.copy(
                     isThinking = false,
-                    lastReply = reply,
-                    pendingConfirmation = if (actionResult.requiresUserConfirmation) actionResult.action else null
+                    lastReply = outcome.text
                 )
-                speak(context, reply)
-                return@launch
+                is VoiceAgent.Outcome.Confirmation -> _state.value = _state.value.copy(
+                    isThinking = false,
+                    lastReply = outcome.message,
+                    pendingConfirmation = outcome.action
+                )
             }
-
-            // 2. Команды выбора ИИ
-            val aiCommand = handleAiCommand(context, text)
-            if (aiCommand != null) {
-                _state.value = _state.value.copy(isThinking = false, lastReply = aiCommand)
-                speak(context, aiCommand)
-                refreshBackendLabel()
-                return@launch
-            }
-
-            // 3. Запрос к моделям
-            val memory = ServiceLocator.personalMemory.context()
-            val prompt = if (memory.isNotBlank()) "$memory\n\n$text" else text
-            val aiResult = ServiceLocator.aiRouter.chat(prompt)
-            val reply = if (aiResult.success) aiResult.text
-            else "${aiResult.text}".ifBlank { context.getString(R.string.reply_provider_failed) }
-            _state.value = _state.value.copy(isThinking = false, lastReply = reply)
-            speak(context, reply)
-        }
-    }
-
-    private suspend fun handleAiCommand(context: Context, text: String): String? {
-        val low = text.lowercase().trim().replace("ё", "е")
-        return when {
-            low.contains("только локальный") || low.contains("только устройство") -> {
-                ServiceLocator.settings.setAiMode(AIMode.LOCAL_ONLY)
-                "Хорошо, теперь используется только локальный ИИ. Ничего не отправляется в облако."
-            }
-            low.contains("мой сервер") -> {
-                ServiceLocator.settings.setAiMode(AIMode.MY_SERVER)
-                "Хорошо, теперь используется ваш сервер."
-            }
-            low.contains("локальный в приоритете") -> {
-                ServiceLocator.settings.setAiMode(AIMode.LOCAL_FIRST)
-                "Хорошо, локальный ИИ в приоритете."
-            }
-            low.contains("внешнего провайдера") || low.contains("openai-compatible") -> {
-                ServiceLocator.settings.setAiMode(AIMode.EXTERNAL)
-                "Хорошо, используется внешний провайдер."
-            }
-            low.contains("не отправляй") && low.contains("облако") -> {
-                ServiceLocator.settings.setAiMode(AIMode.LOCAL_ONLY)
-                "Хорошо, данные не будут покидать устройство."
-            }
-            low.contains("какой ии") || low.contains("какая модель") || low.contains("кто отвечает") -> {
-                ServiceLocator.aiRouter.currentBackendLabel()
-            }
-            low.contains("какой ии может работать") || low.contains("какие модели") ||
-                    low.contains("подходящие варианты") -> {
-                offerModels(context)
-            }
-            else -> null
-        }
-    }
-
-    /**
-     * ТЗ §64: предложить модели, ничего не скачивая.
-     */
-    private suspend fun offerModels(context: Context): String {
-        val report = ServiceLocator.compatibility.bestFit(ServiceLocator.modelRegistry)
-            ?: return "Я не нашла модели, совместимой с этим устройством."
-        val caps = ServiceLocator.device.current()
-        return buildString {
-            append("Я нашла локальную модель, совместимую с вашим устройством.\n\n")
-            append("Название: ${report.model.name}\n")
-            append("Размер: ${report.model.sizeMb} МБ\n")
-            append("Требуется памяти: ${report.model.ramRequirementMb} МБ (на устройстве ${caps.ramTotalMb} МБ)\n")
-            append("Ожидаемая производительность: ${report.expectedPerf}\n\n")
-            append("Скачать можно в разделе «Локальный ИИ». Я ничего не скачиваю без вашего решения.")
-        }
-    }
-
-    private fun speak(context: Context, text: String) {
-        if (ServiceLocator.tts.isAvailable) {
-            _state.value = _state.value.copy(isSpeaking = true)
-            ServiceLocator.tts.speak(text)
         }
     }
 
@@ -234,7 +174,7 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.Default) {
             val result = ServiceLocator.actionRouter.execute(action, confirmed = true)
             _state.value = _state.value.copy(lastReply = result.message)
-            speak(context, result.message)
+            ServiceLocator.tts.speak(result.message)
         }
     }
 

@@ -1,6 +1,5 @@
 package com.svetlana.home.ui.launcher
 
-import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
@@ -19,26 +18,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.Send
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,29 +47,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.svetlana.home.R
 import com.svetlana.home.core.ServiceLocator
-import com.svetlana.home.ui.apps.AppDrawerActivity
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.components.LivingOrb
-import com.svetlana.home.ui.history.HistoryActivity
 import com.svetlana.home.ui.onboarding.OnboardingFlowContent
-import com.svetlana.home.ui.settings.SettingsActivity
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
 import com.svetlana.home.ui.theme.MintSoft
@@ -82,15 +70,17 @@ import com.svetlana.home.ui.theme.SvetlanaTheme
 import com.svetlana.home.ui.theme.TextPrimary
 import com.svetlana.home.ui.theme.TextSecondary
 import com.svetlana.home.ui.theme.TextTertiary
-import com.svetlana.home.ui.translate.TranslateActivity
+import com.svetlana.home.voice.VoiceAssistantService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
 /**
  * Главный экран SVETLANA HOME.
  *
- * Минималистичный: часы, Living Orb, имя, строка ввода, быстрые действия.
- * Не превращается в перегруженную панель управления (ТЗ §5).
+ * Три страницы (свайп влево/вправо):
+ *  1. Голос — орб и голосовое общение;
+ *  2. Чат — текстовая переписка со Светой;
+ *  3. Приложения — закреплённые приложения, все приложения и настройки.
  */
 class HomeActivity : ComponentActivity() {
 
@@ -122,11 +112,11 @@ class HomeActivity : ComponentActivity() {
         }
     }
 
+    @OptIn(ExperimentalFoundationApi::class)
     @Composable
     private fun HomeContent(viewModel: HomeViewModel) {
         val context = LocalContext.current
         val uiState by viewModel.state.collectAsState()
-        var inputText by remember { mutableStateOf("") }
 
         LaunchedEffect(Unit) {
             while (true) {
@@ -138,15 +128,16 @@ class HomeActivity : ComponentActivity() {
             viewModel.refreshAvatarLevel()
             viewModel.refreshBackendLabel()
         }
-        // ТЗ §21: фоновое прослушивание слова пробуждения.
+        // ТЗ §21: фоновый голосовой ассистент. Цикл прослушивания слова
+        // пробуждения живёт в foreground-сервисе, поэтому работает и в фоне.
+        // Здесь лишь запускаем сервис (если он ещё не работает) и следим за
+        // ответами Светланы для отображения на экране.
         LaunchedEffect(Unit) {
-            // Запускаем цикл прослушивания: он сам проверяет настройку
-            // пользователя, и честно простаивает, если wake word выключен.
-            if (ServiceLocator.permissionManager.isGranted(android.Manifest.permission.RECORD_AUDIO)) {
-                ServiceLocator.wakeWord.start()
-            }
-            viewModel.observeWakeWord(context)
+            VoiceAssistantService.startIfEnabled(context)
+            viewModel.observeDialogueEvents()
         }
+
+        val pagerState = rememberPagerState(initialPage = 0) { 3 }
 
         Box(
             modifier = Modifier
@@ -168,253 +159,230 @@ class HomeActivity : ComponentActivity() {
                     )
             )
 
-            Column(
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                when (page) {
+                    0 -> VoicePage(viewModel, uiState)
+                    1 -> ChatScreen(viewModel = viewModel<ChatViewModel>())
+                    2 -> AppsPageScreen(ServiceLocator.appRegistry)
+                }
+            }
+
+            // Индикатор страниц
+            Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .imePadding()
-                    .statusBarsPadding()
-                    .navigationBarsPadding(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Часы
-                Text(
-                    text = uiState.clock.ifBlank { "21:42" },
-                    style = TextStyle(fontSize = 44.sp, color = TextPrimary, textAlign = TextAlign.Center),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 24.dp)
-                )
-
-                // Аудит P0: если Светлана ещё не главный экран — показываем
-                // подсказку с переходом к системному ROLE_HOME.
-                val pm = remember { ServiceLocator.permissionManager }
-                // Аудит п.11: состояние должно обновляться при возврате из
-                // системных настроек ROLE_HOME, а не кэшироваться на весь
-                // жизненный цикл Compose.
-                val lifecycleOwner = LocalLifecycleOwner.current
-                var isHome by remember { mutableStateOf(pm.isHomeLauncher()) }
-                LaunchedEffect(lifecycleOwner) {
-                    lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                        isHome = pm.isHomeLauncher()
-                    }
-                }
-                if (!isHome) {
-                    GlassCard(
+                repeat(3) { index ->
+                    val selected = pagerState.currentPage == index
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "Светлана ещё не назначена главным экраном",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary,
-                                modifier = Modifier.weight(1f)
+                            .size(if (selected) 10.dp else 7.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (selected) MintPrimary else MintSoft.copy(alpha = 0.35f)
                             )
-                            Text(
-                                text = "Назначить",
-                                color = MintPrimary,
-                                style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable {
-                                        val intent = pm.homeRoleIntent()
-                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        try { context.startActivity(intent) } catch (t: Throwable) { }
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Орб
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    LivingOrb(
-                        size = 210.dp,
-                        level = uiState.orbLevel,
-                        active = uiState.orbActive || uiState.isListening || uiState.isThinking,
-                        speaking = uiState.isSpeaking
                     )
-                    Spacer(Modifier.height(18.dp))
-                    Text(
-                        text = stringResource(R.string.svetlana_name),
-                        style = MaterialTheme.typography.headlineMedium
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = uiState.lastReply,
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        maxLines = 6,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 32.dp)
-                    )
-                    if (uiState.aiBackendLabel.isNotBlank()) {
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            text = uiState.aiBackendLabel,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextTertiary
-                        )
-                    }
-                    // ТЗ §9: если режим деградирован, Светлана честно
-                    // объясняет причину (ресурсы устройства/недоступный renderer).
-                    if (uiState.orbReason.isNotBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = uiState.orbReason,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextTertiary,
-                            textAlign = TextAlign.Center,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 32.dp)
-                        )
-                    }
-                }
-
-                // Подтверждение опасного действия
-                AnimatedVisibility(
-                    visible = uiState.pendingConfirmation != null,
-                    enter = fadeIn(), exit = fadeOut()
-                ) {
-                    GlassCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
-                    ) {
-                        Column {
-                            Text(
-                                text = uiState.lastReply,
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            Row {
-                                Text(
-                                    text = stringResource(R.string.confirm),
-                                    color = MintPrimary,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .clickable { viewModel.confirmPendingAction(context) }
-                                        .padding(horizontal = 18.dp, vertical = 8.dp)
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    text = stringResource(R.string.cancel),
-                                    color = TextSecondary,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .clickable { viewModel.cancelPendingAction() }
-                                        .padding(horizontal = 18.dp, vertical = 8.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Поле ввода
-                GlassCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp
-                    )
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        BasicTextField(
-                            value = inputText,
-                            onValueChange = { inputText = it; viewModel.updatePartial(it) },
-                            textStyle = TextStyle(color = TextPrimary, fontSize = 16.sp),
-                            cursorBrush = SolidColor(MintPrimary),
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.Sentences,
-                                imeAction = ImeAction.Send
-                            ),
-                            keyboardActions = KeyboardActions(onSend = {
-                                if (inputText.isNotBlank()) {
-                                    viewModel.handleInput(context, inputText)
-                                    inputText = ""
-                                }
-                            }),
-                            modifier = Modifier.weight(1f),
-                            decorationBox = { inner ->
-                                if (inputText.isEmpty()) {
-                                    Text(
-                                        text = stringResource(R.string.home_input_hint),
-                                        color = TextTertiary,
-                                        style = MaterialTheme.typography.bodyLarge
-                                    )
-                                }
-                                inner()
-                            }
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        IconButton(onClick = { viewModel.startListening(context) }) {
-                            Icon(
-                                imageVector = if (uiState.isListening) Icons.Outlined.GraphicEq else Icons.Outlined.Mic,
-                                contentDescription = "Микрофон",
-                                tint = if (uiState.isListening) MintPrimary else TextSecondary
-                            )
-                        }
-                        IconButton(onClick = {
-                            if (inputText.isNotBlank()) {
-                                viewModel.handleInput(context, inputText)
-                                inputText = ""
-                            }
-                        }) {
-                            Icon(Icons.Outlined.Send, contentDescription = "Отправить", tint = MintPrimary)
-                        }
-                    }
-                }
-
-                // Быстрые действия
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    QuickAction(stringResource(R.string.home_apps), Icons.Outlined.Apps) {
-                        context.startActivity(Intent(context, AppDrawerActivity::class.java))
-                    }
-                    QuickAction(stringResource(R.string.home_translator), Icons.Outlined.Translate) {
-                        context.startActivity(Intent(context, TranslateActivity::class.java))
-                    }
-                    QuickAction("История", Icons.Outlined.Settings) {
-                        context.startActivity(Intent(context, HistoryActivity::class.java))
-                    }
-                    QuickAction(stringResource(R.string.home_settings), Icons.Outlined.Settings) {
-                        context.startActivity(Intent(context, SettingsActivity::class.java))
-                    }
                 }
             }
         }
     }
 
+    /**
+     * Страница 1: только голосовое общение.
+     * Орб, часы, ответ Светланы и кнопка микрофона.
+     */
     @Composable
-    private fun QuickAction(label: String, icon: ImageVector, onClick: () -> Unit) {
+    private fun VoicePage(viewModel: HomeViewModel, uiState: HomeUiState) {
+        val context = LocalContext.current
+
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .clickable(onClick = onClick)
-                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .statusBarsPadding()
+                .padding(bottom = 72.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(icon, contentDescription = label, tint = MintSoft)
-            Spacer(Modifier.height(6.dp))
-            Text(label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            // Часы
+            Text(
+                text = uiState.clock.ifBlank { "21:42" },
+                style = TextStyle(fontSize = 44.sp, color = TextPrimary, textAlign = TextAlign.Center),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 24.dp)
+            )
+
+            // Аудит P0: если Светлана ещё не главный экран — показываем
+            // подсказку с переходом к системному ROLE_HOME.
+            val pm = remember { ServiceLocator.permissionManager }
+            // Аудит п.11: состояние должно обновляться при возврате из
+            // системных настроек ROLE_HOME, а не кэшироваться на весь
+            // жизненный цикл Compose.
+            val lifecycleOwner = LocalLifecycleOwner.current
+            var isHome by remember { mutableStateOf(pm.isHomeLauncher()) }
+            LaunchedEffect(lifecycleOwner) {
+                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    isHome = pm.isHomeLauncher()
+                }
+            }
+            if (!isHome) {
+                GlassCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Светлана ещё не назначена главным экраном",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "Назначить",
+                            color = MintPrimary,
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    val intent = pm.homeRoleIntent()
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    try { context.startActivity(intent) } catch (t: Throwable) { }
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
+
+            // Орб
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
+                LivingOrb(
+                    size = 210.dp,
+                    level = uiState.orbLevel,
+                    active = uiState.orbActive || uiState.isListening || uiState.isThinking,
+                    speaking = uiState.isSpeaking
+                )
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    text = stringResource(R.string.svetlana_name),
+                    style = MaterialTheme.typography.headlineMedium
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = uiState.lastReply,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    maxLines = 6,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp)
+                )
+                if (uiState.aiBackendLabel.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = uiState.aiBackendLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextTertiary
+                    )
+                }
+                // ТЗ §9: если режим деградирован, Светлана честно
+                // объясняет причину (ресурсы устройства/недоступный renderer).
+                if (uiState.orbReason.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = uiState.orbReason,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextTertiary,
+                        textAlign = TextAlign.Center,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 32.dp)
+                    )
+                }
+            }
+
+            // Подтверждение опасного действия
+            AnimatedVisibility(
+                visible = uiState.pendingConfirmation != null,
+                enter = fadeIn(), exit = fadeOut()
+            ) {
+                GlassCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = uiState.lastReply,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row {
+                            Text(
+                                text = stringResource(R.string.confirm),
+                                color = MintPrimary,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { viewModel.confirmPendingAction(context) }
+                                    .padding(horizontal = 18.dp, vertical = 8.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = stringResource(R.string.cancel),
+                                color = TextSecondary,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { viewModel.cancelPendingAction() }
+                                    .padding(horizontal = 18.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Кнопка голосового ввода
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(CircleShape)
+                    .background(MintPrimary.copy(alpha = if (uiState.isListening) 0.3f else 0.16f))
+                    .clickable {
+                        if (uiState.isListening) viewModel.stopListening()
+                        else viewModel.startListening(context)
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (uiState.isListening) Icons.Outlined.GraphicEq else Icons.Outlined.Mic,
+                    contentDescription = "Микрофон",
+                    tint = MintPrimary,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+            Text(
+                text = if (uiState.isListening) "Слушаю…" else stringResource(R.string.home_input_hint),
+                style = MaterialTheme.typography.labelMedium,
+                color = TextTertiary
+            )
         }
     }
 }

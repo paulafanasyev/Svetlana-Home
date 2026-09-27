@@ -7,9 +7,16 @@
     <!-- Главный экран -->
     <string name="home_input_hint">Скажите или напишите</string>
     <string name="home_apps">Приложения</string>
-    <string name="home_translator">Переводчик</string>
     <string name="home_settings">Настройки</string>
     <string name="home_thinking">Светлана думает…</string>
+
+    <!-- Страницы главного экрана -->
+    <string name="page_voice">Голос</string>
+    <string name="page_chat">Чат</string>
+    <string name="page_apps">Приложения</string>
+    <string name="apps_pin">На главный экран</string>
+    <string name="apps_pinned_section">Закреплены</string>
+    <string name="apps_all_section">Все приложения</string>
 
     <!-- Onboarding -->
     <string name="onboarding_welcome">Добро пожаловать в Светлану</string>
@@ -19,7 +26,6 @@
     <string name="onboarding_ability_harness">управлять Mobile Harness;</string>
     <string name="onboarding_ability_voice">работать голосом;</string>
     <string name="onboarding_ability_vision">видеть экран;</string>
-    <string name="onboarding_ability_translate">переводить русский и вьетнамский;</string>
     <string name="onboarding_ability_local">использовать локальный ИИ;</string>
     <string name="onboarding_ability_external">подключать внешние AI;</string>
     <string name="onboarding_ability_server">работать с вашим сервером.</string>
@@ -42,8 +48,6 @@
     <!-- Заголовки экранов -->
     <string name="title_settings">Настройки</string>
     <string name="title_apps">Приложения</string>
-    <string name="title_translator">Светлана Переводчик</string>
-    <string name="title_camera_translate">Перевод через камеру</string>
     <string name="title_history">История Светланы</string>
     <string name="title_local_ai">Локальный ИИ</string>
     <string name="title_providers">Провайдеры ИИ</string>
@@ -100,6 +104,14 @@
     <!-- Ответы Светланы -->
     <string name="reply_confirm_dangerous">Это опасное действие. Подтвердите его выполнение.</string>
     <string name="reply_provider_failed">Выбранный провайдер не смог выполнить задачу</string>
+    <string name="reply_empty">Мне нечего сказать</string>
+
+    <!-- Фоновый голосовой ассистент -->
+    <string name="voice_agent_channel_name">Голосовой ассистент</string>
+    <string name="voice_agent_channel_desc">Светлана слушает слово пробуждения в фоне</string>
+    <string name="voice_agent_notification_title">Светлана слушает</string>
+    <string name="voice_agent_notification_text">Скажите «Света», чтобы дать команду</string>
+    <string name="voice_agent_confirm_open">Открываю приложение для подтверждения</string>
 
     <!-- AI-режимы -->
 
@@ -136,14 +148,6 @@
     <string name="server_disconnect">Отключить</string>
     <string name="server_capabilities">Возможности сервера</string>
     <string name="server_free_tier_note">Приложение не гарантирует, что ресурс бесплатен — проверяйте условия сами</string>
-
-    <!-- Переводчик -->
-    <string name="translate_speak_ru">Говорите по-русски</string>
-    <string name="translate_speak_vi">Говорите по-вьетнамски</string>
-    <string name="translate_sync_mode">Режим разговора</string>
-    <string name="translate_backend">Способ перевода</string>
-    <string name="translate_swap">Поменять направление</string>
-    <string name="translate_result">Перевод</string>
 
     <!-- Avatar -->
 

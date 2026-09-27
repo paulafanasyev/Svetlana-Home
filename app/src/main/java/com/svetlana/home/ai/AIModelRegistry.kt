@@ -198,7 +198,7 @@ class AIModelRegistry {
             license = "CC BY-NC 4.0",
             source = "Cohere For AI",
             downloadUrl = "https://huggingface.co/mradermacher/aya-8B-GGUF/resolve/main/AYA-8B.Q4_K_M.gguf",
-            description = "Мультиязычная модель с сильной поддержкой русского и вьетнамского"
+            description = "Мультиязычная модель с сильной поддержкой русского языка"
         )
     )
 

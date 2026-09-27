@@ -5,8 +5,8 @@
 Репозиторий: https://github.com/paulafanasyev/Svetlana-Home
 
 Hands + Voice + Vision + управление приложениями + Mobile Harness +
-локальный ИИ + внешние AI-провайдеры + персональный сервер + RU↔VI
-переводчик + адаптивный аватар.
+локальный ИИ + внешние AI-провайдеры + персональный сервер +
+адаптивный аватар.
 
 Главная идея: пользователь управляет телефоном и установленными
 приложениями естественным голосом или текстом, а Светлана сама
@@ -30,7 +30,6 @@ Hands + Voice + Vision + управление приложениями + Mobile 
 - [External Providers](#external-providers)
 - [Personal Server](#personal-server)
 - [Hybrid AI](#hybrid-ai)
-- [Translator](#translator)
 - [Avatar](#avatar)
 - [Owner](#owner)
 - [Permissions](#permissions)
@@ -140,7 +139,7 @@ compileSdk 36, AGP 8.11.0, Kotlin 1.9.22, Java 17.
 - Русский STT и TTS через системные движки;
 - Wake words: **Света**, **Светочка**, **Светлана**;
 - Команды: «открой Telegram», «сделай скриншот», «пролистай вниз»,
-  «нажми кнопку», «введи это значение», «переведи на вьетнамский»;
+  «нажми кнопку», «введи это значение»;
 - Управление режимами ИИ голосом.
 
 Подробно: [docs/voice.md](docs/voice.md).
@@ -183,7 +182,6 @@ Target Finder → Action → Verification → Ответ Светланы
 - Чтение экрана (UI tree, офлайн, без OCR);
 - Скриншоты (Android 11+);
 - Анализ изображения через VLM-провайдера;
-- Camera translation (камера → OCR → перевод).
 
 Подробно: [docs/vision.md](docs/vision.md).
 
@@ -247,20 +245,6 @@ GPU server, бесплатный/условно бесплатный cloud compu
 
 Подробно: [docs/hybrid-ai.md](docs/hybrid-ai.md),
 [docs/remote-ai.md](docs/remote-ai.md).
-
-## Translator
-
-Русский ↔ Вьетнамский:
-
-- текст;
-- голос (STT → перевод → TTS);
-- синхронный режим разговора с автоопределением языка;
-- перевод через камеру.
-
-Backend выбирает пользователь: AI-перевод или локальный словарь
-(работает офлайн).
-
-Подробно: [docs/translator.md](docs/translator.md).
 
 ## Avatar
 
@@ -357,7 +341,7 @@ battery, screen, camera, mic, network.
   моделей согласованы с этим (`gpuSupport=false`), чтобы не заявлять GPU
   там, где его нет (аудит 7.1). Вывод идёт на CPU/NEON — медленнее, но
   честно; пользователь видит реальную скорость в benchmark'е.
-- **OCR на устройстве** ограничен: camera translation использует
+- **OCR на устройстве** ограничен: анализ изображений идёт через
   VLM-провайдера; офлайн-чтение экрана работает через UI tree.
 - **Hands требует ручного включения** в системных настройках —
   это требование Android, приложение не может включить сервис само.
@@ -380,7 +364,6 @@ battery, screen, camera, mic, network.
 [hands](docs/hands.md),
 [voice](docs/voice.md),
 [vision](docs/vision.md),
-[translator](docs/translator.md),
 [local-ai](docs/local-ai.md),
 [model-registry](docs/model-registry.md),
 [model-compatibility](docs/model-compatibility.md),
@@ -432,7 +415,6 @@ battery, screen, camera, mic, network.
 | Personal Server | CODE VERIFIED | /health, /capabilities, /inference + кнопка «Проверить inference» в UI |
 | Hybrid AI | CODE VERIFIED | `HybridPipeline`: privacy→preprocess→sanitize→remote→postprocess |
 | Privacy / LOCAL_ONLY | CODE VERIFIED | `PrivacyPolicy` + device-тест блокировки egress |
-| Translator RU↔VI | CODE VERIFIED | multilingual STT + device-тест обоих направлений |
 | Owner Identity | CODE VERIFIED | Android Keystore; `Build.SERIAL` убран |
 | Permissions | CODE VERIFIED | **геолокация разделена**: permission vs location services |
 | Avatar Engine | CODE VERIFIED | `AvatarFallback`: L0/L1 доступны; false-capability покрыт unit-тестами |
