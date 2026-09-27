@@ -25,10 +25,9 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AppControlProofDeviceTest : SvetlanaDeviceTest() {
 
-    private val engine by lazy { ServiceLocator.controlEngine }
-
     @Test
     fun openUnresolvableApp_failsHonestly() = runBlocking {
+        val engine = ServiceLocator.controlEngine
         // Несуществующее приложение не должно запускаться
         val result = engine.openApp("такогоприложениянет_${System.currentTimeMillis()}")
 
@@ -39,6 +38,7 @@ class AppControlProofDeviceTest : SvetlanaDeviceTest() {
 
     @Test
     fun openSettingsApp_producesFullProofChain() = runBlocking {
+        val engine = ServiceLocator.controlEngine
         // Настройки есть на любом Android-устройстве — безопасная цель для теста
         val result = engine.openApp("настройки")
 
@@ -55,8 +55,8 @@ class AppControlProofDeviceTest : SvetlanaDeviceTest() {
         if (result.success) {
             val performed = result.proof.first { it.stage == ProofStage.ACTION_PERFORMED }
             val verified = result.proof.first { it.stage == ProofStage.RESULT_VERIFIED }
-            assertTrue("При успехе ACTION_PERFORMED должен быть OK", performed.status.isOk())
-            assertTrue("При успехе RESULT_VERIFIED должен быть OK", verified.status.isOk())
+            assertTrue("При успехе ACTION_PERFORMED должен быть OK", performed.status == com.svetlana.home.core.StepStatus.OK)
+            assertTrue("При успехе RESULT_VERIFIED должен быть OK", verified.status == com.svetlana.home.core.StepStatus.OK)
             assertTrue("Сообщение об успехе должно быть на русском", result.message.contains("открыто"))
         }
         // Возвращаемся на главный экран, чтобы не мешать другим тестам
@@ -65,6 +65,7 @@ class AppControlProofDeviceTest : SvetlanaDeviceTest() {
 
     @Test
     fun clickRequiresActiveHands() = runBlocking {
+        val engine = ServiceLocator.controlEngine
         // Click требует Hands; если он выключен — честный отказ, а не имитация
         val result = engine.click("Настройки", "кнопка_которой_нет")
         if (!ServiceLocator.hands.isActive) {
@@ -79,6 +80,7 @@ class AppControlProofDeviceTest : SvetlanaDeviceTest() {
 
     @Test
     fun takeScreenshotWorksOrFailsHonestly() = runBlocking {
+        val engine = ServiceLocator.controlEngine
         val bmp = engine.takeScreenshot("Настройки")
         // Скриншот может требовать Hands/API — проверяем, что вызов не падает
         // и возвращает Bitmap при наличии доступа, либо null без него
@@ -87,6 +89,7 @@ class AppControlProofDeviceTest : SvetlanaDeviceTest() {
 
     @Test
     fun proofChain_neverReportsPerformedWithoutAttempt() = runBlocking {
+        val engine = ServiceLocator.controlEngine
         // ТЗ §20: ACTION_PERFORMED нельзя выставить без реального выполнения.
         // Для несуществующей цели вся цепочка должна быть согласована:
         // если есть ACTION_ATTEMPTED, то последующий шаг не может быть OK,
@@ -100,10 +103,7 @@ class AppControlProofDeviceTest : SvetlanaDeviceTest() {
             val performed = result.proof.first { it.stage == ProofStage.ACTION_PERFORMED }
             // Даже если попытались — несуществующая цель не может быть OK
             assertFalse("ACTION_PERFORMED не может быть OK для несуществующей цели",
-                performed.status.isOk())
+                performed.status == com.svetlana.home.core.StepStatus.OK)
         }
     }
-
-    private fun com.svetlana.home.core.StepStatus.isOk(): Boolean =
-        this == com.svetlana.home.core.StepStatus.OK
 }

@@ -59,7 +59,7 @@ class LocalOnlyDeviceTest {
         ServiceLocator.settings.setAiMode(AIMode.LOCAL_ONLY)
         val mode = ServiceLocator.settings.aiMode.first()
 
-        assertEquals("Настройка должна сохраниться", AIMode.LOCAL_ONLY.name, mode)
+        assertEquals("Настройка должна сохраниться", AIMode.LOCAL_ONLY, mode)
 
         val canSendText = ServiceLocator.privacyRouter.canSend(PrivacyDataType.TEXT, AIBackend.EXTERNAL)
         assertFalse("Текст не должен уходить внешнему провайдеру в LOCAL_ONLY", canSendText.allowed)
