@@ -292,7 +292,23 @@ jobs:
           if-no-files-found: error
 
       - name: Report gate result
-        run: echo "PRODUCTION_GATE=PASSED"
+        # Каждый шаг выше — настоящий gate: нештатный выход заваливает job.
+        # Этот шаг только суммирует доказательства.
+        run: |
+          echo "=== PRODUCTION GATE: доказательства ==="
+          echo "✓ lint: 0 errors (lintDebug)"
+          echo "✓ unit tests: testDebugUnitTest"
+          echo "✓ debug APK собран и провалидирован"
+          echo "✓ release APK: подпись проверена apksigner (не jarsigner)"
+          echo "✓ release AAB собран"
+          echo "✓ 16 KB: все нативные библиотеки (check_16kb_alignment.py)"
+          echo "✓ checksums: SHA-256 для каждого артефакта"
+          echo "✓ secret scan: шаблоны ключей не найдены"
+          echo ""
+          echo "PRODUCTION_GATE=PASSED"
+          echo ""
+          echo "NOTE: этот gate доказывает сборку и подпись, но НЕ заменяет"
+          echo "физическое тестирование на устройстве ( DEVICE VERIFIED )."
 
   # ─── Publish GitHub Release ─────────────────────────────────────
   # Публикует подписанный release APK + AAB + checksums в GitHub Releases,
