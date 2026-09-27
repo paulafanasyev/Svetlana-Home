@@ -1,5 +1,6 @@
 package com.svetlana.home.ai.local
 
+import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.svetlana.home.SvetlanaDeviceTest
 import com.svetlana.home.ai.BenchmarkRunner
@@ -31,7 +32,17 @@ class LocalAiDeviceTest : SvetlanaDeviceTest() {
     fun runtimeReportsNativeAvailability() {
         val runtime = ServiceLocator.llamaRuntime
         println("LLAMA_SUPPORTED_IDS=${runtime.supportedModelIds()}")
-        // На arm64-устройстве список не пуст (POCO X3 NFC = arm64-v8a).
+        // llama.cpp собран только под arm64-v8a. На CI-эмуляторе (x86_64)
+        // нативного слоя нет — это ожидаемое состояние, а не сбой:
+        // runtime честно сообщает «недоступно на этом ABI». Проверяем
+        // реальную доступность только на arm64 (POCO X3 NFC).
+        val isArm64 = Build.SUPPORTED_ABIS.any { it.contains("arm64") }
+        if (!isArm64) {
+            println("SKIP: llama.cpp недоступен на x86_64 (ожидаемо для CI-эмулятора)")
+            assertTrue("На x86_64 нативный слой должен быть недоступен",
+                runtime.supportedModelIds().isEmpty())
+            return
+        }
         assertTrue("llama.cpp должен поддерживать хотя бы одну модель из реестра",
             runtime.supportedModelIds().isNotEmpty())
     }

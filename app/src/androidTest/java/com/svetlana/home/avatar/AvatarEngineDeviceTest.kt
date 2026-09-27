@@ -29,7 +29,7 @@ class AvatarEngineDeviceTest : SvetlanaDeviceTest() {
         // Запросим самый высокий уровень — движок должен выбрать ближайший
         // доступный, а не несуществующий L3.
         val engine = ServiceLocator.avatarEngine
-        val decision = engine.decide(override = AvatarLevel.L3_FULL_REAL_AVATAR.level)
+        val decision = runBlocking { engine.decide(override = AvatarLevel.L3_FULL_REAL_AVATAR.level) }
 
         println("REQUESTED=${decision.requestedLevel} AVAILABLE=${decision.rendererAvailable} SELECTED=${decision.selectedLevel}")
         assertTrue("Выбранный уровень должен быть доступным",

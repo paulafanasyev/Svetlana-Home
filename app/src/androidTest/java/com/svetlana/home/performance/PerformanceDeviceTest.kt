@@ -67,7 +67,7 @@ class PerformanceDeviceTest {
     @Test
     fun measure_avatarDecision_latency() {
         val started = System.currentTimeMillis()
-        val decision = ServiceLocator.avatarEngine.decide()
+        val decision = runBlocking { ServiceLocator.avatarEngine.decide() }
         val ms = System.currentTimeMillis() - started
 
         println("PERF_AVATAR_DECISION=${ms}ms requested=${decision.requestedLevel.label} " +
