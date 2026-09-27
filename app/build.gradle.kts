@@ -20,10 +20,14 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         // llama.cpp runtime собран только под arm64-v8a (POCO X3 NFC = ARM64).
-        // На остальных ABI нативных библиотек нет — ограничиваем явно, чтобы
-        // не устанавливать APK на устройство, где local AI не сможет работать.
+        // x86_64 добавлен специально для CI: hosted-раннер GitHub — x86_64
+        // эмулятор, и без этого ABI instrumented-тесты физически не могут
+        // установиться ("0 of which were compatible"). На x86_64 нативный
+        // llama.cpp не загрузится — runtime честно сообщит об этом через
+        // UnsatisfiedLinkError, а вся JVM-логика (launcher, registry,
+        // permissions, owner, proof chain, translator) тестируется полноценно.
         ndk {
-            abiFilters += "arm64-v8a"
+            abiFilters += listOf("arm64-v8a", "x86_64")
         }
     }
 
