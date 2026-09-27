@@ -213,6 +213,7 @@ runtime, а не только компилируется.
 | `LocalOnlyDeviceTest` | LOCAL_ONLY физически блокирует egress любых данных |
 | `AppDrawerScanDeviceTest` | **scan() строит реальный список из PackageManager** (P0) |
 | `RoleAndLocationDeviceTest` | ROLE_HOME intent + геолокация: 2 независимых состояния (P0) |
+| `AppControlLaunchDeviceTest` | **device-only**: реальный запуск Настроек, pressHome, screenshot (arm64) |
 
 ### Статус выполнения на CI
 
@@ -221,10 +222,15 @@ CI выполняет эти тесты на x86_64-эмуляторе (API 30).
  Hands, Accessibility, SpeechRecognizer и нативный llama.cpp требуют
 ARM64 (POCO X3 NFC).
 
-- **CI VERIFIED**: 98 тестов запускаются и выполняются на эмуляторе.
+- **CI VERIFIED**: ~93 теста выполняются и проходят на эмуляторе.
 - **DEVICE VERIFIED**: пока NOT PROVEN — нужен POCO X3 NFC.
 
+Тесты, запускающие реальные Activity и системную навигацию
+(`AppControlLaunchDeviceTest`), выполняются **только на arm64** — на
+CI-эмуляторе они дестабилизируют instrumentation и честно пропускаются
+через `assumeTrue`, а не падают.
+
 Важно: эмулятор использует трансляцию ARM, поэтому `Build.SUPPORTED_ABIS`
-может сообщать arm64 даже когда нативного слоя llama.cpp нет. Тесты
+может сообщать arm64 даже когда нативного llama.cpp нет. Тесты
 проверяют фактическую загрузку, а не заявленный ABI.
 
