@@ -47,7 +47,7 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         _partial.value = ""
     }
 
-    fun startListening(locale: Locale = Locale("ru", "RU")) {
+    fun startListening(locale: Locale = Locale.forLanguageTag("ru-RU")) {
         stopListening()
         clearResult()
         if (!isAvailable) {

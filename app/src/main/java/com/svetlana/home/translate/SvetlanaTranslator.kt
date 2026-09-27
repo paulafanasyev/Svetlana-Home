@@ -50,7 +50,7 @@ class SvetlanaTranslator(
                 "Распознавание речи недоступно на этом устройстве")
         }
         val locale = if (direction == TranslateDirection.RU_TO_VI)
-            java.util.Locale("ru", "RU") else java.util.Locale("vi", "VN")
+            java.util.Locale.forLanguageTag("ru-RU") else java.util.Locale.forLanguageTag("vi-VN")
         recognizer.startListening(locale)
         val result = waitForSttResult()
         recognizer.stopListening()
@@ -63,7 +63,7 @@ class SvetlanaTranslator(
             // интерфейса. RU→VI — вьетнамский, VI→RU — русский.
             tts.speak(translated.text,
                 if (direction == TranslateDirection.RU_TO_VI)
-                    java.util.Locale("vi", "VN") else java.util.Locale("ru", "RU"))
+                    java.util.Locale.forLanguageTag("vi-VN") else java.util.Locale.forLanguageTag("ru-RU"))
         }
         return translated
     }
@@ -106,7 +106,7 @@ class SvetlanaTranslator(
             // Озвучиваем перевод на целевом языке
             tts.speak(translated.text,
                 if (direction == TranslateDirection.RU_TO_VI)
-                    java.util.Locale("vi", "VN") else java.util.Locale("ru", "RU"))
+                    java.util.Locale.forLanguageTag("vi-VN") else java.util.Locale.forLanguageTag("ru-RU"))
         }
         return translated.copy(sourceText = spoken)
     }

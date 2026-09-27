@@ -197,7 +197,7 @@ class HomeViewModel : ViewModel() {
             return
         }
         _state.value = _state.value.copy(isListening = true, orbActive = true)
-        ServiceLocator.speechRecognizer.startListening(java.util.Locale("ru", "RU"))
+        ServiceLocator.speechRecognizer.startListening(java.util.Locale.forLanguageTag("ru-RU"))
 
         viewModelScope.launch(Dispatchers.Default) {
             var waited = 0

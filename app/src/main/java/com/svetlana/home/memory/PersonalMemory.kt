@@ -2,6 +2,7 @@ package com.svetlana.home.memory
 
 import android.content.Context
 import android.util.Log
+import com.svetlana.home.ai.AIMode
 import com.svetlana.home.store.SettingsRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.builtins.ListSerializer
@@ -55,6 +56,13 @@ class PersonalMemory(
 
     suspend fun context(maxItems: Int = 8): String {
         if (facts.isEmpty()) return ""
+        // ТЗ §61: персональная память не отправляется внешнему AI автоматически.
+        // Внешний провайдер получает её только если пользователь явно выбрал
+        // режим Remote; во всех остальных случаях контекст остаётся локальным.
+        val aiMode = settings.aiMode.first()
+        val memMode = settings.memoryMode.first()
+        if (memMode == MemoryMode.DISABLED) return ""
+        if (aiMode == AIMode.EXTERNAL && memMode != MemoryMode.REMOTE) return ""
         return facts.takeLast(maxItems).joinToString("\n") { "- ${it.text}" }
     }
 

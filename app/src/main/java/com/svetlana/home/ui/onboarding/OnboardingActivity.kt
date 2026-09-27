@@ -103,12 +103,16 @@ fun OnboardingFlowContent(
                 )
                 else -> PermissionSetupScreen(
                     onAllHandled = {
+                        // Сначала полностью сохраняем состояние onboarding,
+                        // и только потом открываем Home — иначе DataStore
+                        // может не успеть записать флаг до старта HomeActivity,
+                        // и пользователь увидит онбординг повторно (race).
                         scope.launch {
                             ServiceLocator.settings.setOnboardingDone(true)
                             ServiceLocator.settings.setSetupDone(true)
+                            launchHome()
+                            onFinished()
                         }
-                        launchHome()
-                        onFinished()
                     }
                 )
             }
@@ -128,9 +132,11 @@ fun OnboardingFlowContent(
                     }
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = {
-                        scope.launch { ServiceLocator.settings.setOnboardingDone(true) }
-                        launchHome()
-                        onFinished()
+                        scope.launch {
+                            ServiceLocator.settings.setOnboardingDone(true)
+                            launchHome()
+                            onFinished()
+                        }
                     }, modifier = Modifier.fillMaxWidth()) {
                         Text(text = stringResource(R.string.onboarding_skip))
                     }

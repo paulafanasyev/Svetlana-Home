@@ -58,6 +58,22 @@
 4. Локальный OCR для camera translation без провайдера.
 5. Подписанный release: keystore в CI-секретах → signed APK + AAB + SHA-256.
 
+## Технический долг: устранено
+
+Аудит отмечал накопленные warnings deprecated API. Исправлены:
+
+- `DisplayMetrics` + `defaultDisplay.getRealMetrics` → `WindowMetrics` (API 30+)
+  с fallback для старых устройств — `DeviceCapabilityManager`;
+- `Locale("ru","RU")` конструкторы → `Locale.forLanguageTag("ru-RU")` /
+  `"vi-VN"` — voice, translator, HomeViewModel;
+- `FLAG_IS_GAME` (deprecated с API 29) → `ApplicationInfo.CATEGORY_GAME`
+  с fallback — `AppRegistry`;
+- неиспользуемый `stream`/PNG-компрессия в `VisionManager.analyzeImage`;
+- onboarding race: `launchHome()` теперь ждёт завершения записи DataStore,
+  а не запускается параллельно с ней;
+- JUnit4 `initializationError`: launch-тест возвращал `runBlocking<Boolean>`
+  из-за `pressHome()` — добавлен явный `Unit`.
+
 ## Не в планах (запрещено ТЗ)
 
 - root, Termux, shell execution;

@@ -49,7 +49,7 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            val result = tts?.setLanguage(Locale("ru", "RU"))
+            val result = tts?.setLanguage(Locale.forLanguageTag("ru-RU"))
             ready = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED
             if (!ready) {
                 // Запасной язык
@@ -127,7 +127,7 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
             tts?.speak(text, if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
                 null, "svetlana_${System.currentTimeMillis()}")
             // Возвращаем русский как основной язык интерфейса
-            tts?.setLanguage(Locale("ru", "RU"))
+            tts?.setLanguage(Locale.forLanguageTag("ru-RU"))
         } catch (t: Throwable) {
             Log.w(TAG, "Не удалось озвучить текст на ${locale.toLanguageTag()}", t)
         }

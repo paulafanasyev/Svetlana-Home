@@ -93,12 +93,24 @@ class DeviceCapabilityManager(private val context: Context) {
         } catch (t: Throwable) { "unknown" }
         val gpuInfo = GpuProbe.rendererInfo(context)
 
-        val displayMetrics = DisplayMetrics().also {
-            (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager)
-                .defaultDisplay.getRealMetrics(it)
+        // Современный путь — WindowMetrics (API 30+); fallback на DisplayMetrics
+        // для старых устройств. getRealMetrics(Display) deprecated с API 30.
+        val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val (widthPx, heightPx, densityDpi) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val wm = windowManager.currentWindowMetrics
+            Triple(wm.bounds.width(), wm.bounds.height(),
+                context.resources.displayMetrics.densityDpi)
+        } else {
+            @Suppress("DEPRECATION")
+            DisplayMetrics().also { windowManager.defaultDisplay.getRealMetrics(it) }
+                .let { Triple(it.widthPixels, it.heightPixels, it.densityDpi) }
         }
-        val x = displayMetrics.widthPixels / displayMetrics.xdpi
-        val y = displayMetrics.heightPixels / displayMetrics.ydpi
+        // Точные физические размеры для диагонали экрана.
+        val dm = context.resources.displayMetrics
+        val xdpi = dm.xdpi.takeIf { it > 0f }?.toFloat() ?: dm.densityDpi.toFloat()
+        val ydpi = dm.ydpi.takeIf { it > 0f }?.toFloat() ?: dm.densityDpi.toFloat()
+        val x = widthPx.toFloat() / xdpi
+        val y = heightPx.toFloat() / ydpi
         val screenInches = Math.sqrt((x * x + y * y).toDouble())
 
         val battery = batteryStatus()
@@ -124,7 +136,7 @@ class DeviceCapabilityManager(private val context: Context) {
             batteryLevel = battery.first,
             batteryPercent = battery.second,
             screenInches = screenInches,
-            screenDensityDpi = displayMetrics.densityDpi,
+            screenDensityDpi = densityDpi,
             hasCamera = hasCamera(),
             hasMicrophone = hasMicrophone(),
             audioSupported = audioSupported(),

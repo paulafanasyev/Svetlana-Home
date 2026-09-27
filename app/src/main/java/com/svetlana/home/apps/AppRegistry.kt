@@ -124,7 +124,6 @@ class AppRegistry(
             val pkg = intent?.data?.schemeSpecificPart ?: return
             when (intent.action) {
                 Intent.ACTION_PACKAGE_ADDED,
-                Intent.ACTION_PACKAGE_INSTALL,
                 Intent.ACTION_PACKAGE_CHANGED -> refresh(pkg)
                 Intent.ACTION_PACKAGE_REMOVED -> remove(pkg)
                 Intent.ACTION_PACKAGE_REPLACED -> refresh(pkg)
@@ -272,7 +271,13 @@ class AppRegistry(
     private fun categorize(pkg: String, ai: android.content.pm.ApplicationInfo?): String {
         ai ?: return AppCategory.OTHER
         val isSystem = (ai.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
-        val isGame = (ai.flags and android.content.pm.ApplicationInfo.FLAG_IS_GAME) != 0
+        // FLAG_IS_GAME deprecated с API 29 — определяем игры через категорию приложения.
+        val isGame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ai.category == android.content.pm.ApplicationInfo.CATEGORY_GAME
+        } else {
+            @Suppress("DEPRECATION")
+            (ai.flags and android.content.pm.ApplicationInfo.FLAG_IS_GAME) != 0
+        }
         return AppCategoryResolver.resolve(pkg, isSystem, isGame)
     }
 

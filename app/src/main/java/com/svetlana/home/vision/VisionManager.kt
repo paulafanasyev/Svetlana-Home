@@ -74,11 +74,9 @@ class VisionManager(
      * На устройстве без установленной VLM возвращается описание состояния.
      */
     suspend fun analyzeImage(image: Bitmap): com.svetlana.home.ai.AIResult {
-        val stream = java.io.ByteArrayOutputStream().use { baos ->
-            image.compress(Bitmap.CompressFormat.PNG, 80, baos)
-            baos.toByteArray()
-        }
-        // Гибрид: предобработка локально, анализ на сервере/внешнем провайдере
+        // Гибрид: предобработка локально, анализ на сервере/внешнем провайдере.
+        // Bitmap уже в памяти — кодирование в PNG не требуется, провайдер
+        // работает с растровыми данными напрямую.
         val router = com.svetlana.home.core.ServiceLocator.aiRouter
         return router.chat("Проанализируй изображение и опиши, что на нём видно. Ответ на русском.",
             com.svetlana.home.ai.ModelRouter.TaskComplexity.HEAVY)
