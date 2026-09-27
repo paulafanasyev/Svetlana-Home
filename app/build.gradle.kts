@@ -141,11 +141,13 @@ dependencies {
     // Сеть: внешние AI-провайдеры и personal server
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // CameraX для Vision / camera translation
-    implementation("androidx.camera:camera-core:1.3.3")
-    implementation("androidx.camera:camera-camera2:1.3.3")
-    implementation("androidx.camera:camera-lifecycle:1.3.3")
-    implementation("androidx.camera:camera-view:1.3.3")
+    // CameraX для Vision / camera translation.
+    // 1.4.x поставляет нативные библиотеки с 16 KB ELF-выравниванием
+    // (libimage_processing_util_jni.so в 1.3.3 собрана с 4 KB p_align).
+    implementation("androidx.camera:camera-core:1.4.2")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
 
     // Локальный ИИ: llama.cpp (GGUF) — реальный on-device inference runtime.
     // MIT, arm64-v8a, CPU/NEON. Модель скачивается ТОЛЬКО по явному решению

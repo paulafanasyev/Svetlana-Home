@@ -252,52 +252,13 @@ jobs:
       - name: Check 16 KB native library alignment
         # Аудит п.22/п.4: настоящая проверка. p_align лежит в Elf64_Phdr
         # для PT_LOAD-сегментов, а не в смещении 0x20 (там e_phoff).
-        # Парсим ELF64-заголовок → таблицу program headers → PT_LOAD.p_align.
+        # Парсим ELF-заголовок → таблицу program headers → PT_LOAD.p_align.
+        # Лимитирующий фактор — МИНИМАЛЬНОЕ p_align среди сегментов.
         run: |
-          set -e
           APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
           TMP=$(mktemp -d)
           unzip -o -q "$APK" -d "$TMP" 'lib/*' || true
-          echo "=== ELF LOAD alignment нативных библиотек ==="
-          MISALIGNED=0
-          for so in $(find "$TMP" -name '*.so'); do
-            NAME=$(basename "$so")
-            ALIGN=$(python3 -c "
-              import struct, sys
-              with open('$so','rb') as f:
-                  magic = f.read(4)
-                  if magic != b'\x7fELF':
-                      print('not-elf'); sys.exit()
-                  f.seek(4); ei_class = struct.unpack('B', f.read(1))[0]
-                  if ei_class != 2:
-                      print('elf32'); sys.exit()
-                  # Elf64_Ehdr: e_phoff @ 0x20 (8B), e_phentsize @ 0x36 (2B), e_phnum @ 0x38 (2B)
-                  f.seek(0x20); e_phoff = struct.unpack('<Q', f.read(8))[0]
-                  f.seek(0x36); e_phentsize = struct.unpack('<H', f.read(2))[0]
-                  f.seek(0x38); e_phnum = struct.unpack('<H', f.read(2))[0]
-                  f.seek(e_phoff)
-                  phdrs = f.read(e_phentsize * e_phnum)
-                  load_aligns = []
-                  for i in range(e_phnum):
-                      p = phdrs[i*e_phentsize:(i+1)*e_phentsize]
-                      p_type = struct.unpack('<I', p[0:4])[0]
-                      # p_flags @ 0x04, p_offset @ 0x08, p_vaddr @ 0x10,
-                      # p_paddr @ 0x18, p_filesz @ 0x20, p_memsz @ 0x28, p_align @ 0x30
-                      p_align = struct.unpack('<Q', p[0x30:0x38])[0]
-                      if p_type == 1:  # PT_LOAD
-                          load_aligns.append(p_align)
-                  print(hex(max(load_aligns)) if load_aligns else 'no-load')
-              " 2>/dev/null || echo unknown)
-            if [ "$ALIGN" != "0x4000" ]; then
-              echo "  4KB-RISK  $NAME ($ALIGN)"
-              MISALIGNED=$((MISALIGNED+1))
-            else
-              echo "  16KB-OK   $NAME"
-            fi
-          done
-          echo ""
-          echo "MISALIGNED_LIBS=$MISALIGNED"
-          rm -rf "$TMP"
+          python3 scripts/check_16kb_alignment.py "$TMP"
 
       - name: Artifact checksums (SHA-256)
         # ТЗ §32: каждый артефакт сопровождается контрольной суммой.
