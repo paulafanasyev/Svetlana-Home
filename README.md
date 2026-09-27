@@ -397,21 +397,24 @@ battery, screen, camera, mic, network.
 | Подсистема | Статус | Основание |
 |------------|--------|-----------|
 | Repository / CI | VERIFIED | public repo, GitHub Actions, APK artifact |
-| Сборка APK | VERIFIED | debug 26.8 MB + release (R8), arm64-v8a |
+| Сборка APK | VERIFIED | debug + release (R8, подписанный), arm64-v8a |
 | Lint | VERIFIED | 0 errors |
-| Unit-тесты | VERIFIED | 101 тест, 0 неудач |
-| Instrumented-тесты | CI VERIFIED | 23 androidTest-класса; эмулятор ≠ устройство |
+| Unit-тесты | VERIFIED | 120 тестов, 0 неудач |
+| Instrumented-тесты | CI VERIFIED | 24 androidTest-класса; эмулятор ≠ устройство |
 | Launcher (ROLE_HOME) | CODE VERIFIED | Home-подсказка + раздел «Главный экран» с ActivityResult; **onboarding при первом запуске** |
 | App Registry / Drawer | CODE VERIFIED | **scan() теперь вызывается** — drawer реален; категории + capability matrix |
 | App Control + proof chain | CODE VERIFIED | `LaunchVerifier` ждёт foreground-переход |
+| **Длинные Hands-цепочки** | CODE VERIFIED | **ComposeMessage**: открыть→найти чат→напечатать→отправить→проверить; Compound с retarget |
 | Hands (dispatchGesture) | CODE VERIFIED | async-callback исправлен; нужен device-тест |
 | Mobile Harness | CODE VERIFIED | нужны device-тесты |
 | Voice (STT/TTS) | CODE VERIFIED | системные STT/TTS; wake word — polling |
+| **Фоновый голосовой агент** | CODE VERIFIED | **VoiceAssistantService** (foreground, тип microphone) + переключатель в настройках |
+| **Мгновенный голосовой отклик** | CODE VERIFIED | **filler «Дай подумать…» + SSE-стриминг** ответа |
 | Wake word | NOT PROVEN | не always-on low-power детектор |
 | Vision | CODE VERIFIED | нужны device-тесты |
 | Local AI runtime | CODE VERIFIED | llama.cpp встроен; **проверка модели после установки** (chain) |
 | Model Registry / Compatibility | CODE VERIFIED | требуется device-проверка совместимости |
-| External AI Providers | CODE VERIFIED | **полный config UI**: endpoint→key→/models→выбор→test inference→save; Custom preset для произвольных endpoint'ов |
+| External AI Providers | CODE VERIFIED | **полный config UI**: endpoint→key→/models→выбор→test inference→save; Custom preset; **нормализация /v1** |
 | Personal Server | CODE VERIFIED | /health, /capabilities, /inference + кнопка «Проверить inference» в UI |
 | Hybrid AI | CODE VERIFIED | `HybridPipeline`: privacy→preprocess→sanitize→remote→postprocess |
 | Privacy / LOCAL_ONLY | CODE VERIFIED | `PrivacyPolicy` + device-тест блокировки egress |
@@ -419,7 +422,7 @@ battery, screen, camera, mic, network.
 | Permissions | CODE VERIFIED | **геолокация разделена**: permission vs location services |
 | Avatar Engine | CODE VERIFIED | `AvatarFallback`: L0/L1 доступны; false-capability покрыт unit-тестами |
 | Device Capability | CODE VERIFIED | GPU через EGL + vendor; thermal через PowerManager |
-| Опасные действия | CODE VERIFIED | `ActionRiskPolicy` блокирует SendMessage/MakeCall/Share |
+| Опасные действия | CODE VERIFIED | `ActionRiskPolicy` блокирует SendMessage/MakeCall/Share/ComposeMessage |
 | Настройки | CODE VERIFIED | **разделены**: настройки Светланы vs «Системные настройки телефона» |
 | Physical POCO X3 NFC | NOT PROVEN | устройство не подключено к этой среде |
 | Production release | NOT PROVEN | R8+AAB собираются; подпись требует keystore в секретах |
