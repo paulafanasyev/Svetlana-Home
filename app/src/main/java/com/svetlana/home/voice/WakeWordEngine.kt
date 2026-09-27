@@ -54,6 +54,14 @@ class WakeWordEngine(
                 try {
                     val enabled = settings.wakeWordEnabled.first()
                     if (!enabled) { delay(1000); continue }
+                    // Аудит-2026 проблема 1: если пользователь сейчас говорит
+                    // (активна foreground-сессия) — НЕ перехватываем микрофон.
+                    // Раньше фоновый цикл убивал активную сессию пользователя.
+                    if (recognizer.foregroundSession.value) {
+                        _state.value = State.IDLE
+                        delay(500)
+                        continue
+                    }
                     _state.value = State.LISTENING
                     recognizer.startListening()
                     // окно прослушивания

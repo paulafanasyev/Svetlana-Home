@@ -3,6 +3,8 @@ package com.svetlana.home.voice
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -21,6 +23,14 @@ import java.util.Locale
 class SvetlanaSpeechRecognizer(private val context: Context) {
 
     private var recognizer: SpeechRecognizer? = null
+    // SpeechRenderer требует main-thread Looper. WakeWordEngine и другие
+    // фоновые корутины могут вызывать startListening() не из main thread —
+    // поэтому все операции с recogniser'ом выполняем через главный Handler.
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private fun onMain(action: () -> Unit) {
+        if (Looper.myLooper() === Looper.getMainLooper()) action()
+        else mainHandler.post { action() }
+    }
 
     private val _partial = MutableStateFlow("")
     val partial: StateFlow<String> = _partial.asStateFlow()
@@ -35,6 +45,17 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         get() = try {
             SpeechRecognizer.isRecognitionAvailable(context)
         } catch (t: Throwable) { false }
+
+    /**
+     * Активна ли ПРИОРИТЕТНАЯ сессия пользователя (тап по микрофону).
+     *
+     * Аудит-2026 проблема 1: фоновый цикл WakeWordEngine каждые ~4.4с
+     * вызывал startListening(), который сначала делает stopListening() —
+     * это уничтожало активную сессию пользователя. Теперь wake-word цикл
+     * видит этот флаг и пропускает своё окно прослушивания.
+     */
+    private val _foregroundSession = MutableStateFlow(false)
+    val foregroundSession: StateFlow<Boolean> = _foregroundSession.asStateFlow()
 
     /**
      * Очистка предыдущего результата (аудит п.9).
@@ -54,23 +75,26 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
             _result.value = SttResult.Error("Распознавание речи недоступно на этом устройстве")
             return
         }
+        _foregroundSession.value = true
         try {
-            recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-                setRecognitionListener(listener)
-            }
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale.toLanguageTag())
-                // ТЗ §53: разговорный режим RU↔VI — даём системе обе локали,
-                // чтобы она могла выбрать подходящую по факту сказанного.
-                if (locale.toLanguageTag() == "ru-RU") {
-                    putExtra(RecognizerIntent.EXTRA_SUPPORTED_LANGUAGES, arrayListOf("ru-RU", "vi-VN"))
+            onMain {
+                recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
+                    setRecognitionListener(listener)
                 }
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale.toLanguageTag())
+                    // ТЗ §53: разговорный режим RU↔VI — даём системе обе локали,
+                    // чтобы она могла выбрать подходящую по факту сказанного.
+                    if (locale.toLanguageTag() == "ru-RU") {
+                        putExtra(RecognizerIntent.EXTRA_SUPPORTED_LANGUAGES, arrayListOf("ru-RU", "vi-VN"))
+                    }
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                }
+                recognizer?.startListening(intent)
+                _listening.value = true
             }
-            recognizer?.startListening(intent)
-            _listening.value = true
         } catch (t: Throwable) {
             Log.w(TAG, "Не удалось начать распознавание", t)
             _result.value = SttResult.Error(t.message ?: "Ошибка распознавания")
@@ -89,22 +113,25 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
             _result.value = SttResult.Error("Распознавание речи недоступно на этом устройстве")
             return
         }
+        _foregroundSession.value = true
         try {
-            recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-                setRecognitionListener(listener)
+            onMain {
+                recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
+                    setRecognitionListener(listener)
+                }
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    // Основной язык — русский, но добавляем вьетнамский как
+                    // поддерживаемый. Часть реализаций IGNORE это, поэтому
+                    // финальное определение языка делаем по тексту.
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
+                    putExtra(RecognizerIntent.EXTRA_SUPPORTED_LANGUAGES, arrayListOf("ru-RU", "vi-VN"))
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                }
+                recognizer?.startListening(intent)
+                _listening.value = true
             }
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                // Основной язык — русский, но добавляем вьетнамский как
-                // поддерживаемый. Часть реализаций IGNORE это, поэтому
-                // финальное определение языка делаем по тексту.
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
-                putExtra(RecognizerIntent.EXTRA_SUPPORTED_LANGUAGES, arrayListOf("ru-RU", "vi-VN"))
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            }
-            recognizer?.startListening(intent)
-            _listening.value = true
         } catch (t: Throwable) {
             Log.w(TAG, "Не удалось начать multilingual распознавание", t)
             _result.value = SttResult.Error(t.message ?: "Ошибка распознавания")
@@ -121,9 +148,10 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
      */
     fun stopListening() {
         try {
-            recognizer?.stopListening()
+            onMain { recognizer?.stopListening() }
         } catch (t: Throwable) { /* ignore */ }
         _listening.value = false
+        _foregroundSession.value = false
     }
 
     /**
@@ -132,10 +160,12 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
      */
     fun release() {
         try {
-            recognizer?.cancel()
-            recognizer?.destroy()
+            onMain {
+                recognizer?.cancel()
+                recognizer?.destroy()
+                recognizer = null
+            }
         } catch (t: Throwable) { /* ignore */ }
-        recognizer = null
         _listening.value = false
     }
 

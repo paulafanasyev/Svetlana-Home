@@ -197,8 +197,7 @@ runtime, а не только компилируется.
 | `OwnerIdentityDeviceTest` | Создание владельца, Keystore, challenge/verify |
 | `SecureKeyStoreDeviceTest` | Keystore без небезопасного fallback, отказ при отсутствии |
 | `AppRegistryDeviceTest` | Реальный список приложений, aliases, favorites |
-| `AppControlDeviceTest` | Действия над приложениями, capability matrix |
-| `AppControlProofDeviceTest` | Proof chain: PLAN → IDENTIFIED → PERFORMED → VERIFIED |
+| `AppControlDeviceTest` | Действия над приложениями, capability matrix, proof chain |
 | `DangerousActionDeviceTest` | DANGEROUS действия блокируются без подтверждения |
 | `HandsDeviceTest` | Async dispatchGesture: await callback → ACTION_PERFORMED |
 | `MobileHarnessDeviceTest` | Обнаружение → запуск → UI tree → действие → verification |
@@ -222,7 +221,10 @@ CI выполняет эти тесты на x86_64-эмуляторе (API 30).
  Hands, Accessibility, SpeechRecognizer и нативный llama.cpp требуют
 ARM64 (POCO X3 NFC).
 
-- **CI VERIFIED**: ~93 теста выполняются и проходят на эмуляторе.
+- **CI VERIFIED**: 101 тест выполняется и проходит на эмуляторе
+  (4 skipped — arm64-only тесты через `assumeTrue`, 0 failed).
+  До исправления ABI-совместимости и non-void тест-методов
+  instrumentation падал; теперь проходит полностью.
 - **DEVICE VERIFIED**: пока NOT PROVEN — нужен POCO X3 NFC.
 
 Тесты, запускающие реальные Activity и системную навигацию
