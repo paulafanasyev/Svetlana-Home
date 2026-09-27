@@ -127,7 +127,16 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 600
           script: |
-            adb wait-for-device
+            # Эмулятор на hosted-раннере грузится ~350с под swiftshader.
+            # adb wait-for-device ловит «device offline» ещё до полной
+            # загрузки, поэтому явно ждём sys.boot_completed.
+            adb wait-for-device || true
+            for i in $(seq 1 120); do
+              BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+              if [ "$BOOT" = "1" ]; then echo "Boot completed after ${i}0s"; break; fi
+              sleep 10
+            done
+            if [ "$BOOT" != "1" ]; then echo "::error::Эмулятор не загрузился"; exit 1; fi
             ./gradlew connectedDebugAndroidTest --no-daemon
 
   # ─── Production gate ──────────────────────────────────────────
