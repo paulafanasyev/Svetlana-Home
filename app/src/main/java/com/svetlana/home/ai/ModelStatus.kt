@@ -59,6 +59,7 @@ data class ModelManifest(
 
 enum class ModelFormat(val magicHex: String, val humanName: String) {
     GGUF("47475546", "GGUF (llama.cpp)"),
+    UNKNOWN("", "Неизвестный формат"),
     /**
      * Контейнер LiteRT-LM имеет собственный заголовок, отдельный от
      * .tflite: первые 8 байт файла — ASCII "LITERTLM"
@@ -78,7 +79,7 @@ enum class ModelFormat(val magicHex: String, val humanName: String) {
      * смещения — так отсекаются HTML-страницы 404, мусор и .tflite файлы.
      */
     fun matchesMagic(header: ByteArray): Boolean {
-        if (magicHex.isEmpty()) return true
+        if (magicHex.isEmpty()) return false
         if (header.size < magicHex.length / 2) return false
         for (i in magicHex.indices step 2) {
             val expected = magicHex.substring(i, i + 2).toInt(16)
