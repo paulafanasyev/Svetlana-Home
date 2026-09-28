@@ -106,7 +106,7 @@ class LocalAIProvider(
         val model = activeModel()
         return if (model == null) {
             AIResult(false, "Локальная модель не установлена — это нормальное состояние", AIBackend.LOCAL)
-        } else if (runtime?.isReady() == true) {
+        } else if (runtime?.isReadyFor(model.id) == true) {
             AIResult(true, "Локальный runtime готов. Модель: ${model.name}", AIBackend.LOCAL, modelName = model.name)
         } else {
             val reason = when {
@@ -134,7 +134,7 @@ class LocalAIProvider(
         val model = activeModel()
         return when {
             model == null -> "Локальная модель не установлена."
-            runtime?.isReady() == true ->
+            runtime?.isReadyFor(model.id) == true ->
                 "Сейчас используется локальная модель на устройстве: ${model.name}."
             else -> "Локальная модель установлена (${model.name}), но runtime не готов."
         }
@@ -162,7 +162,7 @@ class LocalAIProvider(
     fun visionInference(prompt: String, imageBytes: ByteArray): String? {
         val model = activeModel() ?: return null
         val rt = runtime ?: return null
-        if (!rt.isReady()) return null
+        if (!rt.isReadyFor(model.id)) return null
         return try {
             rt.vision(model.id, prompt, imageBytes, maxTokens = 256)
         } catch (t: Throwable) {
