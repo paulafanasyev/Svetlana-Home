@@ -89,6 +89,8 @@ open class LocalModelManager(
             // расширение не принципиально, но оставляем осмысленное.
             val ext = extensionFor(model)
             val target = File(modelsDir, "${model.id}.$ext")
+            val temp = File(modelsDir, ".${model.id}.$ext.part")
+            temp.delete()
             val client = okhttp3.OkHttpClient.Builder().build()
             val request = okhttp3.Request.Builder().url(model.downloadUrl).build()
             client.newCall(request).execute().use { response ->
@@ -99,7 +101,7 @@ open class LocalModelManager(
                 val total = body.contentLength()
                 var copied = 0L
                 body.byteStream().use { input ->
-                    target.outputStream().use { output ->
+                    temp.outputStream().use { output ->
                         val buffer = ByteArray(64 * 1024)
                         while (true) {
                             val n = input.read(buffer)
@@ -110,27 +112,43 @@ open class LocalModelManager(
                         }
                     }
                 }
+                if (total >= 0 && copied != total) {
+                    temp.delete()
+                    return Result.failure(IllegalStateException("Размер загрузки не совпадает с Content-Length ($copied/$total)"))
+                }
             }
-            if (target.length() < model.sizeMb / 4) {
-                target.delete()
+            if (temp.length() < model.sizeMb * 1024L * 1024L / 4L) {
+                temp.delete()
                 return Result.failure(IllegalStateException("Файл загрузился не полностью"))
             }
             // Аудит п.9: криптографическая и форматная проверка файла.
             // Файл мог скачаться страницей 404/HTML вместо модели.
-            val sha = sha256(target)
-            if (!verifyFormat(target, model)) {
-                target.delete()
+            val sha = sha256(temp)
+            if (!verifyFormat(temp, model)) {
+                temp.delete()
                 return Result.failure(IllegalStateException(
                     "Скачанный файл не является моделью формата ${model.backend}"))
             }
             // Аудит §13: вычислить SHA ≠ проверить SHA. Если реестр знает
             // доверенный хеш — сверяем. Несовпадение = файл повреждён/подменён.
             val expected = model.expectedSha256
+            if (model.backend.equals("litertlm", ignoreCase = true) && expected.isNullOrBlank()) {
+                temp.delete()
+                return Result.failure(IllegalStateException("Для LiteRT-LM модели отсутствует доверенный SHA-256"))
+            }
             val shaVerified = expected.isNullOrBlank() || sha.equals(expected, ignoreCase = true)
             if (!shaVerified) {
                 target.delete()
                 return Result.failure(IllegalStateException(
                     "Контрольная сумма файла не совпадает с доверенной. Загрузка отменена."))
+            }
+            if (target.exists() && !target.delete()) {
+                temp.delete()
+                return Result.failure(IllegalStateException("Не удалось заменить предыдущий файл модели"))
+            }
+            if (!temp.renameTo(target)) {
+                temp.delete()
+                return Result.failure(IllegalStateException("Не удалось атомарно завершить установку модели"))
             }
             val installedModel = InstalledModel(
                 modelId = model.id, name = model.name,
@@ -270,10 +288,9 @@ open class LocalModelManager(
                     ModelFormat.LITERT_LM.matchesMagic(readHead(file, 8))
                 }
                 else -> {
-                    // Не текст (HTML-страница 404 и т.п.) и достаточно большой.
-                    if (file.length() < 1024) return false
-                    val head = readHead(file, 16)
-                    !head.all { it in 9..126 || it == '\n'.code.toByte() || it == '\r'.code.toByte() }
+                    // No runtime/format validator is implemented for this backend.
+                    // Never mark an unsupported format as verified.
+                    false
                 }
             }
         } catch (t: Throwable) { false }
