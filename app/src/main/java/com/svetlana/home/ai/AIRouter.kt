@@ -343,7 +343,10 @@ class AIRouter(
                 AIResult(res.success, res.text, res.backend, latencyMs = res.latencyMs)
             }
             is Routing.Ready -> {
-                if (!r.provider.capabilities().vision) {
+                // Local LiteRT-LM capability is discovered when the model is first
+                // loaded, so a cold local VLM must reach provider.vision().
+                if (r.provider !is com.svetlana.home.ai.providers.LocalAIProvider &&
+                    !r.provider.capabilities().vision) {
                     val msg = "Выбранный ИИ (${r.provider.displayName}) не поддерживает изображения. " +
                         "Подключите vision-модель в настройках или включите локальную VLM."
                     historyManager.record(HistoryCategory.VISION,
