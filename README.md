@@ -407,8 +407,8 @@ battery, screen, camera, mic, network.
 | Подсистема | Статус | Основание |
 |------------|--------|-----------|
 | Repository / CI | VERIFIED | public repo, GitHub Actions, APK artifact |
-| Сборка APK | VERIFIED | debug + release (R8, подписанный), arm64-v8a |
-| Lint | VERIFIED | 0 errors |
+| Сборка APK | VERIFIED | debug + release (R8, подписанный), arm64-v8a; **release собирается с LiteRT-LM** — liblitertlm_jni.so (21.8 MB) в APK, все нативные библиотеки 16 KB-совместимы |
+| Lint | VERIFIED | 0 errors, 21 warning (нет новых от LiteRT) |
 | Unit-тесты | VERIFIED | ~190 тестов, 0 неудач (VisionPipeline, PostconditionLogic, VoiceSessionStateMachine, CompositeRuntime, ModelFormat magic) |
 | Instrumented-тесты | CI VERIFIED | 24 androidTest-класса; эмулятор ≠ устройство |
 | Launcher (ROLE_HOME) | CODE VERIFIED | Home-подсказка + раздел «Главный экран» с ActivityResult; **onboarding при первом запуске** |
