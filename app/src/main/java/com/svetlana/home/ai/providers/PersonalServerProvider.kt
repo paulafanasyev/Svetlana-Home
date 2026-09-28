@@ -21,13 +21,21 @@ class PersonalServerProvider(
 
     override fun capabilities(): ProviderCapabilities {
         val caps = serverManager.config()
+        // Vision заявляем только если сервер реально сообщил VLM-модель.
+        // Аудит: нельзя заявлять capability, которого нет — это давало
+        // ложный переход на серверный vision, который потом падал.
+        val hasVlm = VLM_HINTS.any { hint ->
+            serverManager.lastCapabilities().models.any { it.contains(hint, ignoreCase = true) }
+        }
         return ProviderCapabilities(
             chat = caps.enabled,
-            vision = true,
+            vision = hasVlm,
             embeddings = true,
             maxContext = 16384
         )
     }
+
+    private val VLM_HINTS = listOf("vision", "vlm", "llava", "qwen-vl", "gemma-vl", "image")
 
     override fun isConfigured(): Boolean =
         serverManager.config().baseUrl.isNotBlank() && serverManager.config().enabled
@@ -46,8 +54,36 @@ class PersonalServerProvider(
             latencyMs = System.currentTimeMillis() - started)
     }
 
-    override suspend fun vision(prompt: String, imageBytes: ByteArray): AIResult =
-        AIResult(false, "Vision на сервере требует настроенного VLM", AIBackend.PERSONAL_SERVER)
+    /**
+     * Vision на сервере пользователя (аудит §9).
+     *
+     * Отправляет изображение на /vlm endpoint сервера. Серверная часть
+     * (VLM-провайдер) реализуется отдельно — приложение только передаёт
+     * данные и возвращает результат. Если сервер не сообщил VLM-модель
+     * в capabilities, запрос отклоняется заранее, чтобы не отправлять
+     * картинку впустую.
+     */
+    override suspend fun vision(prompt: String, imageBytes: ByteArray): AIResult {
+        if (!capabilities().vision) {
+            return AIResult(false,
+                "На вашем сервере не обнаружена VLM-модель. Установите vision-модель на сервер.",
+                AIBackend.PERSONAL_SERVER)
+        }
+        val started = System.currentTimeMillis()
+        return try {
+            val result = serverManager.visionInference(prompt, imageBytes)
+            if (result != null) {
+                AIResult(true, result, AIBackend.PERSONAL_SERVER,
+                    latencyMs = System.currentTimeMillis() - started)
+            } else {
+                AIResult(false, "Сервер не обработал изображение", AIBackend.PERSONAL_SERVER,
+                    latencyMs = System.currentTimeMillis() - started)
+            }
+        } catch (t: Throwable) {
+            AIResult(false, "Ошибка vision на сервере: ${t.message}", AIBackend.PERSONAL_SERVER,
+                latencyMs = System.currentTimeMillis() - started, error = t.message)
+        }
+    }
 
     override suspend fun testConnection(): AIResult {
         val ok = serverManager.healthCheck()

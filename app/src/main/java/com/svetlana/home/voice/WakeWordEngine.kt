@@ -57,7 +57,15 @@ class WakeWordEngine(
                     // Аудит-2026 проблема 1: если пользователь сейчас говорит
                     // (активна foreground-сессия) — НЕ перехватываем микрофон.
                     // Раньше фоновый цикл убивал активную сессию пользователя.
-                    if (recognizer.foregroundSession.value) {
+                    // Аудит §18: проверяем явное состояние сессии, а не только флаг.
+                    if (recognizer.session.isUserSessionActive || recognizer.foregroundSession.value) {
+                        _state.value = State.IDLE
+                        delay(500)
+                        continue
+                    }
+                    // Аудит §18: дополнительная защита — startListening() сам
+                    // отклонит запуск, если сессия всё же активна.
+                    if (!recognizer.session.canStartNewSession) {
                         _state.value = State.IDLE
                         delay(500)
                         continue

@@ -56,15 +56,53 @@ class VisionManager(
     fun verifyTextVisible(text: String): Boolean = hands.verifyTextVisible(text)
 
     /**
-     * Анализ изображения через VLM-провайдера (тяжёлая задача — на сервере/внешнем AI).
-     * На устройстве без установленной VLM возвращается описание состояния.
+     * Анализ изображения через VLM-провайдера (аудит §9, P0).
+     *
+     * Раньше здесь вызывался text-only chat() — Bitmap фактически не
+     * передавался модели, и «Vision» был BLOCKED. Теперь изображение
+     * кодируется в JPEG и уходит через [com.svetlana.home.ai.AIRouter.vision],
+     * который прогоняет его через privacy-проверку (PrivacyDataType.IMAGE):
+     * в LOCAL_ONLY картинка не покинет устройство.
+     *
+     * Сжатие до 1024px по длинной стороне — достаточно для понимания
+     * UI/сцены и сильно экономит токены и трафик.
      */
     suspend fun analyzeImage(image: Bitmap): com.svetlana.home.ai.AIResult {
-        // Гибрид: предобработка локально, анализ на сервере/внешнем провайдере.
-        // Bitmap уже в памяти — кодирование в PNG не требуется, провайдер
-        // работает с растровыми данными напрямую.
         val router = com.svetlana.home.core.ServiceLocator.aiRouter
-        return router.chat("Проанализируй изображение и опиши, что на нём видно. Ответ на русском.",
-            com.svetlana.home.ai.ModelRouter.TaskComplexity.HEAVY)
+        val bytes = encodeForVlm(image)
+            ?: return com.svetlana.home.ai.AIResult(
+                false, "Не удалось подготовить изображение",
+                com.svetlana.home.ai.AIBackend.NONE
+            )
+        return router.vision(
+            "Проанализируй изображение и опиши, что на нём видно. Ответ на русском.",
+            bytes
+        )
+    }
+
+    /**
+     * Сжатие и кодирование Bitmap в JPEG для multimodal inference.
+     * Возвращает null, если bitmap пуст или кодировка не удалась.
+     */
+    private fun encodeForVlm(image: Bitmap): ByteArray? {
+        if (image.width <= 0 || image.height <= 0) return null
+        val scaled = if (maxOf(image.width, image.height) > MAX_VISION_SIDE) {
+            val scale = MAX_VISION_SIDE.toFloat() / maxOf(image.width, image.height)
+            Bitmap.createScaledBitmap(
+                image,
+                (image.width * scale).toInt().coerceAtLeast(1),
+                (image.height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+        } else image
+
+        val out = java.io.ByteArrayOutputStream()
+        val ok = scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+        return if (ok) out.toByteArray() else null
+    }
+
+    companion object {
+        private const val MAX_VISION_SIDE = 1024
+        private const val JPEG_QUALITY = 80
     }
 }

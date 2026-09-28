@@ -214,6 +214,54 @@ fun OwnerScreen() {
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) { Text("Создать профиль владельца", color = MaterialTheme.colorScheme.onPrimary) }
         } else {
+            // Аудит §19: настоящая верификация через BiometricPrompt,
+            // привязанный к auth-bound Keystore-ключу.
+            var verified by remember { mutableStateOf(false) }
+            var message by remember { mutableStateOf<String?>(null) }
+
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Column {
+                    Text("Верификация владельца", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Запускает системную аутентификацию (биометрия или PIN/пароль " +
+                                "устройства). Светлана не хранит PIN и не обходит Android Security.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (verified) {
+                        Text("✓ Владелец верифицирован системой", style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                    message?.let {
+                        Text("Причина: $it", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            val activity = context as? androidx.fragment.app.FragmentActivity
+                            if (activity == null) {
+                                message = "Недоступно в этом контексте"
+                                return@Button
+                            }
+                            val auth = com.svetlana.home.owner.BiometricAuth(context)
+                            auth.authenticate(activity, "Вход владельца Светланы") { ok, reason ->
+                                verified = ok
+                                message = reason
+                                ServiceLocator.historyManager.record(
+                                    com.svetlana.home.memory.HistoryCategory.CONFIRMATIONS,
+                                    if (ok) "Верификация владельца пройдена (BiometricPrompt)"
+                                    else "Верификация владельца отклонена: ${reason ?: "отмена"}"
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) { Text("Проверить владельца", color = MaterialTheme.colorScheme.onPrimary) }
+                }
+            }
             Text(
                 text = "Статус владельца не даёт root, скрытого доступа к Accessibility, " +
                         "микрофону или камере и не обходит Android permission model.",

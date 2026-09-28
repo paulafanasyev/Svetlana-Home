@@ -23,16 +23,29 @@ UI tree, получаемый через Accessibility, содержит вид�
 ```
 Изображение / скриншот
 ↓
-PrivacyRouter (можно ли отправлять наружу?)
+Bitmap → JPEG (сжатие до 1024px, quality 80)
 ↓
-VLM-провайдер (сервер/внешний AI)
+AIRouter.vision() + PrivacyRouter (PrivacyDataType.IMAGE)
+↓
+VLM-провайдер: OpenAI-compatible (image_url base64) / Personal Server (/vlm)
 ↓
 Описание на русском
 ```
 
-Если провайдер зрения не подключён, приложение честно сообщает, что
-нужен сервер или внешний провайдер с поддержкой зрения. Результат не
-выдумывается.
+**Аудит §9 (P0), исправлено:** раньше `analyzeImage()` вызывал text-only
+`chat()` — Bitmap фактически не передавался модели, и Vision был
+`BLOCKED`. Теперь изображение кодируется и реально уходит провайдеру:
+
+- `VisionManager.encodeForVlm()` — сжатие и JPEG-кодирование;
+- `AIRouter.vision()` — маршрутизация через `PrivacyDataType.IMAGE`;
+- `OpenAiCompatibleProvider.vision()` — реальный OpenAI multimodal
+  chat completions (`content`-массив с `type: image_url`, data URI base64);
+- `PersonalServerProvider.vision()` — multipart POST на `/vlm` сервера,
+  с предварительной проверкой, что сервер сообщил VLM-модель.
+
+Если провайдер не поддерживает изображения (`capabilities().vision == false`),
+запрос отклоняется заранее — без холостой отправки картинки. Результат
+не выдумывается.
 
 ## Визуальная верификация
 
@@ -47,8 +60,12 @@ VLM-провайдер (сервер/внешний AI)
 
 ## Тест-план
 
-- [ ] Скриншот экрана
+- [x] Байты изображения доходят до провайдера (unit, `VisionPipelineTest`)
+- [x] Vision не использует text-only chat (unit)
+- [x] Провайдер без vision отклоняется (unit)
+- [x] Локальный путь honourит LOCAL_ONLY (unit, `PrivacyPolicyTest`)
+- [ ] Скриншот экрана на физическом устройстве
 - [ ] Чтение текста с экрана
 - [ ] Поиск элемента на экране
 - [ ] Визуальная верификация результата
-- [ ] Анализ изображения (с провайдером зрения)
+- [ ] Анализ изображения (с провайдером зрения) — DEVICE NOT PROVEN

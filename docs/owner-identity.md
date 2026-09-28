@@ -10,11 +10,34 @@
 
 - Ключ владельца живёт в **Android Keystore** (`AndroidKeyStore`,
   AES-256-GCM, hardware-backed там, где доступно).
-- Верификация — через системный диалог аутентификации
-  (`BiometricPrompt`: биометрия / PIN / пароль устройства).
-- `prepareChallenge()` / `verifyChallenge()` — challenge-response
-  ключом из Keystore.
+- **Ключ auth-bound** (аудит §19, исправлено): генерируется с
+  `setUserAuthenticationRequired(true)` — операции этим ключом
+  невозможны до успешной системной аутентификации. Раньше ключ не
+  требовал аутентификации, и «owner verified» был просто фактом его
+  наличия — это и было основанием для `NOT PROVEN`.
+- Верификация — через `BiometricAuth` → системный диалог
+  (`BiometricPrompt` + `CryptoObject`): биометрия / PIN / пароль
+  устройства. Успешный колбэк разблокирует ключ — это и есть
+  `OWNER VERIFIED`.
+- `prepareAuthCipher()` — Cipher в ENCRYPT_MODE auth-bound ключом;
+  `prepareChallenge()` / `verifyChallenge()` — challenge-response.
 - `biometricAvailable()` — проверка доступности биометрии.
+
+### Цепочка
+
+```
+Действие владельца
+        ↓
+BiometricPrompt (BIOMETRIC_STRONG | DEVICE_CREDENTIAL)
+        ↓
+CryptoObject с auth-bound ключом
+        ↓
+onAuthenticationSucceeded → ключ разблокирован
+        ↓
+recordSuccessfulAuth() → OWNER VERIFIED
+```
+
+Кнопка «Проверить владельца» — в Настройки → Владелец.
 
 ## Чего здесь НЕТ
 

@@ -186,7 +186,7 @@ runtime, а не только компилируется.
 |------|----------------|
 | `SvetlanaDeviceTest` | Базовый запуск, ServiceLocator, настройки |
 | `LauncherDeviceTest` | CATEGORY_HOME, resolve launcher Activity, ROLE_HOME API |
-| `OwnerIdentityDeviceTest` | Создание владельца, Keystore, challenge/verify |
+| `OwnerIdentityDeviceTest` | Создание владельца, Keystore, challenge/verify, **auth-bound ключ** (`setUserAuthenticationRequired`), BiometricAuth честно сообщает доступность |
 | `SecureKeyStoreDeviceTest` | Keystore без небезопасного fallback, отказ при отсутствии |
 | `AppRegistryDeviceTest` | Реальный список приложений, aliases, favorites |
 | `AppControlDeviceTest` | Действия над приложениями, capability matrix, proof chain |

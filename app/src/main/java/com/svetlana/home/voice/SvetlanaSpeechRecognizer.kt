@@ -2,6 +2,7 @@ package com.svetlana.home.voice
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -15,7 +16,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 
 /**
- * SvetlanaSpeechRecognizer — русский STT через системный распознаватель Android.
+ * SvetlanaSpeechRecognizer — русский STT.
+ *
+ * Аудит §16: обычный SpeechRecognizer не гарантирует, что распознавание
+ * происходит на устройстве — системный сервис может уходить в сеть.
+ * Начиная с API 31 Android предоставляет createOnDeviceSpeechRecognizer(),
+ * который гарантированно работает локально. Если он доступен —
+ * используется именно он. Иначе честно падаем на системный распознаватель,
+ * не заявляя «голос никогда не покидает устройство».
+ *
+ * Аудит §18: жизненный цикл сессии теперь явный (VoiceSessionStateMachine).
+ * WakeWordEngine не может стартовать слушание, пока сессия пользователя
+ * не вернулась в IDLE — это убирает гонку «новая сессия убила старую».
  *
  * Если на устройстве нет распознавателя (например, без GMS), голосовой ввод
  * честно сообщается как недоступный — приложение не падает.
@@ -32,6 +44,9 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         else mainHandler.post { action() }
     }
 
+    /** Аудит §18: явное состояние сессии. */
+    val session = VoiceSessionStateMachine()
+
     private val _partial = MutableStateFlow("")
     val partial: StateFlow<String> = _partial.asStateFlow()
 
@@ -40,6 +55,17 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
 
     private val _listening = MutableStateFlow(false)
     val listening: StateFlow<Boolean> = _listening.asStateFlow()
+
+    /**
+     * Аудит §16: действительно ли доступен on-device (офлайн) распознаватель.
+     * Только в этом случае можно заявлять «голос не покидает устройство».
+     */
+    val isOnDeviceAvailable: Boolean
+        get() = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+            } else false
+        } catch (t: Throwable) { false }
 
     val isAvailable: Boolean
         get() = try {
@@ -69,6 +95,12 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
     }
 
     fun startListening(locale: Locale = Locale.forLanguageTag("ru-RU")) {
+        // Аудит §18: не стартуем новую сессию поверх активной —
+        // это была причина потери результата пользователя.
+        if (session.isUserSessionActive) {
+            Log.w(TAG, "startListening отклонён: сессия уже активна (${session.state})")
+            return
+        }
         stopListening()
         clearResult()
         if (!isAvailable) {
@@ -76,9 +108,11 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
             return
         }
         _foregroundSession.value = true
+        session.transitionTo(VoiceSessionState.STARTING)
         try {
             onMain {
-                recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
+                // Аудит §16: предпочитаем гарантированно on-device распознаватель.
+                recognizer = createRecognizer().apply {
                     setRecognitionListener(listener)
                 }
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -88,13 +122,28 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 }
                 recognizer?.startListening(intent)
+                session.transitionTo(VoiceSessionState.LISTENING)
                 _listening.value = true
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Не удалось начать распознавание", t)
+            session.transitionTo(VoiceSessionState.STOPPED)
             _result.value = SttResult.Error(t.message ?: "Ошибка распознавания")
         }
     }
+
+    /**
+     * Аудит §16: on-device распознаватель, если устройство его поддерживает.
+     * Это единственный способ гарантировать, что аудио не уходит в сеть.
+     */
+    private fun createRecognizer(): SpeechRecognizer =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && isOnDeviceAvailable) {
+            Log.i(TAG, "Используется on-device (офлайн) распознаватель")
+            SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+        } else {
+            Log.i(TAG, "On-device распознаватель недоступен — системный (может использовать сеть)")
+            SpeechRecognizer.createSpeechRecognizer(context)
+        }
 
     /**
      * Мягкий стоп: завершаем слушание, но НЕ уничтожаем распознаватель.
@@ -125,22 +174,33 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
             }
         } catch (t: Throwable) { /* ignore */ }
         _listening.value = false
+        _foregroundSession.value = false
+        // Аудит §18: гарантированное освобождение — сессия снова доступна.
+        session.transitionTo(VoiceSessionState.STOPPED)
+        session.reset()
     }
 
     private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) { _listening.value = true }
+        override fun onReadyForSpeech(params: Bundle?) {
+            session.transitionTo(VoiceSessionState.LISTENING)
+            _listening.value = true
+        }
         override fun onBeginningOfSpeech() {}
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() { _listening.value = false }
         override fun onError(error: Int) {
             _listening.value = false
+            session.transitionTo(VoiceSessionState.STOPPED)
             _result.value = SttResult.Error(errorText(error))
         }
         override fun onResults(results: Bundle?) {
             _listening.value = false
+            // Аудит §18: только финальный результат завершает сессию.
+            session.transitionTo(VoiceSessionState.RESULT_RECEIVED)
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             _result.value = SttResult.Success(matches?.firstOrNull().orEmpty())
+            session.transitionTo(VoiceSessionState.PROCESSING)
         }
         override fun onPartialResults(partialResults: Bundle?) {
             val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)

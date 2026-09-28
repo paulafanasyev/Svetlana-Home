@@ -17,6 +17,9 @@ import com.svetlana.home.ai.local.LlamaCppRuntime
 import kotlinx.coroutines.flow.first
 import com.svetlana.home.apps.AppRegistry
 import com.svetlana.home.apps.AppRepository
+import com.svetlana.home.apps.launcher.AppResolver
+import com.svetlana.home.apps.launcher.InstalledPackageRegistry
+import com.svetlana.home.apps.launcher.LaunchableActivityRegistry
 import com.svetlana.home.control.ActionRouter
 import com.svetlana.home.control.AppControlEngine
 import com.svetlana.home.control.IntentResolver
@@ -51,7 +54,11 @@ object ServiceLocator {
     val permissionManager by lazy { PermissionManager(app) }
     val ownerIdentity by lazy { OwnerIdentity(app) }
     val appRepository by lazy { AppRepository(app) }
-    val appRegistry by lazy { AppRegistry(app, appRepository, permissionManager) }
+    // Аудит §6: разделённые реестры пакетов и launchable activities.
+    val installedPackages by lazy { InstalledPackageRegistry(app) }
+    val launchableActivities by lazy { LaunchableActivityRegistry(app) }
+    val appResolver by lazy { AppResolver(installedPackages, launchableActivities) }
+    val appRegistry by lazy { AppRegistry(app, appRepository, permissionManager, installedPackages, launchableActivities) }
     val intentResolver by lazy { IntentResolver(app, appRegistry) }
     val hands by lazy { HandsController(app) }
     val harness by lazy { MobileHarnessController(app, appRegistry, hands) }

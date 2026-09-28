@@ -4,13 +4,13 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
-import android.os.UserHandle
 import android.util.Log
+import com.svetlana.home.apps.launcher.InstalledPackageRegistry
+import com.svetlana.home.apps.launcher.LaunchableActivityRegistry
 import com.svetlana.home.core.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -111,7 +111,9 @@ class AppRepository(private val context: Context) {
 class AppRegistry(
     private val context: Context,
     private val repository: AppRepository,
-    private val permissionManager: com.svetlana.home.permissions.PermissionManager
+    private val permissionManager: com.svetlana.home.permissions.PermissionManager,
+    private val installedRegistry: InstalledPackageRegistry,
+    private val launchableRegistry: LaunchableActivityRegistry
 ) {
 
     private val pm: PackageManager get() = context.packageManager
@@ -156,59 +158,26 @@ class AppRegistry(
     }
 
     /**
-     * Полное сканирование через PackageManager / LauncherApps.
-     * Учитываются ограничения Android на видимость пакетов.
-     *
-     * Аудит P0: основным источником служит queryIntentActivities по
-     * MAIN/LAUNCHER — он работает всегда (с объявленным в манифесте <queries>),
-     * даже когда Svetlana ещё не назначена главным экраном. LauncherApps же
-     * может возвращать пустой список для неприставленного launcher, и из-за
-     * этого App Drawer оказывался пустым.
+     * Полное сканирование. Аудит §6: Drawer показывает **все установленные
+     * пакеты** (InstalledPackageRegistry), а запуск идёт через launchable
+     * activities (LaunchableActivityRegistry). Раньше смешивание этих
+     * понятий приводило к неполному списку в App Drawer.
      */
     fun scan(): List<AppModel> {
         val result = mutableListOf<AppModel>()
         val saved = repository.apps.value.associateBy { it.packageName }
         val seen = HashSet<String>()
 
-        // Основной способ: queryIntentActivities по MAIN/LAUNCHER.
-        // Не требует роли launcher и уважает <queries> в манифесте.
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        val resolved = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                pm.queryIntentActivities(intent, 0)
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "queryIntentActivities не удалось", t)
-            emptyList()
-        }
-        resolved.forEach { ri ->
-            val pkg = ri.activityInfo.packageName
-            if (seen.add(pkg)) result.add(build(pkg, saved[pkg]))
+        // Launchable activities — то, что можно запустить с иконки.
+        val launchables = launchableRegistry.scanLaunchable()
+        launchables.forEach { la ->
+            if (seen.add(la.packageName)) result.add(build(la.packageName, saved[la.packageName]))
         }
 
-        // Дополнительно: LauncherApps (уважает visibility для launcher).
-        // Используется как источник дополнительных entry-точек, а не как
-        // единственный — иначе список пуст, пока роль HOME не выдана.
-        if (resolved.isEmpty()) {
-            val launcherApps = try {
-                context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
-            } catch (t: Throwable) { null }
-            val profiles = listOf(android.os.Process.myUserHandle())
-            for (profile in profiles) {
-                val activities = try {
-                    launcherApps?.getActivityList(null, profile)
-                } catch (t: Throwable) {
-                    Log.w(TAG, "LauncherApps недоступен", t)
-                    null
-                }
-                activities?.forEach { la ->
-                    val pkg = la.applicationInfo.packageName
-                    if (seen.add(pkg)) result.add(build(pkg, saved[pkg], profile))
-                }
-            }
+        // Все остальные установленные пакеты — для Drawer и голосовых команд.
+        // Они не имеют launcher icon, но пользователь может попросить открыть их.
+        installedRegistry.scanAll().forEach { pkg ->
+            if (seen.add(pkg.packageName)) result.add(build(pkg.packageName, saved[pkg.packageName]))
         }
 
         // Системные приложения, которые не имеют launcher activity, но нужны для управления.
@@ -236,8 +205,7 @@ class AppRegistry(
 
     private fun build(
         pkg: String,
-        saved: AppModel?,
-        profile: UserHandle = android.os.Process.myUserHandle()
+        saved: AppModel?
     ): AppModel {
         val ai = try { pm.getApplicationInfo(pkg, 0) } catch (t: Throwable) { null }
         val base = saved ?: AppModel(packageName = pkg, label = ai?.loadLabel(pm)?.toString() ?: pkg)
@@ -251,6 +219,7 @@ class AppRegistry(
             enabled = ai?.enabled ?: true,
             versionName = try { pm.getPackageInfo(pkg, 0).versionName } catch (t: Throwable) { null },
             installedAt = try { pm.getPackageInfo(pkg, 0).firstInstallTime } catch (t: Throwable) { 0L },
+            isLaunchable = installedRegistry.hasLauncherActivity(pkg),
             category = if (base.category != AppCategory.OTHER) base.category else categorize(pkg, ai),
             aliases = (AppAliases.builtIn[pkg] ?: emptyList()) + base.aliases,
             control = base.control.copy(

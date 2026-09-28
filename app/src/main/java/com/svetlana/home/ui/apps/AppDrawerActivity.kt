@@ -337,6 +337,15 @@ private fun AppRow(app: AppModel, onLaunch: () -> Unit, onTogglePin: () -> Unit)
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
+                // Аудит §6: пакеты без launcher activity нельзя запустить с иконки —
+                // пользователь должен это видеть, а не обнаруживать при попытке.
+                if (!app.isLaunchable) {
+                    Text(
+                        text = "без экрана запуска — открывается через Hands",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
+                }
                 // ТЗ §66: показываем реальные возможности управления.
                 Text(
                     text = capabilitySummary(app),

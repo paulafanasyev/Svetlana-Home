@@ -66,6 +66,25 @@ class LaunchVerifier(
         return Result(null, Source.NONE)
     }
 
+    /**
+     * Ожидает появления **любого** foreground-окна, кроме собственного
+     * приложения Светланы. Для системных intent (настройки Wi-Fi, камера),
+     * где целевой пакет заранее неизвестен или открывается в рамках
+     * системного UI.
+     *
+     * @return true — какой-то внешний экран действительно стал foreground.
+     */
+    suspend fun waitForAnyActivity(timeoutMs: Long = 2_500, skipPackage: String? = null): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        val own = skipPackage ?: context.packageName
+        while (System.currentTimeMillis() < deadline) {
+            val pkg = currentForeground()
+            if (pkg != null && pkg != own) return true
+            kotlinx.coroutines.delay(150)
+        }
+        return false
+    }
+
     /** Текущий foreground-пакет без ожидания. */
     fun currentForeground(): String? {
         if (hands.isActive) {

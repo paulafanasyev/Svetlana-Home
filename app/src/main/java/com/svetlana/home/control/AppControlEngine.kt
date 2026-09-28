@@ -2,6 +2,7 @@ package com.svetlana.home.control
 
 import android.content.Context
 import android.graphics.Bitmap
+import com.svetlana.home.R
 import com.svetlana.home.apps.AppModel
 import com.svetlana.home.core.ProofStage
 import com.svetlana.home.core.ProofStep
@@ -348,6 +349,37 @@ class AppControlEngine(
     }
 
     suspend fun openSettings(): ActionResult = openApp("настройки")
+
+    /**
+     * Запуск системного intent из декларативного каталога (аудит §7).
+     * Например: настройки Wi-Fi, камера, звонки.
+     * Как и openApp, не доверяет startActivity() — проверяет реальный переход.
+     */
+    suspend fun openSystemIntent(intent: android.content.Intent): ActionResult {
+        val proof = proofBuilder.start("PLAN0_TARGET=OPEN_SYSTEM_SCREEN")
+        proof.ok(ProofStage.TARGET_APP_IDENTIFIED, "system intent: ${intent.action}")
+        proof.ok(ProofStage.PERMISSION_CHECKED, "system intent, no permission needed")
+        return try {
+            context.startActivity(intent)
+            proof.ok(ProofStage.ACTION_ATTEMPTED, "startActivity sent")
+            // Реальная проверка: внешний экран должен стать foreground.
+            val opened = launchVerifier.waitForAnyActivity(skipPackage = context.packageName)
+            if (opened) {
+                proof.ok(ProofStage.ACTION_PERFORMED, "external activity in foreground")
+                proof.ok(ProofStage.RESULT_VERIFIED, "PLAN0_STATUS=ACTION_PERFORMED PLAN0_RESULT=VERIFIED")
+                ActionResult(SvetlanaAction.OpenApp("system"), true, "Открываю.", proof.build(), "intent")
+            } else {
+                proof.add(ProofStage.ACTION_PERFORMED, StepStatus.UNVERIFIED, "no foreground change detected")
+                proof.add(ProofStage.RESULT_VERIFIED, StepStatus.UNVERIFIED, "PLAN0_RESULT=NOT PROVEN")
+                ActionResult(SvetlanaAction.OpenApp("system"), false,
+                    context.getString(R.string.reply_action_failed), proof.build(), "intent")
+            }
+        } catch (t: Throwable) {
+            ActionResult(SvetlanaAction.OpenApp("system"), false,
+                context.getString(R.string.reply_action_failed),
+                proof.failed("startActivity failed: ${t.message}"))
+        }
+    }
 
     // ------------------------------------------------------------------
     // Длинные многошаговые Hands-цепочки

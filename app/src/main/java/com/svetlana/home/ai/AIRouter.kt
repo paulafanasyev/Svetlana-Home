@@ -310,6 +310,57 @@ class AIRouter(
     }
 
     /**
+     * Multimodal-запрос: текст + изображение (аудит §9, P0).
+     *
+     * Изображение кодируется в JPEG и передаётся провайдеру через
+     * [AIProvider.vision]. Маршрутизация и privacy-проверки — те же,
+     * что и для [chat], но тип данных IMAGE: PrivacyPolicy запрещает
+     * отправку картинок наружу в режимах LOCAL_FIRST/AUTO, поэтому
+     * silently на внешний провайдер они не уйдут.
+     *
+     * Важно: вызов text-only chat() вместо vision() — это баг, который
+     * и был главной причиной BLOCKED статуса Vision. Теперь изображение
+     * реально доходит до модели.
+     */
+    suspend fun vision(
+        prompt: String,
+        imageBytes: ByteArray,
+        complexity: ModelRouter.TaskComplexity = ModelRouter.TaskComplexity.HEAVY
+    ): AIResult {
+        val started = System.currentTimeMillis()
+        return when (val r = resolve(complexity, PrivacyDataType.IMAGE)) {
+            is Routing.Blocked -> AIResult(false, r.reason, r.backend,
+                latencyMs = System.currentTimeMillis() - started)
+            is Routing.HybridRoute -> {
+                val res = r.pipeline.run(
+                    prompt = prompt,
+                    dataType = PrivacyDataType.IMAGE,
+                    mode = r.mode,
+                    remoteBackend = r.remoteBackend
+                )
+                historyManager.record(HistoryCategory.VISION,
+                    "hybrid vision → ${res.backend} ${if (res.success) "OK" else "FAIL"} (${res.latencyMs}мс)")
+                AIResult(res.success, res.text, res.backend, latencyMs = res.latencyMs)
+            }
+            is Routing.Ready -> {
+                if (!r.provider.capabilities().vision) {
+                    val msg = "Выбранный ИИ (${r.provider.displayName}) не поддерживает изображения. " +
+                        "Подключите vision-модель в настройках или включите локальную VLM."
+                    historyManager.record(HistoryCategory.VISION,
+                        "vision отклонён: ${r.provider.displayName} без поддержки изображений")
+                    return AIResult(false, msg, r.backend,
+                        latencyMs = System.currentTimeMillis() - started)
+                }
+                val result = r.provider.vision(prompt, imageBytes)
+                historyManager.record(HistoryCategory.VISION,
+                    "vision → ${result.backend} ${if (result.success) "OK" else "FAIL"} " +
+                        "(${imageBytes.size} байт, ${result.latencyMs}мс)")
+                result
+            }
+        }
+    }
+
+    /**
      * Перечень доступных вариантов, когда локальный ИИ не справился (ТЗ §41).
      */
     fun fallbackOptions(): List<FallbackOption> = listOf(

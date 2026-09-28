@@ -18,6 +18,12 @@ data class AppModel(
     val enabled: Boolean = true,
     val versionName: String? = null,
     val category: String = AppCategory.OTHER,
+    /**
+     * Аудит §6: пакет имеет launcher activity (иконку на главном экране).
+     * Все установленные пакеты ≠ launchable. Пакеты без isLaunchable
+     * показываются в Drawer, но запуск возможен только через intent/Hands.
+     */
+    val isLaunchable: Boolean = false,
     val control: ControlCapabilities = ControlCapabilities()
 )
 

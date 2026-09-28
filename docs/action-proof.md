@@ -49,12 +49,28 @@ RESULT_VERIFIED         ← только теперь ACTION_PERFORMED = true
 | Действие | Постусловие |
 |----------|-------------|
 | `OpenApp` | `currentForegroundPackage == targetPackage` (waitForPackage) |
-| `Click` | `snapshot_after` отличается от `snapshot_before` в области цели |
+| `Click` | **target-specific** (аудит §7): изменился целевой узел (текст / bounds / focus / enabled) ИЛИ сменился foreground пакет ИЛИ изменилось дерево |
 | `TypeText` | `node.text == expected` |
 | `ClearText` | `node.text == ""` |
 | `Screenshot` | `Bitmap != null && width > 0 && encode ok` |
-| `Scroll` | дерево/экран изменилось (content или bounds) |
-| `Swipe` | жест завершён `onCompleted` (не `onCancelled`) |
+| `Scroll` | хэш видимого дерева ИЛИ число узлов изменились (не только count) |
+| `Swipe` | состояние целевого экрана изменилось (та же логика, что у Scroll) |
+| `SendMessage` | текст сообщения появился на экране (`verifyTextAppeared`) |
+
+### Почему не «изменилось число узлов»
+
+Старая проверка `verifyClick` сравнивала только `nodeCount`. Это давало
+ложные FAIL на успешных кликах (когда дерево не изменилось) и ложные
+VERIFIED на случайных изменениях. Теперь `PostconditionLogic.verifyClick`
+проверяет по убыванию специфичности:
+
+1. состояние целевого узла (найденного по id, иначе по visible text);
+2. foreground пакет;
+3. хэш дерева;
+4. число узлов.
+
+Чистая логика вынесена в `PostconditionLogic` и покрыта unit-тестами
+(`PostconditionLogicTest`) без AccessibilityService.
 
 ## Статусы
 

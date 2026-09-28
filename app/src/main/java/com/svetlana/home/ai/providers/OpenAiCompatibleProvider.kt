@@ -227,8 +227,75 @@ class OpenAiCompatibleProvider(
         }
     }
 
-    override suspend fun vision(prompt: String, imageBytes: ByteArray): AIResult =
-        AIResult(false, "Vision-запросы требуют модели с поддержкой изображений", AIBackend.EXTERNAL)
+    /**
+     * Multimodal-запрос: текст + JPEG (аудит §9, P0).
+     *
+     * Реальная отправка изображения по схеме OpenAI chat completions:
+     * пользовательское сообщение содержит массив content-частей, где
+     * изображение передаётся как data URI в поле image_url. Работает с
+     * OpenAI (gpt-4o), OpenRouter, Together, Groq (vision-модели) и
+     * любым совместимым endpoint.
+     *
+     * Раньше здесь возвращалась заглушка — это и было причиной BLOCKED.
+     */
+    override suspend fun vision(prompt: String, imageBytes: ByteArray): AIResult = withContext(Dispatchers.IO) {
+        val key = apiKey()
+        if (key.isNullOrBlank()) {
+            return@withContext AIResult(false, "API Key не задан", AIBackend.EXTERNAL)
+        }
+        if (config.baseUrl.isBlank() || config.model.isBlank()) {
+            return@withContext AIResult(false, "Провайдер не настроен: укажите endpoint и модель", AIBackend.EXTERNAL)
+        }
+        if (!capabilities().vision) {
+            return@withContext AIResult(false,
+                "Модель ${config.model} не поддерживает изображения. Выберите vision-модель.",
+                AIBackend.EXTERNAL)
+        }
+
+        val started = System.currentTimeMillis()
+        try {
+            val b64 = android.util.Base64.encodeToString(
+                imageBytes, android.util.Base64.NO_WRAP
+            )
+            val dataUri = "data:image/jpeg;base64,$b64"
+
+            val payload = buildJsonObject {
+                put("model", config.model)
+                put("messages", buildJsonArray {
+                    add(buildJsonObject {
+                        put("role", "user")
+                        put("content", buildJsonArray {
+                            add(buildJsonObject {
+                                put("type", "text")
+                                put("text", prompt)
+                            })
+                            add(buildJsonObject {
+                                put("type", "image_url")
+                                put("image_url", buildJsonObject { put("url", dataUri) })
+                            })
+                        })
+                    })
+                })
+                put("max_tokens", 768)
+            }.toString()
+
+            val response = post("${normalizedEndpoint()}/chat/completions", payload)
+                ?: return@withContext AIResult(false, "Нет ответа от провайдера",
+                    AIBackend.EXTERNAL, latencyMs = System.currentTimeMillis() - started)
+
+            val root = json.parseToJsonElement(response).jsonObject
+            val content = root["choices"]?.jsonArray?.firstOrNull()
+                ?.jsonObject?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.content
+                ?: return@withContext AIResult(false, "Пустой ответ vision-модели",
+                    AIBackend.EXTERNAL, latencyMs = System.currentTimeMillis() - started)
+
+            AIResult(true, content, AIBackend.EXTERNAL,
+                latencyMs = System.currentTimeMillis() - started, modelName = config.model)
+        } catch (t: Throwable) {
+            AIResult(false, "Ошибка vision: ${t.message}", AIBackend.EXTERNAL,
+                latencyMs = System.currentTimeMillis() - started, error = t.message)
+        }
+    }
 
     override suspend fun testConnection(): AIResult {
         // Подключение проверяется без модели: endpoint + ключ → /models.

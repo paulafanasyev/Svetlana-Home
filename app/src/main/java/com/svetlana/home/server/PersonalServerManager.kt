@@ -75,7 +75,14 @@ class PersonalServerManager(
     @Volatile
     private var config: ServerConfig = loadConfig()
 
+    /** Последние известные возможности сервера (обновляются в [capabilities]). */
+    @Volatile
+    private var lastCaps: ServerCapabilities = ServerCapabilities.unknown
+
     fun config(): ServerConfig = config
+
+    /** Кешированные возможности — без сети, для capability-проверок. */
+    fun lastCapabilities(): ServerCapabilities = lastCaps
 
     fun setBaseUrl(url: String) {
         config = config.copy(baseUrl = url.trimEnd('/'))
@@ -116,7 +123,7 @@ class PersonalServerManager(
             val root = json.parseToJsonElement(body).jsonObject
             val hardware = root["hardware"]?.jsonObject ?: JsonObject(emptyMap())
             val gpu = root["gpu"]?.jsonObject ?: JsonObject(emptyMap())
-            ServerCapabilities(
+            val caps = ServerCapabilities(
                 reachable = true,
                 cpu = hardware["cpu"]?.jsonPrimitive?.content ?: "unknown",
                 ramGb = hardware["ram_gb"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
@@ -130,6 +137,8 @@ class PersonalServerManager(
                 inferenceSupported = root["inference"]?.jsonPrimitive?.content?.toBoolean() ?: false,
                 latencyMs = System.currentTimeMillis() - started
             )
+            lastCaps = caps
+            caps
         } catch (t: Throwable) {
             Log.w(TAG, "Не удалось получить возможности сервера", t)
             ServerCapabilities.unknown
@@ -152,6 +161,40 @@ class PersonalServerManager(
             response ?: null
         } catch (t: Throwable) {
             Log.w(TAG, "Inference на сервере не удался", t)
+            null
+        }
+    }
+
+    /**
+     * Vision inference на сервере: текст + JPEG.
+     * Сервер должен предоставить /vlm endpoint, принимающий multipart.
+     * Возвращает null, если сервер недоступен или не поддерживает VLM.
+     */
+    suspend fun visionInference(prompt: String, imageBytes: ByteArray): String? = withContext(Dispatchers.IO) {
+        if (config.baseUrl.isBlank()) return@withContext null
+        try {
+            val body = okhttp3.MultipartBody.Builder()
+                .setType(okhttp3.MultipartBody.FORM)
+                .addFormDataPart("prompt", prompt)
+                .addFormDataPart(
+                    "image", "vision.jpg",
+                    imageBytes.toRequestBody("image/jpeg".toMediaType())
+                )
+                .build()
+            val request = Request.Builder()
+                .url("${config.baseUrl}/vlm")
+                .apply { token()?.let { addHeader("Authorization", "Bearer $it") } }
+                .post(body)
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "VLM на сервере: HTTP ${response.code}")
+                    return@withContext null
+                }
+                response.body?.string()
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "VLM inference на сервере не удался", t)
             null
         }
     }

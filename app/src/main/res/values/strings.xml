@@ -104,6 +104,7 @@
 
     <!-- Ответы Светланы -->
     <string name="reply_confirm_dangerous">Это опасное действие. Подтвердите его выполнение.</string>
+    <string name="reply_action_failed">Действие не удалось выполнить</string>
     <string name="reply_provider_failed">Выбранный провайдер не смог выполнить задачу</string>
     <string name="reply_empty">Мне нечего сказать</string>
 

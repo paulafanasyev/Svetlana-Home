@@ -58,6 +58,38 @@ class OwnerIdentity(context: Context) {
     fun keyStoreBacked(): Boolean = prefs.getBoolean(KEY_KEYSTORE_BACKED, false)
 
     /**
+     * Аудит §19: подготавливает Cipher, инициализированный auth-bound ключом.
+     *
+     * В отличие от старого prepareChallenge(), ключ теперь генерируется с
+     * setUserAuthenticationRequired(true) — поэтому Cipher можно
+     * инициализировать, но ДО аутентификации он не пригоден для
+     * шифрования/расшифровки. BiometricPrompt с CryptoObject разблокирует
+     * его только после успешной системной аутентификации.
+     *
+     * @return Cipher в ENCRYPT_MODE или null, если ключ недоступен.
+     */
+    fun prepareAuthCipher(): Cipher? {
+        return try {
+            val key = getOrCreateKey() ?: return null
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, key)
+            cipher
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "Не удалось подготовить auth cipher", t)
+            null
+        }
+    }
+
+    /**
+     * Аудит §19: фиксирует успешную системную аутентификацию владельца.
+     * Вызывается только из BiometricPrompt.onAuthenticationSucceeded —
+     * то есть после реального подтверждения пользователем своей личности.
+     */
+    fun recordSuccessfulAuth() {
+        prefs.edit().putLong(KEY_LAST_VERIFIED, System.currentTimeMillis()).apply()
+    }
+
+    /**
      * Доказательство личности: подпись/расшифровка ключом из Keystore.
      * Возвращает true, если системный диалог аутентификации (биометрия/PIN/пароль) прошёл.
      *
@@ -145,6 +177,12 @@ class OwnerIdentity(context: Context) {
                         .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                         .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                         .setRandomizedEncryptionRequired(true)
+                        // Аудит §19: ключ auth-bound. Без успешной
+                        // системной аутентификации (биометрия/PIN/пароль)
+                        // операции этим ключом невозможны. Это и делает
+                        // Owner verification настоящей, а не просто фактом
+                        // наличия ключа в Keystore.
+                        .setUserAuthenticationRequired(true)
                         .build()
                 )
                 gen.generateKey()

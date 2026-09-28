@@ -2,6 +2,7 @@ package com.svetlana.home.control
 
 import android.content.Context
 import com.svetlana.home.R
+import com.svetlana.home.apps.launcher.AppResolver
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.memory.HistoryManager
@@ -95,8 +96,17 @@ class ActionRouter(
      * (значит, нужно передать в AI-чат).
      */
     suspend fun route(command: String, confirmed: Boolean = false): ActionResult? {
-        val action = CommandParser.parse(command) ?: return null
-        return execute(action, confirmed)
+        val action = CommandParser.parse(command)
+        if (action != null) return execute(action, confirmed)
+
+        // Аудит §7: декларативный каталог системных команд.
+        // «Открой настройки Wi-Fi», «открой камеру» и т.д. — это не приложения,
+        // а системные intent. CommandParser их не разбирает, здесь — fallback.
+        val systemIntent = ServiceLocator.appResolver.resolveSystem(command)
+        if (systemIntent is AppResolver.ResolveResult.SystemAction) {
+            return engine.openSystemIntent(systemIntent.intent)
+        }
+        return null
     }
 
     /**

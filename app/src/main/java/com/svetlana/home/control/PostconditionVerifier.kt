@@ -41,14 +41,20 @@ class PostconditionVerifier(private val hands: HandsController) {
         else VerificationState.FAILED
     }
 
-    /** Клик: состояние экрана изменилось (дерево или пакет). */
+    /**
+     * Клик: target-specific проверка (аудит §7).
+     *
+     * Старая версия проверяла только «изменилось число узлов» — это
+     * давало ложные FAIL на успешных кликах (дерево не изменилось) и
+     * ложные VERIFIED на случайных изменениях. Теперь проверка по
+     * убыванию специфичности:
+     *   1. изменилось состояние целевого узла (текст/bounds/focus);
+     *   2. изменился foreground пакет (открылся новый экран);
+     *   3. изменилось дерево в целом.
+     */
     fun verifyClick(before: ScreenSnapshot, target: UiNode? = null): VerificationState {
         val after = hands.uiTree() ?: return VerificationState.FAILED
-        val changed = after.nodes.size != before.nodeCount ||
-                after.nodes.hashCode() != before.treeHash ||
-                hands.currentPackage() != before.currentPackage
-        // Если дерево не изменилось — клик мог попасть в неактивный элемент.
-        return if (changed) VerificationState.VERIFIED else VerificationState.FAILED
+        return PostconditionLogic.verifyClick(before, after, hands.currentPackage(), target)
     }
 
     /** Ввод текста: указанный узел содержит ожидаемый текст. */
@@ -75,14 +81,14 @@ class PostconditionVerifier(private val hands: HandsController) {
     }
 
     /**
-     * Прокрутка/свайп: содержимое экрана изменилось.
-     * Если дерево осталось идентичным — скролл не произошёл.
+     * Прокрутка/свайп: содержимое экрана изменилось (аудит §7).
+     * Сравниваем не только число узлов, но и видимое содержимое —
+     * координаты и текст узлов. Скролл мог произойти при том же
+     * числе узлов (список прокрутился внутри контейнера).
      */
     fun verifyScroll(before: ScreenSnapshot): VerificationState {
         val after = hands.uiTree() ?: return VerificationState.FAILED
-        val changed = after.nodes.hashCode() != before.treeHash ||
-                after.nodes.size != before.nodeCount
-        return if (changed) VerificationState.VERIFIED else VerificationState.FAILED
+        return PostconditionLogic.verifyScroll(before, after)
     }
 
     /**

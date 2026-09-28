@@ -12,6 +12,7 @@ enum class HistoryCategory(val label: String) {
     HANDS("Hands"),
     HARNESS("Mobile Harness"),
     AI("AI"),
+    VISION("Зрение"),
     MODELS("Модели"),
     SERVER("Сервер"),
     ERRORS("Ошибки"),
