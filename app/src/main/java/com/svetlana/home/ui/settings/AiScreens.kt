@@ -270,7 +270,9 @@ fun LocalAiScreen() {
                 manager.statusFor(
                     modelId = model.modelId,
                     runtimeReady = ServiceLocator.compositeRuntime.isReadyFor(model.modelId),
-                    modelLoaded = ServiceLocator.compositeRuntime.isReadyFor(model.modelId),
+                    // A runtime being usable for a model does not prove that
+                    // the model is currently resident in memory.
+                    modelLoaded = false,
                     inferenceVerified = model.benchmark?.status == SvetlanaStatus.DEVICE_VERIFIED
                 )
             }
