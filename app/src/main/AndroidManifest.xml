@@ -52,6 +52,10 @@
         <intent>
             <action android:name="android.intent.action.DIAL" />
         </intent>
+        <!-- SpeechRecognizer package visibility (Android 11+). -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
     </queries>
 
     <application
