@@ -45,13 +45,15 @@ object BenchmarkRunner {
         var tokensPerSecond = 0.0
         var firstTokenMs = 0L
         var inferenceOk = false
-        val llama = runtime as? com.svetlana.home.ai.local.LlamaCppRuntime
-        if (llama != null && file != null && file.exists()) {
+        val inferenceRuntime = runtime as? com.svetlana.home.ai.providers.InferenceRuntime
+        if (inferenceRuntime != null && file != null && file.exists() && inferenceRuntime.isReadyFor(model.id)) {
             try {
-                val startedInference = System.currentTimeMillis()
-                val output = llama.generate(model.id, BENCHMARK_PROMPT, maxTokens = 32)
-                firstTokenMs = llama.lastLatencyMs()
-                tokensPerSecond = llama.lastTokensPerSecond()
+                val output = inferenceRuntime.generate(model.id, BENCHMARK_PROMPT, maxTokens = 32)
+                // Runtime-specific metrics are available for runtimes that expose them.
+                if (inferenceRuntime is com.svetlana.home.ai.local.LlamaCppRuntime) {
+                    firstTokenMs = inferenceRuntime.lastLatencyMs()
+                    tokensPerSecond = inferenceRuntime.lastTokensPerSecond()
+                }
                 inferenceOk = output.isNotBlank()
                 Log.i(TAG, "Inference benchmark: ${tokensPerSecond} ток/с, " +
                     "firstToken=${firstTokenMs}мс, длина ответа=${output.length}")
@@ -60,7 +62,7 @@ object BenchmarkRunner {
                 inferenceOk = false
             }
         } else {
-            Log.w(TAG, "Inference runtime не передан — метрики генерации NOT PROVEN")
+            Log.w(TAG, "Подходящий inference runtime не передан или не готов — метрики NOT PROVEN")
         }
 
         // 3. Состояние устройства после теста
