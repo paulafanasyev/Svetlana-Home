@@ -269,8 +269,8 @@ fun LocalAiScreen() {
             val status = remember(model.modelId, isActive) {
                 manager.statusFor(
                     modelId = model.modelId,
-                    runtimeReady = llamaRuntime.isReady(),
-                    modelLoaded = llamaRuntime.isReady(),
+                    runtimeReady = ServiceLocator.compositeRuntime.isReadyFor(model.modelId),
+                    modelLoaded = ServiceLocator.compositeRuntime.isReadyFor(model.modelId),
                     inferenceVerified = model.benchmark?.status == SvetlanaStatus.DEVICE_VERIFIED
                 )
             }
@@ -304,7 +304,7 @@ fun LocalAiScreen() {
                         ActionChip(stringResource(R.string.model_benchmark)) {
                             scope.launch(Dispatchers.IO) {
                                 val result = BenchmarkRunner.run(
-                                    registry.byId(model.modelId)!!, manager, llamaRuntime)
+                                    registry.byId(model.modelId)!!, manager, ServiceLocator.compositeRuntime)
                                 manager.recordBenchmark(result)
                                 installed = manager.list()
                                 ServiceLocator.historyManager.record(HistoryCategory.MODELS,
@@ -316,7 +316,7 @@ fun LocalAiScreen() {
                             verifying = model.modelId
                             scope.launch(Dispatchers.IO) {
                                 val report = ModelVerificationRunner.verify(
-                                    model.modelId, manager, registry, llamaRuntime,
+                                    model.modelId, manager, registry, ServiceLocator.compositeRuntime,
                                     ServiceLocator.device)
                                 withContext(Dispatchers.Main) {
                                     verification = report
@@ -393,7 +393,7 @@ fun LocalAiScreen() {
                                     if (installedModel != null) {
                                         val rep = ModelVerificationRunner.verify(
                                             installedModel.modelId, manager, registry,
-                                            llamaRuntime, ServiceLocator.device)
+                                            ServiceLocator.compositeRuntime, ServiceLocator.device)
                                         withContext(Dispatchers.Main) {
                                             verification = rep
                                             ServiceLocator.historyManager.record(
