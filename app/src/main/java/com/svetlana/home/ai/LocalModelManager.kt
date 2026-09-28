@@ -48,7 +48,10 @@ data class BenchmarkResult(
  * open — чтобы unit-тесты могли подставлять предустановленный список моделей,
  * не вызывая реальную загрузку файлов (аудит п.6: проверка выбора модели).
  */
-open class LocalModelManager(private val context: Context) {
+open class LocalModelManager(
+    private val context: Context,
+    private val registry: AIModelRegistry = AIModelRegistry()
+) {
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private val storeFile: File by lazy { File(context.filesDir, "local_models.json") }
@@ -80,7 +83,12 @@ open class LocalModelManager(private val context: Context) {
                 return Result.failure(IllegalStateException("Недостаточно свободного места"))
             }
             Log.i(TAG, "Начинаю загрузку модели ${model.name} (${model.sizeMb}MB) по решению пользователя")
-            val target = File(modelsDir, "${model.id}.bin")
+            // Расширение файла обязано совпадать с форматом: движок LiteRT-LM
+            // отклоняет тот же контент, если файл назван .bin вместо .litertlm
+            // (upstream issue: загрузка зависит от расширения). Для GGUF
+            // расширение не принципиально, но оставляем осмысленное.
+            val ext = extensionFor(model)
+            val target = File(modelsDir, "${model.id}.$ext")
             val client = okhttp3.OkHttpClient.Builder().build()
             val request = okhttp3.Request.Builder().url(model.downloadUrl).build()
             client.newCall(request).execute().use { response ->
@@ -208,6 +216,42 @@ open class LocalModelManager(private val context: Context) {
         freeSpaceBytes() > model.storageRequirementMb * 1024L * 1024L * 1.1
 
     /**
+     * Расширение целевого файла по формату модели. LiteRT-LM требует
+     * именно .litertlm, иначе Engine отклоняет файл.
+     */
+    private fun extensionFor(model: AIModel): String = when (model.backend) {
+        "litertlm" -> "litertlm"
+        "llama.cpp" -> "gguf"
+        else -> "bin"
+    }
+
+    /**
+     * Миграция установленных моделей со старого расширения .bin на
+     * расширение формата (актуально для litertlm — движок требует
+     * именно .litertlm, иначе Engine отклоняет файл). Вызывается при
+     * инициализации.
+     */
+    fun migrateExtensions() {
+        var changed = false
+        val mapped = installed.map { m ->
+            val current = File(m.filePath)
+            if (current.exists()) return@map m
+            val model = registry.byId(m.modelId) ?: return@map m
+            val legacy = File(modelsDir, "${m.modelId}.bin")
+            if (!legacy.exists()) return@map m
+            val renamed = File(modelsDir, "${m.modelId}.${extensionFor(model)}")
+            if (!legacy.renameTo(renamed)) return@map m
+            changed = true
+            Log.i(TAG, "Миграция ${m.modelId}: .bin → ${renamed.name}")
+            m.copy(filePath = renamed.absolutePath)
+        }
+        if (changed) {
+            installed = mapped
+            save()
+        }
+    }
+
+    /**
      * Аудит п.9: проверка magic bytes скачанного файла.
      * GGUF (llama.cpp) начинается с "GGUF" (0x47 0x47 0x55 0x46).
      * ONNX — protobuf; первый field ModelProto имеет тег 0x0c (field 1, wire 4)?
@@ -219,11 +263,11 @@ open class LocalModelManager(private val context: Context) {
             when (model.backend) {
                 "llama.cpp" -> ModelFormat.GGUF.matchesMagic(readHead(file, 4))
                 "litertlm" -> {
-                    // FlatBuffer: 4 байта размера (LE), затем "TFL3"/"TFL2".
-                    // magic начинается с 4-го байта.
-                    val head = readHead(file, 7)
-                    if (head.size < 7) return false
-                    ModelFormat.LITERT_LM.matchesMagic(head.copyOfRange(4, 7))
+                    // Контейнер .litertlm начинается с 8-байтного
+                    // magic "LITERTLM" по нулевому смещению.
+                    // (Раньше ошибочно проверяли "TFL" по смещению 4 —
+                    // это заголовок .tflite, а не LiteRT-LM.)
+                    ModelFormat.LITERT_LM.matchesMagic(readHead(file, 8))
                 }
                 else -> {
                     // Не текст (HTML-страница 404 и т.п.) и достаточно большой.

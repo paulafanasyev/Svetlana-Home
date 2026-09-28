@@ -225,43 +225,52 @@ class AIModelRegistry {
         ),
         // Аудит §10-12 (P0-1): мультимодальные LiteRT-модели —
         // единственный путь on-device vision в LOCAL_ONLY.
+        // URL проверены по реальному списку файлов litert-community:
+        // gemma3-1b-it.litertlm НЕ существует (репозиторий содержит
+        // .task и device-specific сборки), как и gemma3-4b-it.litertlm.
+        // gemma-4-E2B-it — реальная публичная мультимодальная модель.
         AIModel(
-            id = "gemma3-1b-it-litertlm",
-            name = "Gemma 3 1B IT (LiteRT)",
+            id = "gemma-4-e2b-it-litertlm",
+            name = "Gemma 4 E2B IT (LiteRT)",
             architecture = "litertlm",
-            parameters = "1B",
-            parameterCountB = 1.0,
+            parameters = "2B",
+            parameterCountB = 2.0,
             quantization = "litertlm",
-            sizeMb = 700,
-            ramRequirementMb = 2048,
-            storageRequirementMb = 800,
+            sizeMb = 2469,
+            ramRequirementMb = 6144,
+            storageRequirementMb = 2600,
             backend = "litertlm",
-            cpuSupport = true, gpuSupport = true, npuSupport = false,
+            cpuSupport = true, gpuSupport = true, npuSupport = true,
             context = 4096,
             license = "Gemma Terms of Use",
             source = "Google AI Edge (litert-community)",
-            downloadUrl = "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it.litertlm",
-            description = "Локальная мультимодальная модель: текст + изображения. Vision on-device",
+            downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
+            description = "Локальная мультимодальная модель: текст + изображения + аудио. Vision on-device",
+            // Доверенный хеш вычислен по реальному скачанному файлу
+            // (2588147712 байт) — сверки «вычислить SHA» недостаточно,
+            // нужно сравнение с доверенным значением (аудит §13/§18).
+            expectedSha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
             capabilities = listOf(ModelCapability.TEXT, ModelCapability.VISION)
         ),
         AIModel(
-            id = "gemma3-4b-it-litertlm",
-            name = "Gemma 3 4B IT (LiteRT)",
+            id = "qwen2.5-1.5b-instruct-litertlm",
+            name = "Qwen 2.5 1.5B Instruct (LiteRT)",
             architecture = "litertlm",
-            parameters = "4B",
-            parameterCountB = 4.0,
-            quantization = "litertlm",
-            sizeMb = 2600,
-            ramRequirementMb = 6144,
-            storageRequirementMb = 2800,
+            parameters = "1.5B",
+            parameterCountB = 1.5,
+            quantization = "q8",
+            sizeMb = 1523,
+            ramRequirementMb = 3072,
+            storageRequirementMb = 1600,
             backend = "litertlm",
-            cpuSupport = true, gpuSupport = true, npuSupport = true,
-            context = 8192,
-            license = "Gemma Terms of Use",
-            source = "Google AI Edge (litert-community)",
-            downloadUrl = "https://huggingface.co/litert-community/Gemma3-4B-IT/resolve/main/gemma3-4b-it.litertlm",
-            description = "Локальная мультимодальная модель: текст + изображения, качество выше",
-            capabilities = listOf(ModelCapability.TEXT, ModelCapability.VISION, ModelCapability.TOOLS)
+            cpuSupport = true, gpuSupport = true, npuSupport = false,
+            context = 4096,
+            license = "Apache 2.0",
+            source = "Qwen (litert-community)",
+            downloadUrl = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm",
+            description = "Лёгкая локальная текстовая модель для слабых устройств",
+            expectedSha256 = "faa60663b333290c1496c499828b21d3e3254a788cacd8cce917ce0f761a2dc9",
+            capabilities = listOf(ModelCapability.TEXT)
         )
     )
 

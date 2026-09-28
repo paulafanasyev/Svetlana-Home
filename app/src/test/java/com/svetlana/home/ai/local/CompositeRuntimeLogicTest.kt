@@ -30,20 +30,17 @@ class CompositeRuntimeLogicTest {
         assertThat(litert).isNotEmpty()
         // Эти id использует CompositeInferenceRuntime
         assertThat(litert.map { it.id }).containsAtLeast(
-            "gemma3-1b-it-litertlm", "gemma3-4b-it-litertlm"
+            "gemma-4-e2b-it-litertlm", "qwen2.5-1.5b-instruct-litertlm"
         )
     }
 
     @Test
-    fun litertlmModelsDeclareVisionCapability() {
+    fun litertlmVisionModelDeclaresVisionCapability() {
         // Это основа LOCAL_ONLY vision: без неё маршрутизатор не направит
-        // изображение в локальную модель.
-        registry.all()
-            .filter { it.architecture.equals("litertlm", ignoreCase = true) }
-            .forEach { model ->
-                assertThat(model.capabilities).isNotEmpty()
-                assertThat(model.capabilities.any { it.name == "VISION" }).isTrue()
-            }
+        // изображение в локальную модель. Текстовые модели (Qwen) могут
+        // не иметь VISION — проверяем только мультимодальную Gemma.
+        val vision = registry.all().first { it.id == "gemma-4-e2b-it-litertlm" }
+        assertThat(vision.capabilities.any { it.name == "VISION" }).isTrue()
     }
 
     @Test
@@ -98,14 +95,14 @@ class CompositeRuntimeLogicTest {
         // Composite runtime ищет файл модели по filePath — поле должно
         // существовать и быть непустым по контракту.
         val installed = InstalledModel(
-            modelId = "gemma3-1b-it-litertlm",
-            name = "Gemma 3 1B IT (LiteRT)",
-            filePath = "/data/local/tmp/gemma3-1b-it.litertlm",
-            sizeBytes = 700L * 1024 * 1024,
+            modelId = "gemma-4-e2b-it-litertlm",
+            name = "Gemma 4 E2B IT (LiteRT)",
+            filePath = "/data/local/tmp/gemma-4-e2b-it.litertlm",
+            sizeBytes = 2469L * 1024 * 1024,
             installedAt = 0L
         )
         assertThat(installed.filePath).isNotEmpty()
-        assertThat(installed.modelId).isEqualTo("gemma3-1b-it-litertlm")
+        assertThat(installed.modelId).isEqualTo("gemma-4-e2b-it-litertlm")
     }
 
     @Test

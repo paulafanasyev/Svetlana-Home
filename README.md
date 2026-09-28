@@ -408,8 +408,8 @@ battery, screen, camera, mic, network.
 |------------|--------|-----------|
 | Repository / CI | VERIFIED | public repo, GitHub Actions, APK artifact |
 | Сборка APK | VERIFIED | debug + release (R8, подписанный), arm64-v8a; **release собирается с LiteRT-LM** — liblitertlm_jni.so (21.8 MB) в APK, все нативные библиотеки 16 KB-совместимы |
-| Lint | VERIFIED | 0 errors, 21 warning (нет новых от LiteRT) |
-| Unit-тесты | VERIFIED | ~190 тестов, 0 неудач (VisionPipeline, PostconditionLogic, VoiceSessionStateMachine, CompositeRuntime, ModelFormat magic) |
+| Lint | VERIFIED | 0 errors, 60 warnings + 1 hint (CI artifact run #74) |
+| Unit-тесты | VERIFIED | 195 тестов, 0 неудач (VisionPipeline, PostconditionLogic, VoiceSessionStateMachine, CompositeRuntime, ModelFormat magic, расширение .litertlm, trusted SHA-256) |
 | Instrumented-тесты | CI VERIFIED | 24 androidTest-класса; эмулятор ≠ устройство |
 | Launcher (ROLE_HOME) | CODE VERIFIED | Home-подсказка + раздел «Главный экран» с ActivityResult; **onboarding при первом запуске** |
 | App Registry / Drawer | CODE VERIFIED | **scan() теперь вызывается** — drawer реален; категории + capability matrix |
@@ -423,7 +423,7 @@ battery, screen, camera, mic, network.
 | Wake word | NOT PROVEN | не always-on low-power детектор (STT-polling); state machine защищает от гонок |
 | Vision | CODE VERIFIED | **изображение реально передаётся**: JPEG→`AIRouter.vision()`→OpenAI image_url base64 / `/vlm` сервера / **локальный LiteRT-LM**; раньше был BLOCKED (вызывался text-only chat) |
 | Local AI runtime | CODE VERIFIED | **два runtime'а**: llama.cpp (GGUF, text) + **LiteRT-LM 0.17.1** (.litertlm, multimodal, tool use); диспетчер `CompositeInferenceRuntime` по формату модели; проверка модели после установки |
-| Model Registry / Compatibility | CODE VERIFIED | +2 LiteRT-модели (Gemma 3 1B/4B, multimodal); **LITERT_LM magic-проверка больше не «принимает всё»** (TFL-префикс); требуется device-проверка совместимости |
+| Model Registry / Compatibility | CODE VERIFIED | LiteRT-модели указывают на **реальные публичные файлы** (gemma-4-E2B-it, Qwen2.5-1.5B q8) с **доверенным SHA-256**; **magic-проверка настоящего контейнера "LITERTLM"** (не TFL); файлы сохраняются как `.litertlm` (Engine отклоняет .bin) |
 | External AI Providers | CODE VERIFIED | **полный config UI**: endpoint→key→/models→выбор→test inference→save; Custom preset; **нормализация /v1** |
 | Personal Server | CODE VERIFIED | /health, /capabilities, /inference + кнопка «Проверить inference» в UI |
 | Hybrid AI | CODE VERIFIED | `HybridPipeline`: privacy→preprocess→sanitize→remote→postprocess |

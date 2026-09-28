@@ -60,18 +60,22 @@ data class ModelManifest(
 enum class ModelFormat(val magicHex: String, val humanName: String) {
     GGUF("47475546", "GGUF (llama.cpp)"),
     /**
-     * LiteRT-LM-модели — это FlatBuffers (тот же контейнер, что и у
-     * .tflite). Заголовок FlatBuffer: 4 байта размера (little-endian),
-     * затем идентификатор формата — у TFLite это "TFL3"/"TFL2".
-     * LiteRT-LM конвертируется тем же toolchain'ом, поэтому проверяем
-     * префикс "TFL". Это отсекает HTML-страницы 404 и мусор.
+     * Контейнер LiteRT-LM имеет собственный заголовок, отдельный от
+     * .tflite: первые 8 байт файла — ASCII "LITERTLM"
+     * (0x4c 0x49 0x54 0x45 0x52 0x54 0x4c 0x4d), затем версия major/minor.
+     * Upstream file_format_util.cc явно различает "TFL3" (TFLite), "PK"
+     * (ZIP) и StartsWith("LITERTLM") — это три разных формата.
+     * Проверка "TFL" была ошибочной: она пропускала бы .tflite-файлы
+     * и не подтверждала реальный контейнер LiteRT-LM.
+     * Источник: runtime/util/file_format_util.cc, schema/core/litertlm_header.h
      */
-    LITERT_LM("54464c", "LiteRT-LM (.litertlm)");
+    LITERT_LM("4c49544552544c4d", "LiteRT-LM (.litertlm)");
 
     /**
      * Проверка magic bytes файла. Раньше LITERT_LM принимал любой
-     * файл (всегда true) — это позволяло установить мусор и при этом
-     * получить «формат проверен». Теперь сверяем "TFL".
+     * файл (всегда true), затем ошибочно проверял "TFL" по смещению 4.
+     * Теперь сверяем настоящий 8-байный заголовок "LITERTLM" с нулевого
+     * смещения — так отсекаются HTML-страницы 404, мусор и .tflite файлы.
      */
     fun matchesMagic(header: ByteArray): Boolean {
         if (magicHex.isEmpty()) return true

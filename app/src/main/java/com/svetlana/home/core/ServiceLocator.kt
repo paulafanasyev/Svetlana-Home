@@ -172,6 +172,8 @@ object ServiceLocator {
         // PackageManager. Без этого App Drawer пустой (ТЗ §10, §11).
         // Сканирование идёт в фоновом потоке — не блокирует запуск.
         appRegistry.scanAsync()
+        // LiteRT-LM требует расширения .litertlm — мигрируем старые .bin.
+        localModelManager.migrateExtensions()
     }
 
     fun onTrimMemory(level: Int) {

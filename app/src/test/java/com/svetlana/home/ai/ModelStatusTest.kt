@@ -82,36 +82,48 @@ class ModelStatusTest {
     }
 
     /**
-     * Аудит §13: LITERT_LM раньше принимал любой файл (matchesMagic
-     * всегда возвращал true). Это позволяло установить мусор и получить
-     * «формат проверен». Теперь сверяется префикс "TFL".
+     * Аудит P0-A: LITERT_LM раньше ошибочно проверял "TFL" по смещению 4 —
+     * это заголовок .tflite, а не контейнер LiteRT-LM. Реальный контейнер
+     * начинается с 8-байтного ASCII "LITERTLM" по нулевому смещению
+     * (runtime/util/file_format_util.cc, litertlm_header.h).
      */
     @Test
-    fun `LITERT_LM matches real TFLite FlatBuffer header`() {
-        // Реальный заголовок mobilenet_v2.tflite:
-        // 28 00 00 00 | 54 46 4c 33   (size LE + "TFL3")
+    fun `LITERT_LM matches real litertlm container header`() {
+        // Реальный заголовок test_lm.litertlm из upstream testdata:
+        // 4c 49 54 45 52 54 4c 4d | 01 00 00 00 | 06 00 00 00
+        //      L  I  T  E  R  T  L  M    v1.0.0
+        val header = byteArrayOf(
+            0x4c, 0x49, 0x54, 0x45, 0x52, 0x54, 0x4c, 0x4d,
+            0x01, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00
+        )
+        assertTrue(ModelFormat.LITERT_LM.matchesMagic(header))
+    }
+
+    @Test
+    fun `LITERT_LM rejects tflite file`() {
+        // TFL3 по смещению 4 — это .tflite, НЕ LiteRT-LM.
+        // Прежняя ошибочная проверка принимала бы этот файл.
         val header = byteArrayOf(0x28, 0x00, 0x00, 0x00, 0x54, 0x46, 0x4c, 0x33)
-        // magic "TFL" начинается с 4-го байта
-        assertTrue(ModelFormat.LITERT_LM.matchesMagic(header.copyOfRange(4, 7)))
+        assertFalse(ModelFormat.LITERT_LM.matchesMagic(header))
     }
 
     @Test
     fun `LITERT_LM rejects HTML 404 page`() {
         val html = "<!DOCTYPE html><html><body>404</body></html>".toByteArray()
-        // Симулируем проверку как в LocalModelManager: берём 7 байт,
-        // magic из диапазона 4..7
-        val head = html.copyOf(7)
-        assertFalse(ModelFormat.LITERT_LM.matchesMagic(head.copyOfRange(4, 7)))
+        assertFalse(ModelFormat.LITERT_LM.matchesMagic(html.copyOf(8)))
     }
 
     @Test
     fun `LITERT_LM rejects garbage`() {
-        // 0xFF/0xAA/0xBB > Byte.MAX_VALUE — нужны явные toByte()
-        val header = byteArrayOf(
-            0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
-            0xAA.toByte(), 0xBB.toByte(), 0xCC.toByte()
-        )
-        assertFalse(ModelFormat.LITERT_LM.matchesMagic(header.copyOfRange(4, 7)))
+        val header = ByteArray(16) { 0xFF.toByte() }
+        assertFalse(ModelFormat.LITERT_LM.matchesMagic(header))
+    }
+
+    @Test
+    fun `LITERT_LM rejects truncated header`() {
+        // Файл короче 8 байт не может содержать magic
+        val header = byteArrayOf(0x4c, 0x49, 0x54, 0x45)
+        assertFalse(ModelFormat.LITERT_LM.matchesMagic(header))
     }
 
     @Test
@@ -121,9 +133,9 @@ class ModelStatusTest {
     }
 
     @Test
-    fun `LITERT_LM accepts TFL2 variant`() {
-        // Старые модели используют "TFL2"
-        val header = byteArrayOf(0x1c, 0x00, 0x00, 0x00, 0x54, 0x46, 0x4c, 0x32)
-        assertTrue(ModelFormat.LITERT_LM.matchesMagic(header.copyOfRange(4, 7)))
+    fun `LITERT_LM magic is exactly LITERTLM`() {
+        // 8 байт: L I T E R T L M
+        assertEquals("4c49544552544c4d", ModelFormat.LITERT_LM.magicHex)
+        assertEquals(8, ModelFormat.LITERT_LM.magicHex.length / 2)
     }
 }

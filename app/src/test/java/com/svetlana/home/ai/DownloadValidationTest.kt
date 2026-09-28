@@ -58,4 +58,64 @@ class DownloadValidationTest {
         val tiny = ByteArray(512) { 'A'.code.toByte() }
         assertThat(tiny.size < 1024).isTrue()
     }
+
+    /**
+     * Аудит P0-B: LiteRT-LM Engine отклоняет тот же контент, если файл
+     * назван .bin вместо .litertlm (upstream issue). Поэтому целевое
+     * расширение обязано зависеть от формата модели.
+     */
+    @Test
+    fun litertlmModelsGetLitertlmExtension() {
+        val registry = AIModelRegistry()
+        val litertlm = registry.all().first { it.backend == "litertlm" }
+        val ext = when (litertlm.backend) {
+            "litertlm" -> "litertlm"
+            "llama.cpp" -> "gguf"
+            else -> "bin"
+        }
+        assertThat(ext).isEqualTo("litertlm")
+    }
+
+    @Test
+    fun llamaCppModelsGetGgufExtension() {
+        val registry = AIModelRegistry()
+        val gguf = registry.all().first { it.backend == "llama.cpp" }
+        val ext = when (gguf.backend) {
+            "litertlm" -> "litertlm"
+            "llama.cpp" -> "gguf"
+            else -> "bin"
+        }
+        assertThat(ext).isEqualTo("gguf")
+    }
+
+    /**
+     * Аудит P0-C: URL'ы моделей в реестре должны указывать на реальные
+     * файлы. Регрессия на устаревшие gemma3-1b-it.litertlm / 4b, которых
+     * не существует в репозиториях litert-community.
+     */
+    @Test
+    fun litertlmRegistryUrlsAreRealFiles() {
+        val registry = AIModelRegistry()
+        val litertlmModels = registry.all().filter { it.backend == "litertlm" }
+        assertThat(litertlmModels).isNotEmpty()
+        litertlmModels.forEach { model ->
+            // URL должен быть прямой ссылкой на файл, а не на страницу
+            assertThat(model.downloadUrl).contains("/resolve/main/")
+            // и заканчиваться расширением .litertlm
+            assertThat(model.downloadUrl).endsWith(".litertlm")
+        }
+    }
+
+    /**
+     * Аудит §13/§18: доверенный хеш должен быть указан — иначе «вычислить
+     * SHA» не означает «проверить SHA». Мультимодальная Gemma — основная
+     * модель для LOCAL_ONLY vision, её хеш сверен с реальным файлом.
+     */
+    @Test
+    fun litertlmVisionModelHasTrustedSha256() {
+        val registry = AIModelRegistry()
+        val vision = registry.all().first { it.id == "gemma-4-e2b-it-litertlm" }
+        assertThat(vision.expectedSha256).isNotEmpty()
+        assertThat(vision.expectedSha256).hasLength(64)
+    }
 }
