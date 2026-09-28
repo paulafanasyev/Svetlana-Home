@@ -12,7 +12,7 @@
 | Unit tests | CI VERIFIED | 73 теста, 0 неудач |
 | Debug APK | CI VERIFIED | собирается в CI, артефакт `svetlana-home-debug-apk` |
 | Release APK (R8) | CODE VERIFIED | собирается локально; подпись требует keystore в env |
-| Launcher (ROLE_HOME) | CODE VERIFIED | DEVICE VERIFIED — requires POCO X3 NFC |
+| Launcher (ROLE_HOME) | CODE VERIFIED | DEVICE VERIFIED — требуется физическое устройство |
 | App Registry + App Drawer | CODE VERIFIED | + device test `AppRegistryDeviceTest` |
 | App Control Engine | CODE VERIFIED | proof chain с реальным `waitForPackage` |
 | Hands (Accessibility) | CODE VERIFIED | async dispatchGesture исправлен и покрыт тестом |
@@ -30,10 +30,10 @@
 | SecureKeyStore | CODE VERIFIED | небезопасный fallback отсутствует |
 | History / Memory | CODE VERIFIED | |
 | Onboarding | CODE VERIFIED | включает этап создания владельца |
-| Физический POCO X3 NFC | NOT PROVEN | главное оставшееся условие |
+| Физическое arm64-устройство | NOT PROVEN | главное оставшееся условие |
 | Production release (signing/AAB) | NOT PROVEN | ожидает keystore и device acceptance |
 
-`DEVICE VERIFIED` присваивается только после теста на POCO X3 NFC
+`DEVICE VERIFIED` присваивается только после теста на физическом устройстве
 по `docs/device-test.md`.
 
 ## Что требует устройства

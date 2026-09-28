@@ -6,7 +6,7 @@
 ## Подготовка
 
 1. Собрать APK: `./gradlew :app:assembleDebug`.
-2. Установить на POCO X3 NFC:
+2. Установить на физическое arm64-устройство:
    `adb install app/build/outputs/apk/debug/app-debug.apk`.
 3. Пройти onboarding и мастер «Настроить Светлану».
 4. Включить Hands: Настройки → Специальные возможности → Светлана Hands.
@@ -19,7 +19,7 @@
 - [x] CI работает (dev gate + production gate + instrumentation)
 - [x] Unit-тесты проходят (80 тестов)
 - [x] Нет секретов в репозитории (secret scan в CI)
-- [ ] APK установлен на POCO X3 NFC
+- [ ] APK установлен на физическом устройстве
 
 ### Владелец
 
@@ -78,7 +78,7 @@
 - [x] Storage определён
 - [x] Thermal определён (PowerManager)
 - [x] Backend capabilities определены
-- [ ] Реальные значения на POCO X3 NFC сняты в device report
+- [ ] Реальные значения сняты в device report
 
 ### Локальный ИИ
 
@@ -135,7 +135,7 @@
 
 ### Финал
 
-- [ ] Performance проверен на POCO X3 NFC
+- [ ] Performance проверен на физическом устройстве
 - [ ] Device report готов
 
 ## Доказательные цепочки (ТЗ §84)
@@ -143,7 +143,7 @@
 ### Mobile Harness
 
 ```
-Code → CI → APK → POCO X3 NFC → Hands enabled →
+Code → CI → APK → физическое arm64-устройство → Hands enabled →
 Mobile Harness → UI element → Real action → Result verified
 ```
 
@@ -209,13 +209,13 @@ runtime, а не только компилируется.
 CI выполняет эти тесты на x86_64-эмуляторе (API 30). Это доказывает
 реальную работу Android runtime, но **не заменяет физическое устройство**:
  Hands, Accessibility, SpeechRecognizer и нативный llama.cpp требуют
-ARM64 (POCO X3 NFC).
+ARM64-смартфон.
 
 - **CI VERIFIED**: 101 тест выполняется и проходит на эмуляторе
   (4 skipped — arm64-only тесты через `assumeTrue`, 0 failed).
   До исправления ABI-совместимости и non-void тест-методов
   instrumentation падал; теперь проходит полностью.
-- **DEVICE VERIFIED**: пока NOT PROVEN — нужен POCO X3 NFC.
+- **DEVICE VERIFIED**: пока NOT PROVEN — нужно физическое arm64-устройство.
 
 Тесты, запускающие реальные Activity и системную навигацию
 (`AppControlLaunchDeviceTest`), выполняются **только на arm64** — на

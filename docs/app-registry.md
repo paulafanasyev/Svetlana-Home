@@ -105,4 +105,4 @@ Android-зависимостей. В App Drawer доступна вкладка 
 | Поиск по имени/пакету/псевдониму | `AppRegistry.search()` | CODE VERIFIED |
 | Категории определяются публичным API | `AppCategoryResolverTest` (unit) | VERIFIED |
 | Установка/удаление обновляют реестр | `packageChangeReceiver` | CODE VERIFIED |
-| Реальный список на POCO X3 NFC | device | NOT PROVEN |
+| Реальный список на физическом устройстве | device | NOT PROVEN |

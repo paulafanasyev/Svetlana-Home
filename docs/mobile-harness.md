@@ -69,7 +69,7 @@ RESULT_VERIFIED                                   OK   PLAN0_RESULT=VERIFIED
 ## Доказательство (ТЗ §84)
 
 ```
-Code → CI → APK → POCO X3 NFC → Hands enabled →
+Code → CI → APK → физическое arm64-устройство → Hands enabled →
 Mobile Harness → UI element → Real action → Result verified
 ```
 
