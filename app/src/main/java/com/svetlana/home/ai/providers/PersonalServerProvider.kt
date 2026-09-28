@@ -50,8 +50,13 @@ class PersonalServerProvider(
         val result = serverManager.inference(prompt)
             ?: return AIResult(false, "Сервер не ответил. Проверьте подключение.", AIBackend.PERSONAL_SERVER,
                 latencyMs = System.currentTimeMillis() - started)
-        return AIResult(true, result, AIBackend.PERSONAL_SERVER,
-            latencyMs = System.currentTimeMillis() - started)
+        return if (result.isBlank()) {
+            AIResult(false, "Сервер вернул пустой ответ.", AIBackend.PERSONAL_SERVER,
+                latencyMs = System.currentTimeMillis() - started)
+        } else {
+            AIResult(true, result, AIBackend.PERSONAL_SERVER,
+                latencyMs = System.currentTimeMillis() - started)
+        }
     }
 
     /**
