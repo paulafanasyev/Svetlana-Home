@@ -123,14 +123,14 @@ fun PermissionCenterScreen() {
                                     Text(
                                         text = "Нажмите «Изменить», чтобы выдать разрешение Светлане",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = TextSecondary
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 } else if (!diag.locationServicesEnabled && diag.permissionGranted) {
                                     Spacer(Modifier.height(4.dp))
                                     Text(
                                         text = "Нажмите «Изменить», чтобы включить системную геолокацию Android",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = TextSecondary
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -211,8 +211,8 @@ fun OwnerScreen() {
                 },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MintPrimary)
-            ) { Text("Создать профиль владельца", color = AlmostBlack) }
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) { Text("Создать профиль владельца", color = MaterialTheme.colorScheme.onPrimary) }
         } else {
             Text(
                 text = "Статус владельца не даёт root, скрытого доступа к Accessibility, " +
@@ -321,7 +321,7 @@ fun MemoryScreen() {
                 ) {
                     Text(m.label, modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.titleMedium)
-                    if (mode == m) Text("✓", color = MintPrimary)
+                    if (mode == m) Text("✓", color = MaterialTheme.colorScheme.primary)
                 }
             }
         }

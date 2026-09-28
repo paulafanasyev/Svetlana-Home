@@ -84,11 +84,6 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale.toLanguageTag())
-                    // ТЗ §53: разговорный режим RU↔VI — даём системе обе локали,
-                    // чтобы она могла выбрать подходящую по факту сказанного.
-                    if (locale.toLanguageTag() == "ru-RU") {
-                        putExtra(RecognizerIntent.EXTRA_SUPPORTED_LANGUAGES, arrayListOf("ru-RU", "vi-VN"))
-                    }
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 }

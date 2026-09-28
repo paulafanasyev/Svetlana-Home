@@ -106,9 +106,9 @@ fun LauncherSettingsScreen() {
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MintPrimary)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
-                Text(stringResource(R.string.launcher_make_home), color = AlmostBlack)
+                Text(stringResource(R.string.launcher_make_home), color = MaterialTheme.colorScheme.onPrimary)
             }
         } else {
             // Уже назначен: даём пользователю возможность вернуться к системному
@@ -139,7 +139,7 @@ fun SystemSettingsRow(label: String, intent: Intent) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(AlmostBlack)
+            .background(MaterialTheme.colorScheme.background)
             .clickable {
                 try { context.startActivity(intent) } catch (t: Throwable) { }
             }

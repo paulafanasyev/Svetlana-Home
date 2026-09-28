@@ -76,7 +76,7 @@ fun AppsPageScreen(appRegistry: AppRegistry) {
         columns = GridCells.Fixed(4),
         modifier = Modifier
             .fillMaxSize()
-            .background(AlmostBlack)
+            .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
             .navigationBarsPadding(),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
@@ -140,7 +140,7 @@ private fun SectionHeader(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelLarge,
-        color = TextSecondary,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 2.dp)
     )
 }
@@ -159,7 +159,7 @@ private fun AppIcon(app: AppModel, onClick: () -> Unit) {
         Text(
             text = app.label,
             style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -182,14 +182,14 @@ private fun AppListItem(app: AppModel, onClick: () -> Unit) {
             Text(
                 text = app.label,
                 style = MaterialTheme.typography.bodyLarge,
-                color = TextPrimary,
+                color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = app.packageName,
                 style = MaterialTheme.typography.labelSmall,
-                color = TextTertiary,
+                color = MaterialTheme.colorScheme.outlineVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -219,12 +219,12 @@ private fun EntryRow(
                     .background(MintPrimary.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = label, tint = MintPrimary, modifier = Modifier.size(20.dp))
+                Icon(icon, contentDescription = label, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column {
                 Text(label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Text(sub, style = MaterialTheme.typography.labelSmall, color = TextTertiary)
+                Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outlineVariant)
             }
         }
     }
@@ -254,7 +254,7 @@ private fun AppIconDrawable(packageName: String, modifier: Modifier) {
             Icon(
                 Icons.Outlined.Apps,
                 contentDescription = null,
-                tint = TextTertiary,
+                tint = MaterialTheme.colorScheme.outlineVariant,
                 modifier = Modifier.size(20.dp)
             )
         }

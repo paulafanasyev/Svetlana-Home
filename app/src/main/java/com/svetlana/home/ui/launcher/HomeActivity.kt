@@ -64,9 +64,11 @@ import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.components.LivingOrb
 import com.svetlana.home.ui.onboarding.OnboardingFlowContent
 import com.svetlana.home.ui.theme.AlmostBlack
+import com.svetlana.home.ui.theme.LightBackground
 import com.svetlana.home.ui.theme.MintPrimary
 import com.svetlana.home.ui.theme.MintSoft
-import com.svetlana.home.ui.theme.SvetlanaTheme
+import com.svetlana.home.ui.theme.MintSoftLight
+import com.svetlana.home.ui.theme.SvetlanaSettingsTheme
 import com.svetlana.home.ui.theme.TextPrimary
 import com.svetlana.home.ui.theme.TextSecondary
 import com.svetlana.home.ui.theme.TextTertiary
@@ -90,7 +92,7 @@ class HomeActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         )
-        setContent { SvetlanaTheme { HomeScreen() } }
+        setContent { SvetlanaSettingsTheme { HomeScreen() } }
     }
 
     @Composable
@@ -142,18 +144,25 @@ class HomeActivity : ComponentActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(AlmostBlack)
+                .background(MaterialTheme.colorScheme.background)
         ) {
-            // Лёгкий градиентный фон (liquid light)
+            // Лёгкий градиентный фон (liquid light). Берём фактическую тему
+            // пользователя через LocalSvetlanaDarkTheme: иначе при
+            // «система тёмная, выбрана светлая» фон останется тёмным.
+            val isDark = com.svetlana.home.ui.theme.LocalSvetlanaDarkTheme.current
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(
+                            colors = if (isDark) listOf(
                                 MintPrimary.copy(alpha = 0.05f),
                                 AlmostBlack,
                                 AlmostBlack
+                            ) else listOf(
+                                MintSoftLight.copy(alpha = 0.25f),
+                                LightBackground,
+                                LightBackground
                             )
                         )
                     )
@@ -214,7 +223,7 @@ class HomeActivity : ComponentActivity() {
             // Часы
             Text(
                 text = uiState.clock.ifBlank { "21:42" },
-                style = TextStyle(fontSize = 44.sp, color = TextPrimary, textAlign = TextAlign.Center),
+                style = TextStyle(fontSize = 44.sp, color = MaterialTheme.colorScheme.onBackground, textAlign = TextAlign.Center),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 24.dp)
@@ -244,12 +253,12 @@ class HomeActivity : ComponentActivity() {
                         Text(
                             text = "Светлана ещё не назначена главным экраном",
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
                             text = "Назначить",
-                            color = MintPrimary,
+                            color = MaterialTheme.colorScheme.primary,
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
@@ -296,7 +305,7 @@ class HomeActivity : ComponentActivity() {
                     Text(
                         text = uiState.aiBackendLabel,
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextTertiary
+                        color = MaterialTheme.colorScheme.outlineVariant
                     )
                 }
                 // ТЗ §9: если режим деградирован, Светлана честно
@@ -306,7 +315,7 @@ class HomeActivity : ComponentActivity() {
                     Text(
                         text = uiState.orbReason,
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextTertiary,
+                        color = MaterialTheme.colorScheme.outlineVariant,
                         textAlign = TextAlign.Center,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
@@ -337,7 +346,7 @@ class HomeActivity : ComponentActivity() {
                         Row {
                             Text(
                                 text = stringResource(R.string.confirm),
-                                color = MintPrimary,
+                                color = MaterialTheme.colorScheme.primary,
                                 style = MaterialTheme.typography.labelLarge,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(12.dp))
@@ -347,7 +356,7 @@ class HomeActivity : ComponentActivity() {
                             Spacer(Modifier.width(12.dp))
                             Text(
                                 text = stringResource(R.string.cancel),
-                                color = TextSecondary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelLarge,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(12.dp))
@@ -374,14 +383,14 @@ class HomeActivity : ComponentActivity() {
                 Icon(
                     imageVector = if (uiState.isListening) Icons.Outlined.GraphicEq else Icons.Outlined.Mic,
                     contentDescription = "Микрофон",
-                    tint = MintPrimary,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(32.dp)
                 )
             }
             Text(
                 text = if (uiState.isListening) "Слушаю…" else stringResource(R.string.home_input_hint),
                 style = MaterialTheme.typography.labelMedium,
-                color = TextTertiary
+                color = MaterialTheme.colorScheme.outlineVariant
             )
         }
     }

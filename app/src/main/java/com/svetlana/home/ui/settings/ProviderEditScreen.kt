@@ -35,7 +35,6 @@ import com.svetlana.home.ai.ProviderConfig
 import com.svetlana.home.ai.providers.OpenAiCompatibleProvider
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.ui.components.GlassCard
-import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
 import com.svetlana.home.ui.theme.TextSecondary
 import com.svetlana.home.ui.theme.WarnAmber
@@ -185,7 +184,7 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                         text = "Можно ввести вручную или выбрать из списка ниже " +
                                 "после «Получить модели».",
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -234,23 +233,23 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (model == m) MintPrimary.copy(alpha = 0.15f) else AlmostBlack)
+                        .background(if (model == m) MintPrimary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant)
                         .clickable { model = m; verifiedModel = null; modelTestStatus = "" }
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(if (model == m) "●" else "○", color = MintPrimary)
+                    Text(if (model == m) "●" else "○", color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(0.dp))
                     Text(m, modifier = Modifier.weight(1f).padding(start = 8.dp),
                         style = MaterialTheme.typography.bodyMedium)
-                    if (verifiedModel == m) Text("✓", color = MintPrimary)
+                    if (verifiedModel == m) Text("✓", color = MaterialTheme.colorScheme.primary)
                 }
             }
             item {
                 Text(
                     text = "Выберите модель из списка, затем проверьте её кнопкой выше.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -261,14 +260,20 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                     scope.launch(Dispatchers.IO) {
                         manager.update(config.copy(name = name, baseUrl = baseUrl, model = model))
                         if (apiKey.isNotBlank()) manager.setApiKey(config.id, apiKey)
+                        // Фикс «круга» (аудит пользователя): после настройки
+                        // провайдер не становился активным, а режим оставался
+                        // LOCAL — чат бесконечно просил «настройте внешний ИИ».
+                        // Теперь один раз настроили — и можно работать.
+                        ServiceLocator.settings.setActiveProvider(config.id)
+                        ServiceLocator.settings.setAiMode(com.svetlana.home.ai.AIMode.EXTERNAL)
                         withContext(Dispatchers.Main) { onSaved() }
                     }
                 },
                 enabled = !isWorking && baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MintPrimary)
-            ) { Text("Сохранить", color = AlmostBlack) }
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) { Text("Сохранить", color = MaterialTheme.colorScheme.onPrimary) }
         }
 
         item {
@@ -277,7 +282,7 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                         "Прямой ключ OpenAI в мобильном приложении виден ему — " +
                         "для production используйте Personal Gateway.",
                 style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

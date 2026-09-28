@@ -47,6 +47,7 @@
 
     <!-- Заголовки экранов -->
     <string name="title_settings">Настройки</string>
+    <string name="title_theme">Оформление</string>
     <string name="title_apps">Приложения</string>
     <string name="title_history">История Светланы</string>
     <string name="title_local_ai">Локальный ИИ</string>

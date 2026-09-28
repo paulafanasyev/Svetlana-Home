@@ -44,6 +44,11 @@ open class SettingsRepository(private val context: Context) {
     val wakeWordEnabled: Flow<Boolean> = ds.data.map { it[KEY_WAKE_WORD] ?: true }
     val avatarLevelOverride: Flow<Int> = ds.data.map { it[KEY_AVATAR_LEVEL] ?: -1 }
 
+    /**
+     * Тема интерфейса: 0 — по системе, 1 — тёмная, 2 — светлая.
+     */
+    val themeMode: Flow<Int> = ds.data.map { it[KEY_THEME] ?: 0 }
+
     suspend fun setOnboardingDone(value: Boolean) { ds.edit { it[KEY_ONBOARDING] = value } }
     suspend fun setSetupDone(value: Boolean) { ds.edit { it[KEY_SETUP] = value } }
     suspend fun setAiMode(mode: AIMode) { ds.edit { it[KEY_AI_MODE] = mode.name } }
@@ -54,6 +59,7 @@ open class SettingsRepository(private val context: Context) {
     suspend fun setWakeWordEnabled(value: Boolean) { ds.edit { it[KEY_WAKE_WORD] = value } }
     suspend fun setAvatarLevelOverride(level: Int) { ds.edit { it[KEY_AVATAR_LEVEL] = level } }
     suspend fun setOwnerName(value: String) { ds.edit { it[KEY_OWNER_NAME] = value } }
+    suspend fun setThemeMode(value: Int) { ds.edit { it[KEY_THEME] = value } }
 
     suspend fun <T> read(block: (Preferences) -> T): T = block(ds.data.first())
     suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
@@ -71,5 +77,6 @@ open class SettingsRepository(private val context: Context) {
         private val KEY_WAKE_WORD = booleanPreferencesKey("wake_word_enabled")
         private val KEY_AVATAR_LEVEL = intPreferencesKey("avatar_level_override")
         private val KEY_OWNER_NAME = stringPreferencesKey("owner_name")
+        private val KEY_THEME = intPreferencesKey("theme_mode")
     }
 }

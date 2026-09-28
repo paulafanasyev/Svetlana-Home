@@ -2,6 +2,7 @@ package com.svetlana.home.ui.settings
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -11,12 +12,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,7 +81,7 @@ fun VoiceSettingsScreen() {
                             "STT по таймеру, а не как low-power always-on детектор — " +
                             "это ограничение текущей реализации.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(4.dp))
                 // Аудит п.12: технический режим прослушивания видим
@@ -85,7 +89,7 @@ fun VoiceSettingsScreen() {
                 Text(
                     text = "Режим: ${ServiceLocator.wakeWord.listeningKind}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -141,7 +145,7 @@ fun HandsSettingsScreen() {
                             "Реальное действие подтверждается доказательной цепочкой: " +
                             "PLAN → TARGET → ACTION_ATTEMPTED → ACTION_PERFORMED → VERIFIED.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -270,5 +274,66 @@ fun SystemSettingsScreen() {
             label = stringResource(R.string.sys_storage),
             intent = Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
+    }
+}
+
+/**
+ * Экран выбора темы интерфейса (ТЗ §6).
+ *
+ * 0 — по системе, 1 — тёмная, 2 — светлая.
+ */
+@Composable
+fun ThemeScreen() {
+    val scope = rememberCoroutineScope()
+    val settings = remember { ServiceLocator.settings }
+    val mode by settings.themeMode.collectAsState(initial = 0)
+
+    val options = listOf(
+        0 to "По системе",
+        1 to "Тёмная",
+        2 to "Светлая"
+    )
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Text(
+                text = "Оформление",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+        items(options.size) { i ->
+            val (value, label) = options[i]
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (mode == value) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface)
+                    .clickable { scope.launch { settings.setThemeMode(value) } }
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                if (mode == value) Text("✓", color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        item {
+            Spacer(Modifier.height(12.dp))
+            Image(
+                painter = androidx.compose.ui.res.painterResource(R.drawable.logo_svetlana),
+                contentDescription = "Логотип Светланы",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "SVETLANA HOME",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        }
     }
 }

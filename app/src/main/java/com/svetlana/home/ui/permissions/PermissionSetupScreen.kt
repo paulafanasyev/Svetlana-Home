@@ -29,8 +29,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -61,54 +63,42 @@ fun PermissionSetupScreen(onAllHandled: () -> Unit) {
     val context = LocalContext.current
     val pm = remember { ServiceLocator.permissionManager }
     var items by remember { mutableStateOf(pm.list()) }
-    var currentIndex by remember { mutableStateOf(0) }
+
+    // Фикс «круга» (аудит пользователя): мастер заставлял по одному
+    // проходить ВСЕ разрешения, даже уже предоставленные. Сразу после
+    // выдачи пользователь видел то же самое снова. Пропускаем то, что
+    // уже дано, и индексируем только по-настоящему незакрытые шаги.
+    val skipped = remember { mutableStateMapOf<String, Boolean>() }
+    val requiredPending = remember(items, skipped.size) {
+        items.filter { !it.granted && it.required && skipped[it.key] != true }
+    }
 
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _ ->
         items = pm.list()
-        currentIndex++
     }
 
     val settingsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { _ ->
         items = pm.list()
-        currentIndex++
     }
 
-    if (currentIndex >= items.size) {
-        // Все шаги пройдены
-        Box(modifier = Modifier.fillMaxSize().background(AlmostBlack)) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "Настройка завершена. Можно начинать.",
-                    style = MaterialTheme.typography.titleLarge
-                )
-                Spacer(Modifier.height(24.dp))
-                Button(
-                    onClick = onAllHandled,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MintPrimary)
-                ) {
-                    Text(stringResource(R.string.perm_finish), color = AlmostBlack)
-                }
-            }
+    // Все обязательные шаги пройдены — не мучаем пользователя оставшимися
+    // необязательными, завершаем настройку.
+    if (requiredPending.isEmpty()) {
+        LaunchedEffect(Unit) {
+            ServiceLocator.settings.setOnboardingDone(true)
+            ServiceLocator.settings.setSetupDone(true)
+            onAllHandled()
         }
         return
     }
 
-    val item = items[currentIndex]
+    val item = requiredPending.first()
 
-    Box(modifier = Modifier.fillMaxSize().background(AlmostBlack)) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -127,14 +117,14 @@ fun PermissionSetupScreen(onAllHandled: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Spacer(Modifier.height(20.dp))
-                ProgressDots(total = items.size, current = currentIndex)
+                ProgressDots(total = items.count { it.required }, current = items.count { it.required } - requiredPending.size)
                 Spacer(Modifier.height(20.dp))
                 Text(text = item.title, style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(8.dp))
                 Text(text = item.description, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = if (item.granted) "Уже предоставлено" else if (item.required) "Требуется" else "Необязательно",
+                    text = if (item.granted) "Уже предоставлено" else "Требуется",
                     style = MaterialTheme.typography.labelLarge
                 )
             }
@@ -145,12 +135,12 @@ fun PermissionSetupScreen(onAllHandled: () -> Unit) {
                         when (item.kind) {
                             PermissionItem.Kind.RUNTIME -> {
                                 pm.runtimePermissionFor(item.key)?.let { permLauncher.launch(it) }
-                                    ?: run { currentIndex++ }
+                                    ?: run { skipped[item.key] = true }
                             }
                             PermissionItem.Kind.NOTIFICATION -> {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                     permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                } else currentIndex++
+                                } else skipped[item.key] = true
                             }
                             PermissionItem.Kind.ACCESSIBILITY,
                             PermissionItem.Kind.SETTINGS -> {
@@ -169,20 +159,20 @@ fun PermissionSetupScreen(onAllHandled: () -> Unit) {
                     },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MintPrimary)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Text(
                         text = if (item.granted) "Продолжить" else stringResource(R.string.perm_grant),
-                        color = AlmostBlack
+                        color = MaterialTheme.colorScheme.onPrimary
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                if (!item.required) {
-                    androidx.compose.material3.TextButton(
-                        onClick = { currentIndex++ },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(stringResource(R.string.perm_skip)) }
-                }
+                // Пропуск можно использовать, но кнопка "Не сейчас" оставляет
+                // приложение рабочим — необязательные доступы не блокируют.
+                androidx.compose.material3.TextButton(
+                    onClick = { skipped[item.key] = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(stringResource(R.string.perm_skip)) }
                 Spacer(Modifier.height(8.dp))
                 androidx.compose.material3.TextButton(
                     onClick = {

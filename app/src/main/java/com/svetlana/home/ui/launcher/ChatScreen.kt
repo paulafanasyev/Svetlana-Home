@@ -82,7 +82,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(AlmostBlack)
+            .background(MaterialTheme.colorScheme.background)
             .imePadding()
             .statusBarsPadding()
             .navigationBarsPadding()
@@ -97,7 +97,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
         Text(
             text = "Чат",
             style = MaterialTheme.typography.labelMedium,
-            color = TextTertiary,
+            color = MaterialTheme.colorScheme.outlineVariant,
             modifier = Modifier.padding(start = 20.dp, bottom = 8.dp)
         )
 
@@ -111,7 +111,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 Text(
                     text = "Напишите Светлане — она ответит здесь.\nГолосовые команды работают на главном экране.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
                         .align(Alignment.Center)
                         .padding(horizontal = 40.dp)
@@ -160,7 +160,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     Row {
                         Text(
                             text = stringResource(R.string.confirm),
-                            color = MintPrimary,
+                            color = MaterialTheme.colorScheme.primary,
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
@@ -170,7 +170,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         Spacer(Modifier.width(12.dp))
                         Text(
                             text = stringResource(R.string.cancel),
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
@@ -196,7 +196,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     value = inputText,
                     onValueChange = { inputText = it },
                     enabled = uiState.inputEnabled,
-                    textStyle = TextStyle(color = TextPrimary, fontSize = 16.sp),
+                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp),
                     cursorBrush = SolidColor(MintPrimary),
                     maxLines = 5,
                     keyboardOptions = KeyboardOptions(
@@ -214,7 +214,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         if (inputText.isEmpty()) {
                             Text(
                                 text = stringResource(R.string.home_input_hint),
-                                color = TextTertiary,
+                                color = MaterialTheme.colorScheme.outlineVariant,
                                 style = MaterialTheme.typography.bodyLarge
                             )
                         }
@@ -234,7 +234,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     Icon(
                         Icons.Outlined.Send,
                         contentDescription = "Отправить",
-                        tint = if (inputText.isNotBlank()) MintPrimary else TextTertiary
+                        tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
                     )
                 }
             }
@@ -269,7 +269,7 @@ private fun MessageBubble(message: ChatMessage) {
             Text(
                 text = message.text,
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (message.pending) TextSecondary else TextPrimary
+                color = if (message.pending) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onBackground
             )
         }
     }

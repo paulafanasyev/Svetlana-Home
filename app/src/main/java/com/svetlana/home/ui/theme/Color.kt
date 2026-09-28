@@ -21,3 +21,23 @@ val ErrorRed = Color(0xFFFF6B6B)
 val OrbBrush = Brush.radialGradient(
     colors = listOf(MintSoft, MintPrimary, GreenDeep)
 )
+
+// Светлая тема: мягкий mint на тёплом светлом фоне.
+val LightBackground = Color(0xFFF4F8F5)
+val LightSurface = Color(0xFFFFFFFF)
+val LightSurfaceVariant = Color(0xFFE8F0EA)
+val LightTextPrimary = Color(0xFF12201A)
+val LightTextSecondary = Color(0xFF4E6159)
+val LightTextTertiary = Color(0xFF7A8B83)
+val LightDivider = Color(0xFFD3E1D8)
+val MintPrimaryLight = Color(0xFF1E8F6B)
+val MintSoftLight = Color(0xFF3FA885)
+val GreenDeepLight = Color(0xFFD9EFE5)
+val GlassLightCard = Color(0xCCFFFFFF)
+val AlmostBlackLight = Color(0xFF12201A)
+val ErrorRedLight = Color(0xFFC0392B)
+val WarnAmberLight = Color(0xFFB7791F)
+
+val OrbBrushLight = Brush.radialGradient(
+    colors = listOf(MintSoftLight, MintPrimaryLight, GreenDeepLight)
+)

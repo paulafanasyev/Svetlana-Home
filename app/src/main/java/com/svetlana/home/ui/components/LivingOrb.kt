@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.svetlana.home.avatar.AvatarLevel
+import com.svetlana.home.ui.theme.LocalSvetlanaDarkTheme
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -71,6 +72,18 @@ fun LivingOrb(
     )
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        val isDark = LocalSvetlanaDarkTheme.current
+        // В светлой теме стеклянная основа орба светлее, чтобы он не выглядел
+        // тёмным пятном на светлом фоне (ТЗ §6).
+        val baseColors = if (isDark) listOf(
+            Color(0xFF12211C), Color(0xFF0A1210), Color(0xFF05080A)
+        ) else listOf(
+            Color(0xFFDFF3E9), Color(0xFFC9E8D8), Color(0xFFAFDFC8)
+        )
+        val mint = if (isDark) Color(0xFF5FE3B0) else Color(0xFF1E8F6B)
+        val mintSoft = if (isDark) Color(0xFF8FF0CC) else Color(0xFF3FA885)
+        val deep = if (isDark) Color(0xFF123B30) else Color(0xFFE8F6EF)
+
         // Внешнее свечение
         Canvas(modifier = Modifier.size(size * 1.6f).blur(24.dp)) {
             val center = Offset(this.size.width / 2f, this.size.height / 2f)
@@ -78,8 +91,8 @@ fun LivingOrb(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFF5FE3B0).copy(alpha = glow * 0.6f),
-                        Color(0xFF123B30).copy(alpha = glow * 0.3f),
+                        mint.copy(alpha = glow * 0.6f),
+                        deep.copy(alpha = glow * 0.3f),
                         Color.Transparent
                     )
                 ),
@@ -94,14 +107,14 @@ fun LivingOrb(
                 val center = Offset(this.size.width / 2f, this.size.height / 2f)
                 val r = this.size.minDimension / 2f * 0.92f
                 drawCircle(
-                    color = Color(0xFF5FE3B0).copy(alpha = 0.18f),
+                    color = mint.copy(alpha = 0.18f),
                     radius = r,
                     center = center,
                     style = Stroke(width = 1.5f)
                 )
                 val dotAngle = Math.toRadians(rotation.toDouble())
                 drawCircle(
-                    color = Color(0xFF8FF0CC).copy(alpha = 0.9f),
+                    color = mintSoft.copy(alpha = 0.9f),
                     radius = 5f,
                     center = Offset(
                         (center.x + r * cos(dotAngle)).toFloat(),
@@ -116,14 +129,10 @@ fun LivingOrb(
             val center = Offset(this.size.width / 2f, this.size.height / 2f)
             val radius = this.size.minDimension / 2f * breath
 
-            // Тёмное стекло-основа
+            // Стекло-основа (цвет зависит от темы)
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF12211C),
-                        Color(0xFF0A1210),
-                        Color(0xFF05080A)
-                    ),
+                    colors = baseColors,
                     center = Offset(center.x - radius * 0.25f, center.y - radius * 0.3f),
                     radius = radius * 1.2f
                 ),
@@ -136,9 +145,9 @@ fun LivingOrb(
                 brush = Brush.radialGradient(
                     colors = listOf(
                         Color(0xFFE8FFF6).copy(alpha = if (active) 0.95f else 0.6f),
-                        Color(0xFF8FF0CC).copy(alpha = 0.85f),
-                        Color(0xFF5FE3B0).copy(alpha = 0.55f),
-                        Color(0xFF123B30).copy(alpha = 0.2f),
+                        mintSoft.copy(alpha = 0.85f),
+                        mint.copy(alpha = 0.55f),
+                        deep.copy(alpha = 0.2f),
                         Color.Transparent
                     ),
                     center = Offset(center.x - radius * 0.22f, center.y - radius * 0.28f),
@@ -168,7 +177,7 @@ fun LivingOrb(
                 val px = center.x + (dist * cos(angle)).toFloat() + wob
                 val py = center.y + (dist * sin(angle)).toFloat() - wob / 2
                 drawCircle(
-                    color = Color(0xFF8FF0CC).copy(alpha = 0.35f + 0.35f * sin(particles * Math.PI.toFloat() + i)),
+                    color = mintSoft.copy(alpha = 0.35f + 0.35f * sin(particles * Math.PI.toFloat() + i)),
                     radius = (1.6f + (i % 4) * 0.7f),
                     center = Offset(px, py)
                 )
@@ -178,7 +187,7 @@ fun LivingOrb(
             if (level.level >= 2) {
                 for (ring in 0..1) {
                     drawCircle(
-                        color = Color(0xFF5FE3B0).copy(alpha = 0.12f * (1 - ring * 0.4f)),
+                        color = mint.copy(alpha = 0.12f * (1 - ring * 0.4f)),
                         radius = radius * (1.05f + ring * 0.12f) * breath,
                         center = center,
                         style = Stroke(width = 1f)

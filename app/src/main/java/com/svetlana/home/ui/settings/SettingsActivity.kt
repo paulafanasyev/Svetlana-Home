@@ -42,7 +42,7 @@ import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
-import com.svetlana.home.ui.theme.SvetlanaTheme
+import com.svetlana.home.ui.theme.SvetlanaSettingsTheme
 import com.svetlana.home.ui.theme.TextSecondary
 import com.svetlana.home.ui.history.HistoryScreen
 
@@ -52,12 +52,13 @@ import com.svetlana.home.ui.history.HistoryScreen
 class SettingsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { SvetlanaTheme { SettingsScreen(onBack = { finish() }) } }
+        setContent { SvetlanaSettingsTheme { SettingsScreen(onBack = { finish() }) } }
     }
 }
 
 enum class SettingsSection(val titleRes: Int) {
     HOME(R.string.title_settings),
+    THEME(R.string.title_theme),
     AI(R.string.title_providers),
     LOCAL_AI(R.string.title_local_ai),
     MODELS(R.string.title_model_registry),
@@ -81,7 +82,7 @@ enum class SettingsSection(val titleRes: Int) {
 fun SettingsScreen(onBack: () -> Unit) {
     var section by remember { mutableStateOf(SettingsSection.HOME) }
 
-    Box(modifier = Modifier.fillMaxSize().background(AlmostBlack)) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -103,6 +104,7 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             when (section) {
                 SettingsSection.HOME -> SectionsList { section = it }
+                SettingsSection.THEME -> ThemeScreen()
                 SettingsSection.AI -> AiProvidersScreen()
                 SettingsSection.LOCAL_AI -> LocalAiScreen()
                 SettingsSection.MODELS -> ModelRegistryScreen()
@@ -131,6 +133,7 @@ private fun SectionsList(onOpen: (SettingsSection) -> Unit) {
     // Системные настройки — отдельный раздел в конце, который открывает
     // системные экраны, а не дублирует их.
     val sections = listOf(
+        SettingsSection.THEME,
         SettingsSection.AI,
         SettingsSection.LOCAL_AI,
         SettingsSection.MODELS,

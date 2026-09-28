@@ -36,7 +36,7 @@ Hands + Voice + Vision + управление приложениями + Mobile 
 - [Security](#security)
 - [Privacy](#privacy)
 - [Тестирование](#тестирование)
-- [POCO X3 NFC](#poco-x3-nfc)
+- [Физическое устройство](#физическое-устройство)
 - [Известные ограничения](#известные-ограничения)
 - [Документация](#документация)
 
@@ -99,7 +99,7 @@ Hands + Voice + Vision + управление приложениями + Mobile 
 
 Проверить целостность можно по SHA-256 из `checksums.txt` в том же релизе.
  APK подписан сертификатом `CN=Svetlana Home, OU=Mobile AI, O=Paul Afanasyev`.
-Сборка рассчитана на **arm64-v8a** (POCO X3 NFC и большинство современных устройств).
+Сборка рассчитана на **arm64-v8a** (большинство современных устройств).
 
 ### Собрать из исходного кода
 
@@ -325,9 +325,9 @@ instrumentation tests, APK artifact).
 Эмулятор не считается физическим устройством. План тестирования на
 устройстве: [docs/device-test.md](docs/device-test.md).
 
-## POCO X3 NFC
+## Физическое устройство
 
-Первый физический тестный аппарат. Приложение не предполагает
+Первый физический тестный аппарат — определяется автоматически при подключении; конкретная модель не фиксируется в проекте. Приложение не предполагает
 характеристики устройства, а определяет реальные: model, Android, SDK,
 ABI, CPU, RAM, storage, GPU, Vulkan, OpenGL ES, NNAPI, thermal,
 battery, screen, camera, mic, network.
@@ -424,7 +424,7 @@ battery, screen, camera, mic, network.
 | Device Capability | CODE VERIFIED | GPU через EGL + vendor; thermal через PowerManager |
 | Опасные действия | CODE VERIFIED | `ActionRiskPolicy` блокирует SendMessage/MakeCall/Share/ComposeMessage |
 | Настройки | CODE VERIFIED | **разделены**: настройки Светланы vs «Системные настройки телефона» |
-| Physical POCO X3 NFC | NOT PROVEN | устройство не подключено к этой среде |
+| Physical device | NOT PROVEN | устройство не подключено к этой среде |
 | Production release | NOT PROVEN | R8+AAB собираются; подпись требует keystore в секретах |
 
 ---

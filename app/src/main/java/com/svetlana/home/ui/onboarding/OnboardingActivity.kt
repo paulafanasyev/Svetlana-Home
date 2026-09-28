@@ -39,7 +39,7 @@ import com.svetlana.home.ui.launcher.HomeActivity
 import com.svetlana.home.ui.permissions.PermissionSetupScreen
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
-import com.svetlana.home.ui.theme.SvetlanaTheme
+import com.svetlana.home.ui.theme.SvetlanaSettingsTheme
 import kotlinx.coroutines.launch
 
 /**
@@ -50,7 +50,7 @@ class OnboardingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            SvetlanaTheme {
+            SvetlanaSettingsTheme {
                 OnboardingFlowContent(
                     launchHome = {
                         startActivity(Intent(this@OnboardingActivity, HomeActivity::class.java))
@@ -76,7 +76,7 @@ fun OnboardingFlowContent(
     val scope = rememberCoroutineScope()
     var stage by remember { mutableStateOf(0) }
 
-    Box(modifier = Modifier.fillMaxSize().background(AlmostBlack)) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -123,11 +123,11 @@ fun OnboardingFlowContent(
                         onClick = { stage = 1 },
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                         shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MintPrimary)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
                         Text(
                             text = stringResource(R.string.onboarding_setup_button),
-                            color = AlmostBlack
+                            color = MaterialTheme.colorScheme.onPrimary
                         )
                     }
                     Spacer(Modifier.height(8.dp))
@@ -235,9 +235,9 @@ private fun OwnerCreateStage(
             },
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MintPrimary)
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
-            Text(text = "Создать профиль", color = AlmostBlack)
+            Text(text = "Создать профиль", color = MaterialTheme.colorScheme.onPrimary)
         }
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = onSkip, modifier = Modifier.fillMaxWidth()) {
@@ -245,7 +245,7 @@ private fun OwnerCreateStage(
         }
         if (message.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
-            Text(text = message, style = MaterialTheme.typography.bodySmall, color = MintPrimary)
+            Text(text = message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
     }
 }

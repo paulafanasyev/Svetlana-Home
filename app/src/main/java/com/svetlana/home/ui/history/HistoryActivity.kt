@@ -37,7 +37,7 @@ import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
 import com.svetlana.home.ui.theme.MintSoft
-import com.svetlana.home.ui.theme.SvetlanaTheme
+import com.svetlana.home.ui.theme.SvetlanaSettingsTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -48,7 +48,7 @@ import java.util.Locale
 class HistoryActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { SvetlanaTheme { HistoryScreen(onBack = { finish() }) } }
+        setContent { SvetlanaSettingsTheme { HistoryScreen(onBack = { finish() }) } }
     }
 }
 
@@ -60,7 +60,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
 
     val shown = if (filter == null) entries else entries.filter { it.category == filter }
 
-    Box(modifier = Modifier.fillMaxSize().background(AlmostBlack)) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -96,8 +96,8 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MintPrimary)
-                    ) { Text(stringResource(R.string.history_clear), color = AlmostBlack) }
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) { Text(stringResource(R.string.history_clear), color = MaterialTheme.colorScheme.onPrimary) }
                 }
             }
         }

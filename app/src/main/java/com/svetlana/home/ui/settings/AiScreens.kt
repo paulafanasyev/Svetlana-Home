@@ -45,7 +45,6 @@ import com.svetlana.home.core.SvetlanaStatus
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.ui.components.GlassCard
-import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
 import com.svetlana.home.ui.theme.MintSoft
 import com.svetlana.home.ui.theme.TextTertiary
@@ -100,7 +99,7 @@ fun AiProvidersScreen() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (mode == m) MintPrimary.copy(alpha = 0.15f) else AlmostBlack)
+                        .background(if (mode == m) MintPrimary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant)
                         .clickable {
                             mode = m
                             scope.launch { settings.setAiMode(m) }
@@ -109,7 +108,7 @@ fun AiProvidersScreen() {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(m.label, modifier = Modifier.weight(1f))
-                    if (mode == m) Text("✓", color = MintPrimary)
+                    if (mode == m) Text("✓", color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -159,6 +158,12 @@ fun AiProvidersScreen() {
                         }
                         ActionChip(stringResource(R.string.provider_delete)) {
                             manager.remove(cfg.id)
+                            // Если удалили активный провайдер — сбрасываем
+                            // выбор, иначе роутер будет искать несуществующий.
+                            if (activeId == cfg.id) {
+                                activeId = null
+                                scope.launch { settings.setActiveProvider(null) }
+                            }
                             configs = manager.list()
                         }
                     }

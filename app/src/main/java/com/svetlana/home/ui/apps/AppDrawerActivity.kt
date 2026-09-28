@@ -57,7 +57,7 @@ import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
 import com.svetlana.home.ui.theme.MintSoft
-import com.svetlana.home.ui.theme.SvetlanaTheme
+import com.svetlana.home.ui.theme.SvetlanaSettingsTheme
 import com.svetlana.home.ui.theme.TextPrimary
 import com.svetlana.home.ui.theme.TextTertiary
 
@@ -69,7 +69,7 @@ class AppDrawerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { SvetlanaTheme { AppDrawerScreen() } }
+        setContent { SvetlanaSettingsTheme { AppDrawerScreen() } }
     }
 }
 
@@ -119,7 +119,7 @@ private fun AppDrawerScreen() {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(AlmostBlack)) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -135,7 +135,7 @@ private fun AppDrawerScreen() {
                 text = if (scanning) "Поиск установленных приложений…"
                 else "Установлено приложений: ${apps.size}",
                 style = MaterialTheme.typography.bodySmall,
-                color = TextTertiary,
+                color = MaterialTheme.colorScheme.outlineVariant,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer16()
@@ -151,7 +151,7 @@ private fun AppDrawerScreen() {
                     BasicTextField(
                         value = query,
                         onValueChange = { query = it },
-                        textStyle = TextStyle(color = TextPrimary, fontSize = 16.sp),
+                        textStyle = TextStyle(color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp),
                         cursorBrush = SolidColor(MintPrimary),
                         keyboardOptions = KeyboardOptions.Default,
                         modifier = Modifier.weight(1f),
@@ -159,7 +159,7 @@ private fun AppDrawerScreen() {
                             if (query.isEmpty()) {
                                 Text(
                                     text = stringResource(R.string.search_hint),
-                                    color = TextTertiary
+                                    color = MaterialTheme.colorScheme.outlineVariant
                                 )
                             }
                             inner()
@@ -236,7 +236,7 @@ private fun AppDrawerScreen() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             CircularProgressIndicator(
-                                color = MintPrimary,
+                                color = MaterialTheme.colorScheme.primary,
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(28.dp)
                             )
@@ -244,7 +244,7 @@ private fun AppDrawerScreen() {
                             Text(
                                 text = "Сканирование…",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = TextTertiary
+                                color = MaterialTheme.colorScheme.outlineVariant
                             )
                         }
                     }
@@ -335,7 +335,7 @@ private fun AppRow(app: AppModel, onLaunch: () -> Unit, onTogglePin: () -> Unit)
                 Text(
                     text = app.packageName,
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextTertiary
+                    color = MaterialTheme.colorScheme.outlineVariant
                 )
                 // ТЗ §66: показываем реальные возможности управления.
                 Text(
