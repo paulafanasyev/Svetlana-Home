@@ -43,9 +43,10 @@ data class AIModel(
      */
     fun manifest(): ModelManifest = ModelManifest(
         modelId = id,
-        format = when (backend) {
+        format = when (backend.lowercase()) {
             "llama.cpp" -> ModelFormat.GGUF
-            else -> ModelFormat.LITERT_LM
+            "litertlm" -> ModelFormat.LITERT_LM
+            else -> ModelFormat.UNKNOWN
         },
         sizeBytes = sizeMb * 1024L * 1024L,
         sha256 = expectedSha256 ?: "",
@@ -244,7 +245,7 @@ class AIModelRegistry {
             context = 4096,
             license = "Gemma Terms of Use",
             source = "Google AI Edge (litert-community)",
-            downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
+            downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/6e5c4f1/gemma-4-E2B-it.litertlm",
             description = "Локальная мультимодальная модель: текст + изображения + аудио. Vision on-device",
             // Доверенный хеш вычислен по реальному скачанному файлу
             // (2588147712 байт) — сверки «вычислить SHA» недостаточно,
@@ -267,7 +268,7 @@ class AIModelRegistry {
             context = 4096,
             license = "Apache 2.0",
             source = "Qwen (litert-community)",
-            downloadUrl = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm",
+            downloadUrl = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/19edb84/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm",
             description = "Лёгкая локальная текстовая модель для слабых устройств",
             expectedSha256 = "faa60663b333290c1496c499828b21d3e3254a788cacd8cce917ce0f761a2dc9",
             capabilities = listOf(ModelCapability.TEXT)
