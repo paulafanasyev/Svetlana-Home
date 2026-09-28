@@ -6,6 +6,7 @@ import com.svetlana.home.ai.AIProvider
 import com.svetlana.home.ai.AIResult
 import com.svetlana.home.ai.ProviderCapabilities
 import com.svetlana.home.ai.ProviderConfig
+import com.svetlana.home.ai.StreamState
 import com.svetlana.home.store.SecureKeyStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -78,6 +79,61 @@ class OpenAiCompatibleProvider(
      * полного завершения генерации. Дельты отдаются по мере поступления.
      */
     override fun supportsStreaming(): Boolean = true
+
+    /**
+     * Стриминг с явным терминальным состоянием (аудит §24).
+     *
+     * Несколько полученных токенов ≠ inference завершён. Поток должен
+     * дойти до STREAM_COMPLETED — только это считается успехом.
+     * Обрыв сети посреди стрима даёт STREAM_FAILED.
+     */
+    fun chatStreamStates(prompt: String, systemPrompt: String? = null): Flow<StreamState> = flow {
+        if (!isConfigured()) { emit(StreamState.STREAM_FAILED); return@flow }
+        emit(StreamState.STREAM_STARTED)
+        val payload = buildJsonObject {
+            put("model", config.model)
+            put("messages", buildJsonArray {
+                systemPrompt?.let { add(buildJsonObject { put("role", "system"); put("content", it) }) }
+                add(buildJsonObject { put("role", "user"); put("content", prompt) })
+            })
+            put("temperature", 0.7)
+            put("max_tokens", 512)
+            put("stream", true)
+        }.toString()
+
+        val key = apiKey()
+        if (key == null) { emit(StreamState.STREAM_FAILED); return@flow }
+        val body = payload.toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url("${normalizedEndpoint()}/chat/completions")
+            .addHeader("Authorization", "Bearer $key")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Accept", "text/event-stream")
+            .post(body)
+            .build()
+
+        var anyToken = false
+        try {
+            streamClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) { emit(StreamState.STREAM_FAILED); return@flow }
+                val source = response.body?.source()
+                if (source == null) { emit(StreamState.STREAM_FAILED); return@flow }
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: break
+                    if (!line.startsWith("data:")) continue
+                    val data = line.removePrefix("data:").trim()
+                    if (data.isEmpty() || data == "[DONE]") continue
+                    val delta = parseDelta(data) ?: continue
+                    if (delta.isNotEmpty()) { anyToken = true; emit(StreamState.TOKEN_RECEIVED) }
+                }
+            }
+            // Терминальное состояние: поток прочитан до конца.
+            emit(if (anyToken) StreamState.STREAM_COMPLETED else StreamState.STREAM_FAILED)
+        } catch (t: Throwable) {
+            // Стриминг оборвался — это FAILED, а не успех.
+            emit(StreamState.STREAM_FAILED)
+        }
+    }
 
     override fun chatStream(prompt: String, systemPrompt: String?): Flow<String> = flow {
         if (!isConfigured()) return@flow

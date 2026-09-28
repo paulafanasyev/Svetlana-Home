@@ -166,10 +166,14 @@ class PersonalServerManager(
     /**
      * Реальная доступность: сетевой запрос к серверу.
      * Используется routing-логикой вместо isConfigured().
+     *
+     * Аудит: раньше было `healthCheck() != null`, а healthCheck(): Boolean —
+     * ненулевой Boolean никогда не равен null, поэтому сервер считался
+     * доступным, даже будучи мёртвым. Теперь возвращаем сам результат.
      */
     suspend fun isReachable(): Boolean = withContext(Dispatchers.IO) {
         if (!isConfigured()) return@withContext false
-        healthCheck() != null
+        healthCheck()
     }
 
     @Deprecated("Переименовано в isConfigured() — имя вводило в заблуждение (аудит 18). " +

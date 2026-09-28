@@ -18,13 +18,20 @@ object SvetlanaStatus {
 /**
  * Уровни доказательной цепочки Hands.
  * Нельзя считать "команда отправлена" равным "действие выполнено".
+ *
+ * Аудит §3: добавлены PRECONDITIONS_OK и POSTCONDITION_CHECKED —
+ * между «API принял» и «действие выполнено» должно быть реальное
+ * измерение состояния.
  */
 enum class ProofStage {
     PLAN,
     TARGET_APP_IDENTIFIED,
+    PRECONDITIONS_OK,
     PERMISSION_CHECKED,
     ACTION_ATTEMPTED,
+    ACTION_ACCEPTED,
     ACTION_PERFORMED,
+    POSTCONDITION_CHECKED,
     RESULT_VERIFIED
 }
 

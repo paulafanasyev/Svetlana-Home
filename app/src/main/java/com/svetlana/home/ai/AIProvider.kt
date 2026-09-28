@@ -113,5 +113,5 @@ enum class RouteDecision { LOCAL, REMOTE, HYBRID, NONE }
  * Тип данных для Privacy Router (ТЗ §49).
  */
 enum class PrivacyDataType {
-    TEXT, SCREENSHOT, UI_TREE, IMAGE, AUDIO, HISTORY, DOCUMENTS
+    TEXT, SCREENSHOT, UI_TREE, IMAGE, AUDIO, HISTORY, DOCUMENTS, CONTACTS
 }

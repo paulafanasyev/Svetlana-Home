@@ -36,12 +36,29 @@ object PrivacyPolicy {
             return Decision(false, "Режим «Только устройство» запрещает передачу данных наружу", backend)
         }
 
-        // Персональная память не уходит внешнему AI автоматически (ТЗ §61)
-        if (dataType == PrivacyDataType.HISTORY && backend == AIBackend.EXTERNAL) {
-            return if (memoryMode == MemoryMode.REMOTE && backend == AIBackend.PERSONAL_SERVER) {
-                Decision(true, "Память отправляется на ваш сервер по настройке", backend)
-            } else {
-                Decision(false, "Персональная память не отправляется внешнему AI автоматически", backend)
+        // Персональная память не уходит внешнему AI автоматически (ТЗ §61).
+        // Аудит: раньше ветка PERSONAL_SERVER находилась внутри условия,
+        // требующего EXTERNAL, и была недостижима. Теперь порядок корректный.
+        if (dataType == PrivacyDataType.HISTORY) {
+            return when (backend) {
+                AIBackend.PERSONAL_SERVER ->
+                    if (memoryMode == MemoryMode.REMOTE)
+                        Decision(true, "Память отправляется на ваш сервер по настройке", backend)
+                    else
+                        Decision(false, "Память не покидает устройство (режим памяти — локальный)", backend)
+                else ->
+                    Decision(false, "Персональная память не отправляется внешнему AI автоматически", backend)
+            }
+        }
+
+        // Контактная информация и личные документы — только локально.
+        if (dataType in SENSITIVE_DATA) {
+            return when (backend) {
+                AIBackend.LOCAL -> Decision(true, "Данные остаются на устройстве", backend)
+                AIBackend.PERSONAL_SERVER -> Decision(false,
+                    "Контакты и личные документы не отправляются на сервер", backend)
+                else -> Decision(false,
+                    "Контакты и личные документы не покидают устройство", backend)
             }
         }
 
@@ -71,6 +88,15 @@ object PrivacyPolicy {
         PrivacyDataType.SCREENSHOT,
         PrivacyDataType.UI_TREE,
         PrivacyDataType.IMAGE
+    )
+
+    /**
+     * Данные, которые никогда не покидают устройство без явного решения.
+     * Аудит §22: контакты и личные документы — только локально.
+     */
+    private val SENSITIVE_DATA = listOf(
+        PrivacyDataType.CONTACTS,
+        PrivacyDataType.DOCUMENTS
     )
 
     /**

@@ -265,15 +265,42 @@ fun LocalAiScreen() {
         }
         items(installed.size) { i ->
             val model = installed[i]
+            val isActive = model.modelId == activeModelId
+            val status = remember(model.modelId, isActive) {
+                manager.statusFor(
+                    modelId = model.modelId,
+                    runtimeReady = llamaRuntime.isReady(),
+                    modelLoaded = llamaRuntime.isReady(),
+                    inferenceVerified = model.benchmark?.status == SvetlanaStatus.DEVICE_VERIFIED
+                )
+            }
             GlassCard {
                 Column {
-                    Text(model.name, style = MaterialTheme.typography.titleMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(model.name, style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f))
+                        if (isActive) {
+                            Text("● Используется", style = MaterialTheme.typography.labelLarge,
+                                color = MintPrimary)
+                        }
+                    }
                     Text("${model.sizeBytes / (1024 * 1024)} МБ",
                         style = MaterialTheme.typography.bodySmall)
-                    Text("Статус: ${manager.benchmarkStatusFor(model.modelId)}",
-                        style = MaterialTheme.typography.labelLarge)
+                    // Аудит §14: строгий жизненный цикл вместо оптимистичного isAvailable()
+                    Text("Статус: ${status.label}", style = MaterialTheme.typography.labelLarge)
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Аудит §15: явный выбор основной модели
+                        if (!isActive) {
+                            ActionChip("Сделать основной") {
+                                scope.launch(Dispatchers.IO) {
+                                    settings.setActiveLocalModel(model.modelId)
+                                    activeModelId = model.modelId
+                                    ServiceLocator.historyManager.record(HistoryCategory.MODELS,
+                                        "Основная модель: ${model.name}")
+                                }
+                            }
+                        }
                         ActionChip(stringResource(R.string.model_benchmark)) {
                             scope.launch(Dispatchers.IO) {
                                 val result = BenchmarkRunner.run(
@@ -301,10 +328,13 @@ fun LocalAiScreen() {
                                 }
                             }
                         }
-                        ActionChip(stringResource(R.string.model_delete)) {
-                            manager.uninstall(model.modelId)
-                            installed = manager.list()
-                            verification = null
+                        // Аудит §15: активную модель удалять запрещено
+                        if (!isActive) {
+                            ActionChip(stringResource(R.string.model_delete)) {
+                                manager.uninstall(model.modelId)
+                                installed = manager.list()
+                                verification = null
+                            }
                         }
                     }
                     // Результат проверки модели (аудит п.2)

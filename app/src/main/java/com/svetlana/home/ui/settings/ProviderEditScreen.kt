@@ -32,8 +32,11 @@ import androidx.compose.ui.unit.dp
 import com.svetlana.home.R
 import com.svetlana.home.ai.AIResult
 import com.svetlana.home.ai.ProviderConfig
+import com.svetlana.home.ai.ProviderState
+import com.svetlana.home.ai.ProviderStateCalculator
 import com.svetlana.home.ai.providers.OpenAiCompatibleProvider
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.MintPrimary
 import com.svetlana.home.ui.theme.TextSecondary
@@ -255,17 +258,47 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
         }
 
         item {
+            // Аудит §23: состояние провайдера вычисляется из фактов.
+            val state = ProviderStateCalculator.from(
+                configured = baseUrl.isNotBlank() && apiKey.isNotBlank(),
+                connectionOk = connectionStatus.startsWith("✓"),
+                modelExists = remoteModels.isNotEmpty() || model.isNotBlank(),
+                inferenceOk = modelTestStatus.startsWith("✓"),
+                isActive = false
+            )
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Column {
+                    Text("Состояние: ${state.label}", style = MaterialTheme.typography.titleMedium,
+                        color = if (state == ProviderState.VERIFIED || state == ProviderState.ACTIVE)
+                            MintPrimary else TextSecondary)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = when (state) {
+                            ProviderState.CONFIGURED ->
+                                "Конфигурация сохранена, но inference не проверен. " +
+                                "Активировать можно только после проверки модели."
+                            ProviderState.CONNECTION_FAILED ->
+                                "Соединение не установилось. Проверьте endpoint и ключ."
+                            ProviderState.CONNECTED ->
+                                "Соединение есть. Теперь проверьте модель — реальный тестовый запрос."
+                            ProviderState.VERIFIED ->
+                                "✓ Модель ответила на тестовый запрос. Можно активировать."
+                            ProviderState.ACTIVE -> "✓ Провайдер выбран основным."
+                            ProviderState.CHECKING -> "Идёт проверка…"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        item {
             Button(
                 onClick = {
                     scope.launch(Dispatchers.IO) {
                         manager.update(config.copy(name = name, baseUrl = baseUrl, model = model))
                         if (apiKey.isNotBlank()) manager.setApiKey(config.id, apiKey)
-                        // Фикс «круга» (аудит пользователя): после настройки
-                        // провайдер не становился активным, а режим оставался
-                        // LOCAL — чат бесконечно просил «настройте внешний ИИ».
-                        // Теперь один раз настроили — и можно работать.
-                        ServiceLocator.settings.setActiveProvider(config.id)
-                        ServiceLocator.settings.setAiMode(com.svetlana.home.ai.AIMode.EXTERNAL)
                         withContext(Dispatchers.Main) { onSaved() }
                     }
                 },
@@ -274,6 +307,37 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) { Text("Сохранить", color = MaterialTheme.colorScheme.onPrimary) }
+        }
+
+        item {
+            // Аудит §23: ACTIVATE разрешён только после реального inference.
+            // Кнопка явно отключена, пока модель не ответила на тестовый запрос.
+            Button(
+                onClick = {
+                    scope.launch(Dispatchers.IO) {
+                        // Фикс «круга» (аудит пользователя): после настройки
+                        // провайдер не становился активным, а режим оставался
+                        // LOCAL — чат бесконечно просил «настройте внешний ИИ».
+                        ServiceLocator.settings.setActiveProvider(config.id)
+                        ServiceLocator.settings.setAiMode(com.svetlana.home.ai.AIMode.EXTERNAL)
+                        ServiceLocator.historyManager.record(HistoryCategory.AI,
+                            "Активирован провайдер $name (${model})")
+                        withContext(Dispatchers.Main) { onSaved() }
+                    }
+                },
+                enabled = !isWorking && modelTestStatus.startsWith("✓"),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MintPrimary)
+            ) { Text("Активировать провайдера", color = MaterialTheme.colorScheme.onPrimary) }
+            if (!modelTestStatus.startsWith("✓")) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Активация доступна после успешной проверки модели «Проверить модель».",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
         }
 
         item {

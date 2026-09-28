@@ -119,8 +119,12 @@ class AppControlEngine(
         proof.add(ProofStage.RESULT_VERIFIED,
             if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.Click(target, element), ok,
-            if (ok) "Нажатие выполнено" else "Не удалось нажать",
+        // Аудит §28: успех определяется пост-условием, а не тем, что Android
+        // принял команду. ok == platformAccepted, changed == RESULT_VERIFIED.
+        return ActionResult(SvetlanaAction.Click(target, element), changed,
+            if (changed) "Нажатие выполнено и подтверждено"
+            else if (ok) "Команда отправлена, но экран не изменился — результат не подтверждён"
+            else "Не удалось нажать",
             proof.build(), "hands")
     }
 
@@ -143,8 +147,12 @@ class AppControlEngine(
         proof.add(ProofStage.RESULT_VERIFIED,
             if (verified) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (verified) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.LongClick(target, element), ok,
-            if (ok) "Долгое нажатие выполнено" else "Не удалось", proof.build(), "hands")
+        // Аудит §28: успех = пост-условие, а не platformAccepted.
+        return ActionResult(SvetlanaAction.LongClick(target, element), verified,
+            if (verified) "Долгое нажатие подтверждено"
+            else if (ok) "Команда отправлена, но экран не изменился"
+            else "Не удалось",
+            proof.build(), "hands")
     }
 
     suspend fun typeText(target: String, element: String, text: String): ActionResult {
@@ -165,8 +173,11 @@ class AppControlEngine(
             if (entered) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (entered) "PLAN0_RESULT=VERIFIED text=\"${text.take(32)}\""
                 else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.TypeText(target, element, text), ok,
-            if (ok) "Текст введён" else "Не удалось ввести текст", proof.build(), "hands")
+        // Аудит §28: успех = текст реально в поле, а не «команда отправлена».
+        return ActionResult(SvetlanaAction.TypeText(target, element, text), entered,
+            if (entered) "Текст введён и подтверждён"
+            else if (ok) "Команда отправлена, но текст не появился в поле"
+            else "Не удалось ввести текст", proof.build(), "hands")
     }
 
     suspend fun clearText(target: String, element: String): ActionResult {
@@ -185,8 +196,10 @@ class AppControlEngine(
         proof.add(ProofStage.RESULT_VERIFIED,
             if (cleared) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (cleared) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.ClearText(target, element), ok,
-            if (ok) "Текст очищен" else "Не удалось очистить", proof.build(), "hands")
+        return ActionResult(SvetlanaAction.ClearText(target, element), cleared,
+            if (cleared) "Текст очищен и подтверждён"
+            else if (ok) "Команда отправлена, но поле не пусто"
+            else "Не удалось очистить текст", proof.build(), "hands")
     }
 
     suspend fun scroll(target: String, direction: String): ActionResult {
@@ -204,8 +217,11 @@ class AppControlEngine(
         proof.add(ProofStage.RESULT_VERIFIED,
             if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.Scroll(target, direction), ok,
-            if (ok) "Прокрутка выполнена" else "Не удалось прокрутить", proof.build(), "hands")
+        // Аудит §28: успех = реальное изменение экрана.
+        return ActionResult(SvetlanaAction.Scroll(target, direction), changed,
+            if (changed) "Прокрутка подтверждена"
+            else if (ok) "Команда отправлена, но экран не изменился — возможно, конец списка"
+            else "Не удалось прокрутить", proof.build(), "hands")
     }
 
     suspend fun swipe(target: String, direction: String): ActionResult {
@@ -228,8 +244,11 @@ class AppControlEngine(
         proof.add(ProofStage.RESULT_VERIFIED,
             if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.Swipe(target, direction), ok,
-            if (ok) "Свайп выполнен" else "Не удалось сделать свайп", proof.build(), "hands")
+        // Аудит §28: успех = реальное изменение экрана.
+        return ActionResult(SvetlanaAction.Swipe(target, direction), changed,
+            if (changed) "Свайп подтверждён"
+            else if (ok) "Команда отправлена, но экран не изменился"
+            else "Не удалось сделать свайп", proof.build(), "hands")
     }
 
     /**
@@ -282,8 +301,11 @@ class AppControlEngine(
         proof.add(ProofStage.RESULT_VERIFIED,
             if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.PressBack, ok,
-            if (ok) "Назад" else "Не удалось", proof.build(), "hands")
+        // Аудит §28: успех = пост-условие.
+        return ActionResult(SvetlanaAction.PressBack, changed,
+            if (changed) "Назад, подтверждено"
+            else if (ok) "Команда отправлена, но экран не изменился"
+            else "Не удалось", proof.build(), "hands")
     }
 
     suspend fun pressHome(): ActionResult {
@@ -291,14 +313,19 @@ class AppControlEngine(
         if (!hands.isActive) return handsOff(SvetlanaAction.PressHome, proof)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "global action home")
+        val before = hands.nodeCount()
         val ok = hands.pressHome()
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "home performed" else "home failed")
-        // Home почти всегда меняет экран на launcher
-        proof.add(ProofStage.RESULT_VERIFIED, if (ok) StepStatus.OK else StepStatus.FAILED,
-            if (ok) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.PressHome, ok,
-            if (ok) "Домой" else "Не удалось", proof.build(), "hands")
+        // Home почти всегда меняет экран на launcher — проверяем реальное изменение.
+        val changed = ok && verifyScreenChanged(before, 600)
+        proof.add(ProofStage.RESULT_VERIFIED,
+            if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
+            if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
+        return ActionResult(SvetlanaAction.PressHome, changed,
+            if (changed) "Домой, подтверждено"
+            else if (ok) "Команда отправлена, но экран не изменился"
+            else "Не удалось", proof.build(), "hands")
     }
 
     suspend fun openRecents(): ActionResult {
@@ -306,13 +333,18 @@ class AppControlEngine(
         if (!hands.isActive) return handsOff(SvetlanaAction.OpenRecents, proof)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "global action recents")
+        val before = hands.nodeCount()
         val ok = hands.openRecents()
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "recents performed" else "recents failed")
-        proof.add(ProofStage.RESULT_VERIFIED, if (ok) StepStatus.OK else StepStatus.FAILED,
-            if (ok) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.OpenRecents, ok,
-            if (ok) "Недавние приложения" else "Не удалось", proof.build(), "hands")
+        val changed = ok && verifyScreenChanged(before, 600)
+        proof.add(ProofStage.RESULT_VERIFIED,
+            if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
+            if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
+        return ActionResult(SvetlanaAction.OpenRecents, changed,
+            if (changed) "Недавние приложения открыты, подтверждено"
+            else if (ok) "Команда отправлена, но экран не изменился"
+            else "Не удалось", proof.build(), "hands")
     }
 
     suspend fun openSettings(): ActionResult = openApp("настройки")
@@ -549,4 +581,61 @@ class ProofBuilder {
     }
 
     fun build(): List<ProofStep> = steps.toList()
+
+    /**
+     * Аудит §28: структурированное доказательство.
+     *
+     * platformAccepted (Android принял команду) ≠ performed.
+     * Только VERIFIED пост-условие разрешает performed = true.
+     */
+    fun proof(planId: String, target: String): ActionProof {
+        val attempted = steps.any { it.stage == ProofStage.ACTION_ATTEMPTED }
+        // ACTION_ACCEPTED — Android API вернул true. Если step помечен как
+        // ACTION_PERFORMED (legacy), считаем его принятым тоже.
+        val platformAccepted = steps.any {
+            (it.stage == ProofStage.ACTION_PERFORMED || it.stage == ProofStage.ACTION_ACCEPTED) &&
+                it.status == StepStatus.OK
+        }
+        val post = steps.lastOrNull { it.stage == ProofStage.RESULT_VERIFIED }?.status
+        val postState = when (post) {
+            StepStatus.OK -> VerificationState.VERIFIED
+            StepStatus.FAILED -> VerificationState.FAILED
+            StepStatus.UNVERIFIED -> VerificationState.NOT_CHECKED
+            else -> VerificationState.NOT_CHECKED
+        }
+        val result = if (postState == VerificationState.VERIFIED) VerificationState.VERIFIED
+                     else VerificationState.FAILED
+        return ActionProof(
+            planId = planId,
+            target = target,
+            precondition = VerificationState.VERIFIED,
+            attempted = attempted,
+            platformAccepted = platformAccepted,
+            postcondition = postState,
+            result = result
+        )
+    }
+
+    /**
+     * Помечает, что Android API принял команду (platformAccepted).
+     * Это НЕ означает, что действие выполнено — для этого нужен
+     * POSTCONDITION_CHECKED (аудит §28).
+     */
+    fun accepted(detail: String): ProofBuilder {
+        steps.add(ProofStep(ProofStage.ACTION_ACCEPTED, StepStatus.OK, detail))
+        return this
+    }
+
+    /**
+     * Пост-условие проверено: состояние экрана действительно изменилось.
+     */
+    fun postcondition(state: VerificationState, detail: String): ProofBuilder {
+        val status = when (state) {
+            VerificationState.VERIFIED -> StepStatus.OK
+            VerificationState.FAILED -> StepStatus.FAILED
+            else -> StepStatus.UNVERIFIED
+        }
+        steps.add(ProofStep(ProofStage.POSTCONDITION_CHECKED, status, detail))
+        return this
+    }
 }

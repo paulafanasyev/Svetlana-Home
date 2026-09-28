@@ -115,6 +115,15 @@ open class LocalModelManager(private val context: Context) {
                 return Result.failure(IllegalStateException(
                     "Скачанный файл не является моделью формата ${model.backend}"))
             }
+            // Аудит §13: вычислить SHA ≠ проверить SHA. Если реестр знает
+            // доверенный хеш — сверяем. Несовпадение = файл повреждён/подменён.
+            val expected = model.expectedSha256
+            val shaVerified = expected.isNullOrBlank() || sha.equals(expected, ignoreCase = true)
+            if (!shaVerified) {
+                target.delete()
+                return Result.failure(IllegalStateException(
+                    "Контрольная сумма файла не совпадает с доверенной. Загрузка отменена."))
+            }
             val installedModel = InstalledModel(
                 modelId = model.id, name = model.name,
                 filePath = target.absolutePath, sizeBytes = target.length(),
@@ -148,6 +157,43 @@ open class LocalModelManager(private val context: Context) {
     }
 
     /**
+     * Аудит §14: строгий жизненный цикл модели. Статус вычисляется из фактов.
+     *
+     * @param runtimeReady загружен ли runtime и готов ли он к работе
+     * @param modelLoaded  загружена ли модель в память
+     * @param inferenceVerified прошёл ли реальный inference
+     */
+    fun statusFor(
+        modelId: String,
+        runtimeReady: Boolean = false,
+        modelLoaded: Boolean = false,
+        inferenceVerified: Boolean = false
+    ): ModelStatus {
+        val model = byId(modelId) ?: return ModelStatus.NOT_INSTALLED
+        return ModelStatus.fromFacts(
+            installed = true,
+            formatVerified = model.formatVerified,
+            runtimeReady = runtimeReady,
+            modelLoaded = modelLoaded,
+            inferenceVerified = inferenceVerified,
+            visionVerified = false,
+            deviceVerified = model.benchmark?.status == SvetlanaStatus.DEVICE_VERIFIED
+        )
+    }
+
+    /**
+     * Активная модель — та, которую пользователь выбрал основной.
+     * Удалять активную модель запрещено (аудит §15).
+     */
+    fun isActive(modelId: String, activeId: String?): Boolean = activeId != null && modelId == activeId
+
+    /**
+     * Можно ли удалить модель: активную удалять запрещено.
+     */
+    fun canUninstall(modelId: String, activeId: String?): Boolean =
+        !isActive(modelId, activeId)
+
+    /**
      * Фактический benchmark ставит DEVICE VERIFIED только после реального теста (ТЗ §35).
      */
     fun benchmarkStatusFor(modelId: String): String {
@@ -163,7 +209,7 @@ open class LocalModelManager(private val context: Context) {
 
     /**
      * Аудит п.9: проверка magic bytes скачанного файла.
-     * GGUF (llama.cpp) начинается с "GGUF" (0x46554747).
+     * GGUF (llama.cpp) начинается с "GGUF" (0x47 0x47 0x55 0x46).
      * ONNX — protobuf; первый field ModelProto имеет тег 0x0c (field 1, wire 4)?
      * Надёжнее: ONNX-модели от HF не имеют стабильного magic, поэтому для
      * onnxruntime принимаем любой непустой бинарный файл нетекстового вида.
@@ -171,12 +217,7 @@ open class LocalModelManager(private val context: Context) {
     private fun verifyFormat(file: File, model: AIModel): Boolean {
         return try {
             when (model.backend) {
-                "llama.cpp" -> {
-                    val magic = readHead(file, 4)
-                    magic.size == 4 &&
-                        (magic[0] == 'G'.code.toByte() && magic[1] == 'G'.code.toByte() &&
-                         magic[2] == 'U'.code.toByte() && magic[3] == 'F'.code.toByte())
-                }
+                "llama.cpp" -> ModelFormat.GGUF.matchesMagic(readHead(file, 4))
                 else -> {
                     // Не текст (HTML-страница 404 и т.п.) и достаточно большой.
                     if (file.length() < 1024) return false

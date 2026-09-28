@@ -26,9 +26,32 @@ data class AIModel(
     val license: String,
     val source: String,
     val downloadUrl: String,
-    val description: String = ""
+    val description: String = "",
+    /**
+     * Доверенный SHA-256 для сверки скачанного файла (аудит §13).
+     * null — реестр пока не знает хеша; проверка пропускается, но статус
+     * модели остаётся INSTALLED, а не FORMAT_VERIFIED.
+     */
+    val expectedSha256: String? = null,
+    /** capabilities модели: text/vision/audio/tools (аудит §13). */
+    val capabilities: List<ModelCapability> = listOf(ModelCapability.TEXT)
 ) {
     val supportsNnapi: Boolean get() = npuSupport
+
+    /**
+     * Manifest для сверки файла при установке (аудит §13).
+     */
+    fun manifest(): ModelManifest = ModelManifest(
+        modelId = id,
+        format = when (backend) {
+            "llama.cpp" -> ModelFormat.GGUF
+            else -> ModelFormat.LITERT_LM
+        },
+        sizeBytes = sizeMb * 1024L * 1024L,
+        sha256 = expectedSha256 ?: "",
+        capabilities = capabilities,
+        backends = listOf(backend)
+    )
 }
 
 /**
