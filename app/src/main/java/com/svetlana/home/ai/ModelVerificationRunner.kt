@@ -1,7 +1,7 @@
 package com.svetlana.home.ai
 
 import android.util.Log
-import com.svetlana.home.ai.local.LlamaCppRuntime
+import com.svetlana.home.ai.providers.InferenceRuntime
 
 /**
  * Проверка установленной модели по полной цепочке (аудит п.2).
@@ -57,7 +57,7 @@ object ModelVerificationRunner {
         modelId: String,
         manager: LocalModelManager,
         registry: AIModelRegistry,
-        runtime: LlamaCppRuntime?,
+        runtime: InferenceRuntime?,
         device: com.svetlana.home.device.DeviceCapabilityManager
     ): Report {
         val stages = mutableListOf<Stage>()
@@ -77,13 +77,13 @@ object ModelVerificationRunner {
             if (compatOk) "${model!!.parameters}, ${model.quantization}, контекст ${model.context}"
             else "Модель не найдена в реестре"))
 
-        // 3. Runtime доступен (нативный llama.cpp для текущего ABI)
+        // 3. Runtime доступен именно для этой модели.
         val runtimeOk = runtime != null && try {
-            runtime.isReady() || runtime.supportedModelIds().contains(modelId)
+            runtime.isReadyFor(modelId)
         } catch (t: Throwable) { false }
         stages.add(Stage("Runtime", runtimeOk,
-            if (runtimeOk) "llama.cpp готов"
-            else "Нативный runtime недоступен на этом ABI"))
+            if (runtimeOk) "Подходящий runtime готов"
+            else "Подходящий runtime недоступен для этой модели/ABI"))
 
         // 4/5/6. Load → Context → Inference: реальный запуск
         var firstTokenMs = 0L
