@@ -124,10 +124,14 @@ class LocalAIProvider(
         }
     }
 
-    private fun isNativeReady(): Boolean = try {
-        val model = activeModel() ?: return false
-        runtime?.isReadyFor(model.id) == true
-    } catch (t: Throwable) { false }
+    private fun isNativeReady(): Boolean {
+        return try {
+            val model = activeModel() ?: return false
+            runtime?.isReadyFor(model.id) == true
+        } catch (t: Throwable) {
+            false
+        }
+    }
 
     override fun redactedConfig(): String = "local://${activeModel()?.name ?: "none"}"
 
