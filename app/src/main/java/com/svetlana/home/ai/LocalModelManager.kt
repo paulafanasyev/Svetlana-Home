@@ -218,6 +218,13 @@ open class LocalModelManager(private val context: Context) {
         return try {
             when (model.backend) {
                 "llama.cpp" -> ModelFormat.GGUF.matchesMagic(readHead(file, 4))
+                "litertlm" -> {
+                    // FlatBuffer: 4 байта размера (LE), затем "TFL3"/"TFL2".
+                    // magic начинается с 4-го байта.
+                    val head = readHead(file, 7)
+                    if (head.size < 7) return false
+                    ModelFormat.LITERT_LM.matchesMagic(head.copyOfRange(4, 7))
+                }
                 else -> {
                     // Не текст (HTML-страница 404 и т.п.) и достаточно большой.
                     if (file.length() < 1024) return false

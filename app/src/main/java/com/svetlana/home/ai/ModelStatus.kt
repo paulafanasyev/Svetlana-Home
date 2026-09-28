@@ -59,11 +59,19 @@ data class ModelManifest(
 
 enum class ModelFormat(val magicHex: String, val humanName: String) {
     GGUF("47475546", "GGUF (llama.cpp)"),
-    LITERT_LM("", "LiteRT-LM (.task)");
+    /**
+     * LiteRT-LM-модели — это FlatBuffers (тот же контейнер, что и у
+     * .tflite). Заголовок FlatBuffer: 4 байта размера (little-endian),
+     * затем идентификатор формата — у TFLite это "TFL3"/"TFL2".
+     * LiteRT-LM конвертируется тем же toolchain'ом, поэтому проверяем
+     * префикс "TFL". Это отсекает HTML-страницы 404 и мусор.
+     */
+    LITERT_LM("54464c", "LiteRT-LM (.litertlm)");
 
     /**
-     * Проверка magic bytes файла. У LiteRT-LM нет фиксированного magic —
-     * формат определяется по расширению/метаданным модели.
+     * Проверка magic bytes файла. Раньше LITERT_LM принимал любой
+     * файл (всегда true) — это позволяло установить мусор и при этом
+     * получить «формат проверен». Теперь сверяем "TFL".
      */
     fun matchesMagic(header: ByteArray): Boolean {
         if (magicHex.isEmpty()) return true

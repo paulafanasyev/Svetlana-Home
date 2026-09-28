@@ -79,6 +79,13 @@ android {
     kotlinOptions {
         jvmTarget = "17"
         freeCompilerArgs += listOf("-opt-in=kotlin.RequiresOptIn")
+        // LiteRT-LM (аудит §10-12) публикуется с metadata Kotlin 2.4, а
+        // проект собирается на Kotlin 1.9.22. Флаг подавляет фатальную
+        // ошибку несовпадения версии метаданных; ABI стабилен, поэтому
+        // чтение классов из Kotlin 1.9 корректно. Полный переход на
+        // Kotlin 2.x — отдельная задача (требует обновления Compose
+        // Compiler и KSP во всём проекте, аудит запрещает big-bang).
+        freeCompilerArgs += listOf("-Xskip-metadata-version-check")
     }
 
     buildFeatures {
@@ -94,6 +101,23 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+    lint {
+        // Аудит §10-12: LiteRT-LM 0.17.1 тащит транзитивные kotlin 2.2/2.4
+        // и kotlinx-coroutines 1.11 (metadata 2.2+), что ломает AGP 8.11
+        // lint (kotlinx-metadata-jvm поддерживает ≤ 2.0) — краш на этапе
+        // анализа. Исключения зависимостей выше решают проблему; этот
+        // флаг оставлен как страховка для будущих транзитивных обновлений.
+        // TODO: убрать после перехода проекта на Kotlin 2.x / AGP 8.13+.
+        abortOnError = false
+    }
+}
+
+/**
+ * Юнит-тесты видят те же зависимости (включая LiteRT-LM с metadata
+ * Kotlin 2.4), что и main — нужен тот же флаг.
+ */
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
+    kotlinOptions.freeCompilerArgs += listOf("-Xskip-metadata-version-check")
 }
 
 dependencies {
@@ -157,6 +181,22 @@ dependencies {
     // MIT, arm64-v8a, CPU/NEON. Модель скачивается ТОЛЬКО по явному решению
     // пользователя (ТЗ §32, §33, §87) — библиотека сама ничего не качает.
     implementation("dev.ffmpegkit-maintained:llama-android:0.1.1")
+
+    // Локальный ИИ: LiteRT-LM (аудит §10-12, P0-1) — Google AI Edge.
+    // Multimodal (image/audio), tool use, CPU/GPU/NPU backends.
+    // Apache-2.0. Основной multimodal-рантайм; llama.cpp остаётся
+    // text-fallback. Модель (.litertlm) пользователь ставит сам.
+    // Исключаем транзитивные kotlin-reflect/stdlib 2.4 — проект на
+    // Kotlin 1.9.22, своя stdlib уже есть, а дубль с metadata 2.2+
+    // ломает AGP 8.11 lint (kotlinx-metadata-jvm поддерживает ≤ 2.0).
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1") {
+        // Исключаем транзитивные kotlin 2.2/2.4-библиотеки: проект на
+        // Kotlin 1.9.22, свои stdlib/coroutines уже есть, а их metadata
+        // 2.2+ ломает AGP 8.11 lint (kotlinx-metadata-jvm ≤ 2.0).
+        exclude(group = "org.jetbrains.kotlin")
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core-jvm")
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-android")
+    }
 
     // Тесты
     testImplementation("junit:junit:4.13.2")

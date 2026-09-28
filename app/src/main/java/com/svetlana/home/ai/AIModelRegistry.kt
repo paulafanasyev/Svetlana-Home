@@ -222,6 +222,46 @@ class AIModelRegistry {
             source = "Cohere For AI",
             downloadUrl = "https://huggingface.co/mradermacher/aya-8B-GGUF/resolve/main/AYA-8B.Q4_K_M.gguf",
             description = "Мультиязычная модель с сильной поддержкой русского языка"
+        ),
+        // Аудит §10-12 (P0-1): мультимодальные LiteRT-модели —
+        // единственный путь on-device vision в LOCAL_ONLY.
+        AIModel(
+            id = "gemma3-1b-it-litertlm",
+            name = "Gemma 3 1B IT (LiteRT)",
+            architecture = "litertlm",
+            parameters = "1B",
+            parameterCountB = 1.0,
+            quantization = "litertlm",
+            sizeMb = 700,
+            ramRequirementMb = 2048,
+            storageRequirementMb = 800,
+            backend = "litertlm",
+            cpuSupport = true, gpuSupport = true, npuSupport = false,
+            context = 4096,
+            license = "Gemma Terms of Use",
+            source = "Google AI Edge (litert-community)",
+            downloadUrl = "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it.litertlm",
+            description = "Локальная мультимодальная модель: текст + изображения. Vision on-device",
+            capabilities = listOf(ModelCapability.TEXT, ModelCapability.VISION)
+        ),
+        AIModel(
+            id = "gemma3-4b-it-litertlm",
+            name = "Gemma 3 4B IT (LiteRT)",
+            architecture = "litertlm",
+            parameters = "4B",
+            parameterCountB = 4.0,
+            quantization = "litertlm",
+            sizeMb = 2600,
+            ramRequirementMb = 6144,
+            storageRequirementMb = 2800,
+            backend = "litertlm",
+            cpuSupport = true, gpuSupport = true, npuSupport = true,
+            context = 8192,
+            license = "Gemma Terms of Use",
+            source = "Google AI Edge (litert-community)",
+            downloadUrl = "https://huggingface.co/litert-community/Gemma3-4B-IT/resolve/main/gemma3-4b-it.litertlm",
+            description = "Локальная мультимодальная модель: текст + изображения, качество выше",
+            capabilities = listOf(ModelCapability.TEXT, ModelCapability.VISION, ModelCapability.TOOLS)
         )
     )
 

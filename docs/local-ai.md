@@ -53,23 +53,44 @@ Launcher, Hands, голос, реестр приложений
 
 ## Inference runtime
 
-Реальный вывод выполняется через `InferenceRuntime`, реализованный
-классом `LlamaCppRuntime` на базе **llama.cpp** (GGUF).
+Реальный вывод выполняется через `InferenceRuntime`. Runtime'ов два,
+и выбор определяется форматом выбранной модели — диспетчером служит
+`CompositeInferenceRuntime`.
 
-| Параметр | Значение |
-|----------|----------|
-| Библиотека | `dev.ffmpegkit-maintained:llama-android:0.1.1` |
-| Лицензия | MIT (llama.cpp + обвязка) |
-| Архитектура | `arm64-v8a` (CPU/NEON) |
-| Формат моделей | GGUF |
-| GPU offload | Нет (CPU-only сборка; `gpuLayers = 0`) |
+| Параметр | llama.cpp | LiteRT-LM |
+|----------|-----------|-----------|
+| Библиотека | `dev.ffmpegkit-maintained:llama-android:0.1.1` | `com.google.ai.edge.litertlm:litertlm-android:0.17.1` |
+| Лицензия | MIT | Apache-2.0 |
+| Архитектура | `arm64-v8a` (CPU/NEON) | arm64-v8a / x86_64 |
+| Формат моделей | GGUF | **.litertlm** |
+| Multimodal | Нет | **Да (image/audio)** |
+| Backends | CPU | CPU / GPU / NPU |
+| Назначение | text-fallback | **основной multimodal runtime** |
 
-Runtime поставляется в составе APK (нативные библиотеки внутри AAR).
+Runtime'ы поставляются в составе APK (нативные библиотеки внутри AAR).
 Это не нарушает правило «никаких скрытых загрузок»: библиотека — это
-**код**, а не AI-модель. Сами GGUF-файлы по-прежнему скачиваются
+**код**, а не AI-модель. Сами файлы моделей по-прежнему скачиваются
 только после явного решения пользователя.
 
-`LlamaCppRuntime`:
+### LiteRT-LM (аудит §10-12, P0-1)
+
+`LiteRtLmRuntime` — мультомодальный on-device inference,
+Google AI Edge: https://github.com/google-ai-edge/LiteRT-LM (Apache-2.0)
+
+- **vision** — изображение передаётся в модель через `Content.ImageBytes`,
+  а не игнорируется (это и было ядром BLOCKED Vision);
+- **vision-поддержка определяется самой моделью** через
+  `Capabilities.inputModalities().vision` — мы не декларируем её за неё;
+- **tool use** (`@Tool` / `@ToolParam`) — для действий на устройстве;
+- CPU backend по умолчанию (GPU требует нативные библиотеки в манифесте,
+  NPU — vendor-библиотеки; оба требуют device-проверки).
+
+Модели (.litertlm) доступны на HuggingFace LiteRT Community —
+пользователь выбирает и скачивает сам.
+
+### llama.cpp
+
+`LlamaCppRuntime` — text-fallback для GGUF-моделей:
 
 - загружает GGUF в нативную память по запросу (`isReady()`);
 - сериализует вызовы (LlamaModel не потокобезопасен);
@@ -81,6 +102,13 @@ Runtime поставляется в составе APK (нативные биб�
 Если устройство не arm64 — нативный слой недоступен, и провайдер
 честно отвечает «нативный llama.cpp недоступен на этом устройстве»,
 не пытаясь симулировать inference.
+
+### LOCAL_ONLY vision
+
+`LocalAIProvider.vision()` — единственный путь зрения, не покидающий
+устройство. Включается, только если активная модель сама сообщает
+vision-модальность; иначе честный отказ с указанием, какую модель
+нужно установить.
 
 ## Проверка модели после установки (аудит п.2)
 
@@ -127,11 +155,15 @@ Compatibility → Download → Install → Load → Inference → Benchmark → 
 - [x] Модель НЕ скачивается автоматически (CODE VERIFIED — нет вызова
       `install()` без действия пользователя)
 - [x] Download происходит только после выбора пользователя (CODE VERIFIED)
-- [x] Runtime встроен в APK (CODE VERIFIED — `LlamaCppRuntime`, llama.cpp)
+- [x] Runtime встроен в APK (CODE VERIFIED — `LlamaCppRuntime` + `LiteRtLmRuntime`)
 - [x] Проверка модели после установки (CODE VERIFIED —
       `ModelVerificationRunner`, 3 unit-теста)
+- [x] Диспетчеризация runtime'ов по формату модели (CODE VERIFIED —
+      `CompositeInferenceRuntime`, unit-тесты)
 - [ ] Local AI работает после добровольной установки (DEVICE VERIFIED —
-      требуется физический тест: загрузка GGUF + реальная генерация)
+      требуется физический тест: загрузка GGUF/.litertlm + реальная генерация)
 - [ ] Benchmark показывает фактические tokens/sec (DEVICE VERIFIED —
       `BenchmarkRunner` использует реальный inference, но измерение на
       устройстве ещё не проводилось)
+- [ ] **on-device vision** через LiteRT-LM (DEVICE VERIFIED —
+      `Content.ImageBytes` + `Capabilities.inputModalities().vision`)

@@ -196,13 +196,14 @@ runtime, а не только компилируется.
 | `DeviceCapabilityManagerDeviceTest` | CPU/RAM/GPU/storage/thermal — реальные значения |
 | `AvatarEngineDeviceTest` | Выбирается только доступный renderer (no false capability) |
 | `ExternalProviderDeviceTest` | Конфигурация → соединение → inference |
-| `LocalAiDeviceTest` | Совместимость → приоритеты → отчёт о inference |
+| `LocalAiDeviceTest` | Совместимость → приоритеты → отчёт о inference; **LiteRT-LM dispatch по формату**; **honest local vision capability**; **composite runtime** |
 | `VisionDeviceTest` | Скриншот, анализ изображения, честный отказ без провайдера |
 | `PerformanceDeviceTest` | Реальные замеры: probe, registry scan, proof chain |
 | `LocalOnlyDeviceTest` | LOCAL_ONLY физически блокирует egress любых данных |
 | `AppDrawerScanDeviceTest` | **scan() строит реальный список из PackageManager** (P0) |
 | `RoleAndLocationDeviceTest` | ROLE_HOME intent + геолокация: 2 независимых состояния (P0) |
 | `AppControlLaunchDeviceTest` | **device-only**: реальный запуск Настроек, pressHome, screenshot (arm64) |
+| `DownloadValidationTest` *(unit)* | Скачанный файл проверяется по magic bytes: GGUF + **LITERT_LM "TFL"** (раньше принимал любой файл), HTML-404 и мусор отсекаются |
 
 ### Статус выполнения на CI
 

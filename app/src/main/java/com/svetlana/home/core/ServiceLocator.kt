@@ -86,8 +86,20 @@ object ServiceLocator {
     val llamaRuntime by lazy {
         LlamaCppRuntime(app, localModelManager, modelRegistry, activeLocalModelIdSync)
     }
+    /**
+     * LiteRT-LM runtime (аудит §10-12): мультимодальный локальный inference.
+     * Apache-2.0, .litertlm-модели. Текстовый fallback остаётся на llama.cpp.
+     */
+    val litertlmRuntime by lazy {
+        com.svetlana.home.ai.local.LiteRtLmRuntime(
+            app, localModelManager, modelRegistry, activeLocalModelIdSync
+        )
+    }
+    val compositeRuntime by lazy {
+        com.svetlana.home.ai.local.CompositeInferenceRuntime(llamaRuntime, litertlmRuntime)
+    }
     val localAiProvider by lazy {
-        LocalAIProvider(localModelManager, modelRegistry, llamaRuntime, activeLocalModelIdSync)
+        LocalAIProvider(localModelManager, modelRegistry, compositeRuntime, activeLocalModelIdSync)
     }
     val compatibility by lazy { AIModelCompatibilityEngine(device) }
     val serverManager by lazy { PersonalServerManager(app, settings) }

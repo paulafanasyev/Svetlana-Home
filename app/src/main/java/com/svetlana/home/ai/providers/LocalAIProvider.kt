@@ -39,7 +39,9 @@ class LocalAIProvider(
     override fun capabilities(): ProviderCapabilities =
         ProviderCapabilities(
             chat = isAvailable(),
-            vision = false,
+            // Аудит §12: локальная vision реальна, если активная модель
+            // сама сообщает vision-модальность (Capabilities.inputModalities).
+            vision = supportsVision(),
             embeddings = false,
             maxContext = activeModel()?.context ?: 0
         )
@@ -77,8 +79,31 @@ class LocalAIProvider(
         }
     }
 
-    override suspend fun vision(prompt: String, imageBytes: ByteArray): AIResult =
-        AIResult(false, "Локальные VLM недоступны в этой сборке", AIBackend.LOCAL)
+    /**
+     * Аудит §12: on-device vision. Изображение обрабатывается локальной
+     * мультимодальной моделью (.litertlm) и НЕ покидает устройство —
+     * это единственный путь vision в режиме LOCAL_ONLY.
+     *
+     * Раньше всегда возвращался отказ — Local Vision был NOT PROVEN.
+     */
+    override suspend fun vision(prompt: String, imageBytes: ByteArray): AIResult {
+        val model = activeModel()
+            ?: return AIResult(false, "Локальная модель не установлена", AIBackend.LOCAL)
+        if (!supportsVision()) {
+            return AIResult(
+                false,
+                "Активная модель (${model.name}) не поддерживает изображения. " +
+                    "Установите мультимодальную .litertlm-модель.",
+                AIBackend.LOCAL, modelName = model.name
+            )
+        }
+        val result = visionInference(prompt, imageBytes)
+        return if (result != null) {
+            AIResult(true, result, AIBackend.LOCAL, modelName = model.name)
+        } else {
+            AIResult(false, "Локальный vision inference не выполнен", AIBackend.LOCAL, modelName = model.name)
+        }
+    }
 
     override suspend fun testConnection(): AIResult {
         val model = activeModel()
@@ -121,7 +146,41 @@ class LocalAIProvider(
      * ТЗ §34: «Остановить» — выгружает модель из памяти.
      */
     fun unload() {
+        (runtime as? com.svetlana.home.ai.local.CompositeInferenceRuntime)?.unloadAll()
         (runtime as? com.svetlana.home.ai.local.LlamaCppRuntime)?.unload()
+        (runtime as? com.svetlana.home.ai.local.LiteRtLmRuntime)?.unload()
+    }
+
+    companion object {
+        private const val TAG = "LocalAIProvider"
+    }
+
+    /**
+     * Аудит §12: on-device vision (LOCAL_ONLY). Изображение обрабатывается
+     * локальной мультимодальной моделью и не покидает устройство.
+     *
+     * @return описание или null, если локальная модель не поддерживает vision.
+     */
+    fun visionInference(prompt: String, imageBytes: ByteArray): String? {
+        val model = activeModel() ?: return null
+        val rt = runtime ?: return null
+        if (!rt.isReady()) return null
+        return try {
+            rt.vision(model.id, prompt, imageBytes, maxTokens = 256)
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "on-device vision не удался: ${t.message}")
+            null
+        }
+    }
+
+    /**
+     * Аудит §12: поддерживает ли активная локальная модель vision.
+     * Решает сама модель (Capabilities.inputModalities), а не мы.
+     */
+    fun supportsVision(): Boolean {
+        val model = activeModel() ?: return false
+        val rt = runtime ?: return false
+        return rt.supportsVision(model.id)
     }
 }
 
@@ -134,4 +193,15 @@ interface InferenceRuntime {
     fun isReady(): Boolean
     fun supportedModelIds(): List<String>
     fun generate(modelId: String, prompt: String, maxTokens: Int): String
+
+    /**
+     * Multimodal inference: текст + изображение (аудит §12).
+     *
+     * Реализации без vision возвращают null — это честный отказ,
+     * а не text-only подмена (которая была главным багом Vision).
+     */
+    fun vision(modelId: String, prompt: String, imageBytes: ByteArray, maxTokens: Int): String? = null
+
+    /** Поддерживает ли runtime vision для данной модели. */
+    fun supportsVision(modelId: String): Boolean = false
 }
