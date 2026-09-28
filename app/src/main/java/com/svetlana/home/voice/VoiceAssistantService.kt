@@ -1,5 +1,6 @@
 package com.svetlana.home.voice
 
+import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -60,7 +61,7 @@ class VoiceAssistantService : Service() {
                 startCommandLoop()
             }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
@@ -127,7 +128,7 @@ class VoiceAssistantService : Service() {
         }
     }
 
-    private fun startForegroundNotification() {
+    private fun startForegroundNotification(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)
             val channel = NotificationChannel(CHANNEL_ID, getString(R.string.voice_agent_channel_name),
@@ -151,14 +152,16 @@ class VoiceAssistantService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .addAction(R.drawable.ic_launcher_foreground, "Стоп", stopPi)
             .build()
-        try {
+        return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
             } else {
                 startForeground(NOTIF_ID, notification)
             }
+            true
         } catch (t: Throwable) {
-            Log.w(TAG, "Не удалось запустить foreground-уведомление", t)
+            Log.e(TAG, "Не удалось запустить foreground-уведомление", t)
+            false
         }
     }
 
@@ -171,32 +174,47 @@ class VoiceAssistantService : Service() {
         @Volatile
         private var jobActive = false
 
+        private val startScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
         /**
          * Запустить фоновый ассистент, если он включён в настройках
          * и есть разрешение на микрофон. Ничего не делает молча: если
          * условий нет — сервис не стартует.
          */
+        /**
+         * Запускает microphone foreground service только из видимой Activity.
+         * Android 12+ запрещает обычный background-start, а Android 14+ отдельно
+         * проверяет while-in-use RECORD_AUDIO для microphone FGS.
+         */
         fun startIfEnabled(context: Context) {
-            try {
-                if (!ServiceLocator.permissionManager.isGranted(android.Manifest.permission.RECORD_AUDIO)) {
-                    Log.i(TAG, "Нет разрешения на микрофон — фоновый ассистент не запущен")
-                    return
-                }
-                val settings = ServiceLocator.settings
-                kotlinx.coroutines.runBlocking {
-                    if (!settings.wakeWordEnabled.first()) {
+            val activity = context as? Activity
+            if (activity == null || activity.isFinishing || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && activity.isDestroyed)) {
+                Log.i(TAG, "Фоновый запуск microphone FGS отклонён: нужна видимая Activity")
+                return
+            }
+            if (!ServiceLocator.permissionManager.isGranted(android.Manifest.permission.RECORD_AUDIO)) {
+                Log.i(TAG, "Нет разрешения на микрофон — фоновый ассистент не запущен")
+                return
+            }
+
+            startScope.launch {
+                try {
+                    val enabled = withContext(Dispatchers.IO) {
+                        ServiceLocator.settings.wakeWordEnabled.first()
+                    }
+                    if (!enabled) {
                         Log.i(TAG, "Wake word выключен в настройках — фоновый ассистент не запущен")
-                        return@runBlocking
+                        return@launch
                     }
-                    val intent = Intent(context, VoiceAssistantService::class.java)
+                    val intent = Intent(activity, VoiceAssistantService::class.java)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(intent)
+                        activity.startForegroundService(intent)
                     } else {
-                        context.startService(intent)
+                        activity.startService(intent)
                     }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Не удалось запустить фоновый ассистент", t)
                 }
-            } catch (t: Throwable) {
-                Log.w(TAG, "Не удалось запустить фоновый ассистент", t)
             }
         }
 
