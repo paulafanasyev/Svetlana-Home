@@ -74,8 +74,13 @@ class LocalAIProvider(
         val started = System.currentTimeMillis()
         return try {
             val output = rt.generate(model.id, prompt, maxTokens = 256)
-            AIResult(true, output, AIBackend.LOCAL,
-                latencyMs = System.currentTimeMillis() - started, modelName = model.name)
+            if (output.isBlank()) {
+                AIResult(false, "Локальный runtime не вернул ответа", AIBackend.LOCAL,
+                    latencyMs = System.currentTimeMillis() - started, modelName = model.name)
+            } else {
+                AIResult(true, output, AIBackend.LOCAL,
+                    latencyMs = System.currentTimeMillis() - started, modelName = model.name)
+            }
         } catch (t: Throwable) {
             AIResult(false, "Локальная модель не смогла ответить: ${t.message}", AIBackend.LOCAL,
                 modelName = model.name, error = t.message)
