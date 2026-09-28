@@ -93,10 +93,9 @@ jobs:
   # Эмулятор НЕ заменяет тестирование на физическом устройстве (ТЗ §77).
   # Запускается как информация; для production-gate не учитывается.
   instrumentation:
-    name: Instrumentation tests (emulator, info)
+    name: Instrumentation tests (emulator)
     runs-on: ubuntu-latest
     needs: build
-    continue-on-error: true
 
     steps:
       - name: Checkout
@@ -134,10 +133,10 @@ jobs:
   production-gate:
     name: Production gate — full verification
     runs-on: ubuntu-latest
-    needs: [ build ]
+    needs: [ build, instrumentation ]
     # Защищаем от случайного игнорирования сбоев.
-    # instrumentation намеренно не в needs: эмулятор — информационный шаг
-    # и не должен блокировать gate (ТЗ §77: эмулятор ≠ физическое устройство).
+    # Instrumentation on the hosted x86_64 emulator is not a physical ARM64
+    # acceptance test, but real emulator failures must still block production.
     # Аудит п.5: gate обязан работать и на main, и на тегах v* — иначе
     # publish-release (который от нас зависит) никогда не запустится.
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
