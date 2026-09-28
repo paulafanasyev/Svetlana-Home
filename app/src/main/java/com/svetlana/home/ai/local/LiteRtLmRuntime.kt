@@ -61,6 +61,14 @@ class LiteRtLmRuntime(
         return File(installed.filePath).exists()
     }
 
+    override fun isReadyFor(modelId: String): Boolean {
+        val installed = modelManager.byId(modelId) ?: return false
+        val model = registry.byId(modelId) ?: return false
+        if (!isLitertlmModel(model)) return false
+        return File(installed.filePath).exists() &&
+            installed.filePath.endsWith(".litertlm", ignoreCase = true)
+    }
+
     /**
      * Модели, которые этот runtime может загрузить.
      *
@@ -220,10 +228,10 @@ class LiteRtLmRuntime(
     }
 
     private fun activeInstalled(): InstalledModel? {
-        val all = modelManager.list()
-        if (all.isEmpty()) return null
-        val selected = activeModelId()
-        return all.firstOrNull { it.modelId == selected } ?: all.first()
+        val selected = activeModelId() ?: return null
+        val model = registry.byId(selected) ?: return null
+        if (!isLitertlmModel(model)) return null
+        return modelManager.byId(selected)
     }
 
     companion object {
