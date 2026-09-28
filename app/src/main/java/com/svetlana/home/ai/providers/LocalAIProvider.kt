@@ -48,7 +48,10 @@ class LocalAIProvider(
 
     override fun isConfigured(): Boolean = modelManager.list().isNotEmpty()
 
-    override fun isAvailable(): Boolean = activeModel() != null && runtime?.isReady() == true
+    override fun isAvailable(): Boolean {
+        val model = activeModel() ?: return false
+        return runtime?.isReadyFor(model.id) == true
+    }
 
     private fun activeModel(): AIModel? {
         // Пользователь мог явно выбрать основную модель («Сделать основной»).
@@ -89,14 +92,8 @@ class LocalAIProvider(
     override suspend fun vision(prompt: String, imageBytes: ByteArray): AIResult {
         val model = activeModel()
             ?: return AIResult(false, "Локальная модель не установлена", AIBackend.LOCAL)
-        if (!supportsVision()) {
-            return AIResult(
-                false,
-                "Активная модель (${model.name}) не поддерживает изображения. " +
-                    "Установите мультимодальную .litertlm-модель.",
-                AIBackend.LOCAL, modelName = model.name
-            )
-        }
+        // Do not pre-reject a cold LiteRT-LM model: its real
+        // Capabilities.inputModalities() is discovered during first load.
         val result = visionInference(prompt, imageBytes)
         return if (result != null) {
             AIResult(true, result, AIBackend.LOCAL, modelName = model.name)
@@ -123,7 +120,8 @@ class LocalAIProvider(
     }
 
     private fun isNativeReady(): Boolean = try {
-        runtime is InferenceRuntime && runtime.isReady()
+        val model = activeModel() ?: return false
+        runtime?.isReadyFor(model.id) == true
     } catch (t: Throwable) { false }
 
     override fun redactedConfig(): String = "local://${activeModel()?.name ?: "none"}"
