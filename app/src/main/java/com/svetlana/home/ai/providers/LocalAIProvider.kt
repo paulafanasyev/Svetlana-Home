@@ -190,6 +190,13 @@ class LocalAIProvider(
 interface InferenceRuntime {
     fun isReady(): Boolean
     fun supportedModelIds(): List<String>
+
+    /**
+     * Readiness for one concrete model. Implementations may expose several
+     * runtimes in one process, so global isReady() is not enough.
+     */
+    fun isReadyFor(modelId: String): Boolean =
+        isReady() && supportedModelIds().contains(modelId)
     fun generate(modelId: String, prompt: String, maxTokens: Int): String
 
     /**
