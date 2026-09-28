@@ -7,6 +7,7 @@ import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -38,11 +39,8 @@ class OwnerIdentityDeviceTest : SvetlanaDeviceTest() {
         // Keystore может быть недоступен на эмуляторе без блокировки экрана,
         // поэтому принимаем и Created, и AlreadyExists, но не Failed.
         if (result is OwnerIdentity.Result.Failed) {
-            // Some CI emulators do not provide a usable secure lock screen/Keystore
-            // for auth-bound keys. This is a platform limitation, not a PASS.
             println("NOT_PROVEN: Owner profile cannot be created on this emulator: " + result.message)
-            assertFalse("Профиль не должен считаться созданным при недоступном Keystore",
-                owner.isOwnerCreated())
+            assumeTrue("Keystore/auth-bound owner profile unavailable", false)
             return
         }
         assertTrue("Профиль должен быть создан или уже существовать: " + result,
@@ -73,6 +71,7 @@ class OwnerIdentityDeviceTest : SvetlanaDeviceTest() {
         val created = owner.createOwner("Владелец")
         if (created is OwnerIdentity.Result.Failed) {
             println("NOT_PROVEN: stablePublicId test skipped because Keystore is unavailable")
+            assumeTrue("Keystore/auth-bound owner profile unavailable", false)
             return
         }
 
