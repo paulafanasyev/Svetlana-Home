@@ -3,7 +3,6 @@ package com.svetlana.home
 import android.app.Application
 import android.content.ComponentCallbacks2
 import com.svetlana.home.core.ServiceLocator
-import com.svetlana.home.voice.VoiceAssistantService
 
 /**
  * Точка входа приложения SVETLANA HOME.
