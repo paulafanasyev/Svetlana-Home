@@ -15,9 +15,6 @@ class SvetlanaApp : Application() {
         super.onCreate()
         instance = this
         ServiceLocator.init(this)
-        // ТЗ §21: фоновый голосовой ассистент. Запускается только если
-        // пользователь включил wake word и выдал разрешение на микрофон.
-        VoiceAssistantService.startIfEnabled(this)
     }
 
     override fun onTrimMemory(level: Int) {
