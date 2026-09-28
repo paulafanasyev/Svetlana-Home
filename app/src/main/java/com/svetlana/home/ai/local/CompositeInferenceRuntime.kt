@@ -25,6 +25,9 @@ class CompositeInferenceRuntime(
 
     override fun isReady(): Boolean = llama.isReady() || litertlm.isReady()
 
+    override fun isReadyFor(modelId: String): Boolean =
+        runtimeFor(modelId)?.isReadyFor(modelId) == true
+
     /**
      * Поддерживаемые id = объединение по форматам.
      */
