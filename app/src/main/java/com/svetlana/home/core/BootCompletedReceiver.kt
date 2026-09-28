@@ -7,11 +7,10 @@ import android.content.Intent
 /**
  * Обработка загрузки устройства: launcher должен работать после перезагрузки.
  *
- * После загрузки запускается фоновый голосовой ассистент — это видимый
- * пользователю foreground-сервис с уведомлением и кнопкой «Стоп».
- * Запуск происходит только если пользователь включил wake word в настройках
- * и выдал разрешение на микрофон (проверяется внутри startIfEnabled).
- * Никаких скрытых сервисов: всё прозрачно и отключаемо.
+ * После загрузки launcher готов к работе.
+ *
+ * Microphone foreground service не запускается из BOOT_COMPLETED: современные
+ * версии Android ограничивают background-start и while-in-use microphone FGS.
  */
 class BootCompletedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
