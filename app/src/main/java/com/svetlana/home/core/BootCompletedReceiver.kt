@@ -19,7 +19,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
             intent.action == Intent.ACTION_LOCKED_BOOT_COMPLETED
         ) {
             android.util.Log.i(TAG, "Устройство загружено. Светлана Home готова к работе.")
-            com.svetlana.home.voice.VoiceAssistantService.startIfEnabled(context)
+            // Microphone foreground services require a visible user-initiated start on modern Android.
+            // Do not start the microphone service directly from BOOT_COMPLETED.
         }
     }
 
