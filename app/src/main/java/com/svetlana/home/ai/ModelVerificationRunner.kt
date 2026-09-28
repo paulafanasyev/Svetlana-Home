@@ -97,8 +97,10 @@ object ModelVerificationRunner {
             try {
                 Log.i(TAG, "Запускаю проверку inference модели $modelId")
                 val output = runtime.generate(modelId, VERIFY_PROMPT, maxTokens = 16)
-                firstTokenMs = runtime.lastLatencyMs()
-                tokensPerSecond = runtime.lastTokensPerSecond()
+                if (runtime is com.svetlana.home.ai.local.LlamaCppRuntime) {
+                    firstTokenMs = runtime.lastLatencyMs()
+                    tokensPerSecond = runtime.lastTokensPerSecond()
+                }
                 ramUsedMb = (ramBefore - device.refresh().ramAvailableMb).coerceAtLeast(0)
                 inferenceOk = output.isNotBlank()
                 if (!inferenceOk) reason = "Модель вернула пустой ответ"
