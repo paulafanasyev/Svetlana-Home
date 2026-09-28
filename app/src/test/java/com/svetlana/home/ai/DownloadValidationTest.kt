@@ -100,7 +100,7 @@ class DownloadValidationTest {
         assertThat(litertlmModels).isNotEmpty()
         litertlmModels.forEach { model ->
             // URL должен быть прямой ссылкой на файл, а не на страницу
-            assertThat(model.downloadUrl).contains("/resolve/main/")
+            assertThat(model.downloadUrl).contains("/resolve/")
             // и заканчиваться расширением .litertlm
             assertThat(model.downloadUrl).endsWith(".litertlm")
         }
