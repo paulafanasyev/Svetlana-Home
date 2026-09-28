@@ -49,6 +49,13 @@ class WakeWordEngine(
 
     fun start() {
         if (job?.isActive == true) return
+        // Background wake-word mode must never silently fall back to a
+        // potentially network-backed SpeechRecognizer.
+        if (!recognizer.isOnDeviceAvailable) {
+            _state.value = State.IDLE
+            Log.i(TAG, "Wake word disabled: on-device speech recognition is unavailable")
+            return
+        }
         job = scope.launch {
             while (true) {
                 try {
