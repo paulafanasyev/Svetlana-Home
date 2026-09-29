@@ -57,7 +57,7 @@ class TranslatorActivity : ComponentActivity() {
 private fun TranslatorScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val translator = remember { RuViTranslator(context.applicationContext) }
+    val translator = remember { RuViTranslator() }
     val speechRecognizer = remember { SvetlanaSpeechRecognizer(context.applicationContext) }
     DisposableEffect(Unit) {
         onDispose { speechRecognizer.release() }
