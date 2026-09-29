@@ -10,7 +10,7 @@ SVETLANA HOME использует следующие библиотеки, SDK 
 | androidx.core:core-ktx | 1.13.1 | Apache 2.0 |
 | androidx.appcompat:appcompat | 1.7.0 | Apache 2.0 |
 | androidx.activity:activity-compose | 1.9.0 | Apache 2.0 |
-| androidx.lifecycle:lifecycle-* | 2.8.0 | Apache 2.0 |
+| androidx.lifecycle:lifecycle-* | 2.8.3 | Apache 2.0 |
 | androidx.compose:compose-bom | 2024.05.00 | Apache 2.0 |
 | androidx.compose.material3 | (BOM) | Apache 2.0 |
 | androidx.compose.ui / foundation / animation | (BOM) | Apache 2.0 |
@@ -18,7 +18,7 @@ SVETLANA HOME использует следующие библиотеки, SDK 
 | androidx.datastore:datastore-preferences | 1.1.1 | Apache 2.0 |
 | androidx.security:security-crypto | 1.1.0-alpha06 | Apache 2.0 |
 | androidx.biometric:biometric | 1.2.0-alpha05 | Apache 2.0 |
-| androidx.camera:camera-* | 1.3.3 | Apache 2.0 |
+| androidx.camera:camera-* | 1.4.2 | Apache 2.0 |
 | androidx.test.ext:junit / espresso | 1.1.5 / 3.5.1 | Apache 2.0 |
 | androidx.compose.ui:ui-test-junit4 | (BOM) | Apache 2.0 |
 
@@ -37,6 +37,16 @@ Apache 2.0 (JetBrains).
 | Компонент | Версия | Лицензия |
 |-----------|--------|----------|
 | OkHttp | 4.12.0 | Apache 2.0 |
+
+## On-device translation
+
+| Компонент | Версия | Лицензия |
+|-----------|--------|----------|
+| Google ML Kit Translation | 17.0.3 | Apache 2.0 |
+
+Модели перевода RU↔VI загружаются только после явного действия пользователя
+и затем используются на устройстве. Голосовой перевод дополнительно требует
+on-device SpeechRecognizer.
 
 ## Локальный ИИ (inference runtime)
 
@@ -67,9 +77,8 @@ Apache 2.0 (JetBrains).
 | Qwen2.5 (1.5B / 3B / 7B) Instruct | Apache 2.0 | Alibaba |
 | Llama 3.2 1B Instruct | Llama 3.2 Community License | Meta |
 | Gemma 2 2B Instruct | Gemma Terms of Use | Google |
-| Aya 8B | CC BY-NC 4.0 | Cohere For AI |
-| Sherpa-ONNX STT/TTS | Apache 2.0 | Sherpa-ONNX |
-| RuBERT | Apache 2.0 | DeepPavlov |
+| Aya 8B | CC BY-NC 4.0 | Cohere For AI | catalog-only / disabled |
+| Whisper / Piper / RuBERT | model-specific licenses; runtime not implemented | catalog-only entries |
 
 **Внимание:** модели с лицензией CC BY-NC не рекомендуются для
 коммерческого использования. Пользователь принимает решение об установке
