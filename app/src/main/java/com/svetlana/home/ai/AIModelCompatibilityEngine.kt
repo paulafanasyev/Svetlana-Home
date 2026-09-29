@@ -123,9 +123,11 @@ class AIModelCompatibilityEngine(
 
     private fun expectedPerformance(model: AIModel, caps: DeviceCapabilityManager.Capabilities): String {
         if (model.context == 0) return "Назначение: не LLM (STT/TTS/эмбеддинги)"
+        val modelHasAccelerator = (model.npuSupport && caps.backendSupport.npu) ||
+            (model.gpuSupport && caps.backendSupport.gpu)
         val perSec = when {
-            model.parameterCountB <= 1.0 -> if (caps.backendSupport.npu) "8–14 ток/с" else "4–8 ток/с"
-            model.parameterCountB <= 2.0 -> if (caps.backendSupport.npu) "5–9 ток/с" else "2–5 ток/с"
+            model.parameterCountB <= 1.0 -> if (modelHasAccelerator) "8–14 ток/с" else "4–8 ток/с"
+            model.parameterCountB <= 2.0 -> if (modelHasAccelerator) "5–9 ток/с" else "2–5 ток/с"
             model.parameterCountB <= 3.5 -> "1–3 ток/с"
             else -> "менее 1 ток/с — только сервер"
         }
