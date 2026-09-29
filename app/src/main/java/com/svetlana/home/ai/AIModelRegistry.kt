@@ -184,7 +184,7 @@ class AIModelRegistry {
             ramRequirementMb = 512,
             storageRequirementMb = 80,
             backend = "onnxruntime",
-            cpuSupport = true, gpuSupport = false, npuSupport = true,
+            cpuSupport = true, gpuSupport = false, npuSupport = false,
             context = 0,
             license = "MIT",
             source = "vits-piper-ru_RU-irina-medium",
