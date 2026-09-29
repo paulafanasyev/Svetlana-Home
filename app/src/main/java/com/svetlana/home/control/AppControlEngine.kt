@@ -289,6 +289,52 @@ class AppControlEngine(
         return hands.takeScreenshot()
     }
 
+    suspend fun takeScreenshotAction(target: String): ActionResult {
+        val action = SvetlanaAction.TakeScreenshot(target)
+        val proof = proofBuilder.start("PLAN0_TARGET=TAKE_SCREENSHOT app=$target")
+        if (!hands.isActive) {
+            return ActionResult(
+                action,
+                false,
+                "Для скриншота нужен Hands, но он не включён",
+                proof.failed("hands not active"),
+                "hands"
+            )
+        }
+        proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
+        proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
+        proof.ok(ProofStage.ACTION_ATTEMPTED, "captureScreen")
+        return try {
+            val bitmap = hands.takeScreenshot()
+            val success = bitmap != null
+            proof.add(
+                ProofStage.ACTION_PERFORMED,
+                if (success) StepStatus.OK else StepStatus.FAILED,
+                if (success) "screenshot bitmap received" else "captureScreen returned null"
+            )
+            proof.add(
+                ProofStage.RESULT_VERIFIED,
+                if (success) StepStatus.OK else StepStatus.FAILED,
+                if (success) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED"
+            )
+            ActionResult(
+                action,
+                success,
+                if (success) "Скриншот сделан" else "Не удалось сделать скриншот",
+                proof.build(),
+                "hands"
+            )
+        } catch (t: Throwable) {
+            ActionResult(
+                action,
+                false,
+                "Не удалось сделать скриншот: " + (t.message ?: "неизвестная ошибка"),
+                proof.failed("capture exception: " + t.message),
+                "hands"
+            )
+        }
+    }
+
     suspend fun pressBack(): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=PRESS_BACK")
         if (!hands.isActive) return handsOff(SvetlanaAction.PressBack, proof)
