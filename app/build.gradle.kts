@@ -183,7 +183,7 @@ dependencies {
     implementation("dev.ffmpegkit-maintained:llama-android:0.1.1")
 
     // Локальный ИИ: LiteRT-LM (аудит §10-12, P0-1) — Google AI Edge.
-    // Multimodal (image/audio), tool use, CPU/GPU/NPU backends.
+    // Multimodal (image/audio), tool use; текущий встроенный backend — CPU.
     // Apache-2.0. Основной multimodal-рантайм; llama.cpp остаётся
     // text-fallback. Модель (.litertlm) пользователь ставит сам.
     // Исключаем транзитивные kotlin-reflect/stdlib 2.4 — проект на
