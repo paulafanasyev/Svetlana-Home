@@ -58,8 +58,17 @@ class LiteRtLmRuntimeDeviceTest {
     fun litertlmModelsPointToRealUpstreamFiles() {
         // P0-C: URL должен указывать на реальный файл, не на страницу
         registry.all().filter { it.backend == "litertlm" }.forEach { model ->
-            assertTrue("${model.id}: прямой путь к файлу", model.downloadUrl.contains("/resolve/main/"))
-            assertTrue("${model.id}: расширение .litertlm", model.downloadUrl.endsWith(".litertlm"))
+            // Hugging Face допускает два корректных immutable/reproducible варианта:
+            // /resolve/main/ и /resolve/<revision>/. Реестр намеренно использует
+            // pinned revision, поэтому требовать именно "main" создаёт ложный CI failure.
+            assertTrue(
+                "${model.id}: прямой файл с /resolve/",
+                model.downloadUrl.contains("/resolve/")
+            )
+            assertTrue(
+                "${model.id}: URL должен быть привязан к ревизии или main",
+                model.downloadUrl.matches(Regex(".*/resolve/[^/]+/.+\\.litertlm$"))
+            )
         }
     }
 
