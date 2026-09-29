@@ -61,12 +61,7 @@ class ActionRouter(
             is SvetlanaAction.ClearText -> engine.clearText(action.target, action.element)
             is SvetlanaAction.ReadScreen -> engine.readScreen(action.target)
             is SvetlanaAction.FindElement -> engine.readScreen(action.target)
-            is SvetlanaAction.TakeScreenshot -> {
-                val bmp = engine.takeScreenshot(action.target)
-                ActionResult(action, bmp != null,
-                    if (bmp != null) "Скриншот сделан" else "Не удалось сделать скриншот",
-                    emptyList(), "hands")
-            }
+            is SvetlanaAction.TakeScreenshot -> engine.takeScreenshotAction(action.target)
             SvetlanaAction.PressBack -> engine.pressBack()
             SvetlanaAction.PressHome -> engine.pressHome()
             SvetlanaAction.OpenRecents -> engine.openRecents()
