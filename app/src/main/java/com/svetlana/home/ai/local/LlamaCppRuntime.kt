@@ -5,7 +5,7 @@ import android.util.Log
 import com.svetlana.home.ai.AIModelRegistry
 import com.svetlana.home.ai.InstalledModel
 import com.svetlana.home.ai.LocalModelManager
-import com.svetlana.home.ai.InferenceMetrics
+import com.svetlana.home.ai.providers.InferenceMetrics
 import com.svetlana.home.ai.providers.InferenceRuntime
 import dev.ffmpegkit.llama.Llama
 import dev.ffmpegkit.llama.LlamaConfig
