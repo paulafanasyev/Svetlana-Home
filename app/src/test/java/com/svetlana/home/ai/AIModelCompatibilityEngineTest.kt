@@ -82,6 +82,17 @@ class AIModelCompatibilityEngineTest {
     }
 
     @Test
+    fun `expected performance does not use unrelated device NPU capability`() {
+        val model = registry.byId("qwen2.5-1.5b-instruct-q4")!!
+        val report = engine.evaluate(
+            model,
+            caps(ramMb = 8192, storageMb = 65536L, gpu = true, npu = true)
+        )
+        assertThat(report.expectedPerf).contains("4–8 ток/с")
+        assertThat(report.expectedPerf).doesNotContain("8–14 ток/с")
+    }
+
+    @Test
     fun `expected performance reports tokens per second class`() {
         val model = registry.byId("qwen2.5-3b-instruct-q4")!!
         val report = engine.evaluate(model, caps(ramMb = 6144, storageMb = 32768L))
