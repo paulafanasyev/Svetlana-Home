@@ -46,6 +46,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -284,6 +286,12 @@ class HomeActivity : ComponentActivity() {
                 LivingOrb(
                     modifier = Modifier
                         .padding(12.dp)
+                        .semantics {
+                            contentDescription = if (uiState.isListening)
+                                "Остановить голосовой ввод Светланы"
+                            else
+                                "Запустить голосовой ввод Светланы"
+                        }
                         .clickable {
                             if (uiState.isListening) viewModel.stopListening()
                             else viewModel.startListening(context)
