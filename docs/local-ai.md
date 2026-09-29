@@ -63,8 +63,8 @@ Launcher, Hands, голос, реестр приложений
 | Лицензия | MIT | Apache-2.0 |
 | Архитектура | `arm64-v8a` (CPU/NEON) | arm64-v8a / x86_64 |
 | Формат моделей | GGUF | **.litertlm** |
-| Multimodal | Нет | **Да (image/audio)** |
-| Backends | CPU | CPU / GPU / NPU |
+| Multimodal | Нет | **Да (image/audio), только при доступности встроенного LiteRT-LM runtime** |
+| Backends | CPU | CPU (GPU/NPU пока не подключены в runtime) |
 | Назначение | text-fallback | **основной multimodal runtime** |
 
 Runtime'ы поставляются в составе APK (нативные библиотеки внутри AAR).
