@@ -23,6 +23,7 @@ Hands + Voice + Vision + управление приложениями + Mobile 
 - [Launcher](#launcher)
 - [Voice](#voice)
 - [Hands](#hands)
+- [Переводчик](#переводчик-ru--vi)
 - [Mobile Harness](#mobile-harness)
 - [Vision](#vision)
 - [Local AI](#local-ai)
@@ -147,6 +148,17 @@ compileSdk 36, AGP 8.11.0, Kotlin 1.9.22, Java 17.
 - Управление режимами ИИ голосом.
 
 Подробно: [docs/voice.md](docs/voice.md).
+
+## Переводчик RU ↔ VI
+
+В launcher доступен отдельный переводчик русского и вьетнамского языка:
+текстовый и голосовой ввод, локальный перевод и озвучивание результата.
+
+Модели перевода скачиваются только после явного нажатия пользователя.
+После установки самой модели перевод не обращается к внешнему AI.
+Голосовой режим доступен только при наличии on-device SpeechRecognizer.
+
+Подробно: [docs/translation.md](docs/translation.md).
 
 ## Hands
 
