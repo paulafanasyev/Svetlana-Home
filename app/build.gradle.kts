@@ -25,7 +25,7 @@ android {
         // установиться ("0 of which were compatible"). На x86_64 нативный
         // llama.cpp не загрузится — runtime честно сообщит об этом через
         // UnsatisfiedLinkError, а вся JVM-логика (launcher, registry,
-        // permissions, owner, proof chain, translator) тестируется полноценно.
+        // permissions, owner и proof chain) тестируется полноценно.
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
