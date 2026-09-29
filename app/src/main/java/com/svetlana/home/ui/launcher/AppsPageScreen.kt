@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -55,6 +56,7 @@ import com.svetlana.home.ui.theme.MintSoft
 import com.svetlana.home.ui.theme.TextPrimary
 import com.svetlana.home.ui.theme.TextSecondary
 import com.svetlana.home.ui.theme.TextTertiary
+import com.svetlana.home.ui.translator.TranslatorActivity
 
 /**
  * Страница 3: приложения + настройки.
@@ -120,6 +122,15 @@ fun AppsPageScreen(appRegistry: AppRegistry) {
                 sub = "ИИ, голос, Hands, разрешения, устройство"
             ) {
                 context.startActivity(Intent(context, SettingsActivity::class.java))
+            }
+        }
+        item(span = { GridItemSpan(4) }) {
+            EntryRow(
+                icon = Icons.Outlined.Language,
+                label = stringResource(R.string.translator_title),
+                sub = stringResource(R.string.translator_subtitle)
+            ) {
+                context.startActivity(Intent(context, TranslatorActivity::class.java))
             }
         }
 
