@@ -270,7 +270,7 @@ id = "gemma-4-e2b-it-litertlm",
             source = "Google AI Edge (litert-community)",
             downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/6e5c4f1/gemma-4-E2B-it.litertlm",
             description = "Локальная мультимодальная модель: текст + изображения + аудио. Vision on-device",
-            runtimeImplemented = true
+            runtimeImplemented = true,
             // Доверенный хеш вычислен по реальному скачанному файлу
             // (2588147712 байт) — сверки «вычислить SHA» недостаточно,
             // нужно сравнение с доверенным значением (аудит §13/§18).
@@ -294,6 +294,7 @@ id = "gemma-4-e2b-it-litertlm",
             source = "Qwen (litert-community)",
             downloadUrl = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/19edb84/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm",
             description = "Лёгкая локальная текстовая модель для слабых устройств",
+            runtimeImplemented = true,
             expectedSha256 = "faa60663b333290c1496c499828b21d3e3254a788cacd8cce917ce0f761a2dc9",
             capabilities = listOf(ModelCapability.TEXT)
         )
