@@ -140,25 +140,29 @@ class HomeViewModel : ViewModel() {
         ServiceLocator.speechRecognizer.startListening(java.util.Locale.forLanguageTag("ru-RU"))
 
         viewModelScope.launch(Dispatchers.Default) {
-            val result = ServiceLocator.speechRecognizer.awaitResult(9_000L)
-            when (result) {
-                is com.svetlana.home.voice.SvetlanaSpeechRecognizer.SttResult.Error -> {
-                    _state.value = _state.value.copy(
-                        isListening = false, orbActive = false,
-                        lastReply = result.message
-                    )
+            try {
+                val result = ServiceLocator.speechRecognizer.awaitResult(9_000L)
+                when (result) {
+                    is com.svetlana.home.voice.SvetlanaSpeechRecognizer.SttResult.Error -> {
+                        _state.value = _state.value.copy(
+                            isListening = false, orbActive = false,
+                            lastReply = result.message
+                        )
+                    }
+                    is com.svetlana.home.voice.SvetlanaSpeechRecognizer.SttResult.Success -> {
+                        _state.value = _state.value.copy(isListening = false, orbActive = false)
+                        handleInput(context, result.text)
+                    }
+                    null -> {
+                        ServiceLocator.speechRecognizer.stopListening()
+                        _state.value = _state.value.copy(
+                            isListening = false, orbActive = false,
+                            lastReply = "Не удалось дождаться результата распознавания"
+                        )
+                    }
                 }
-                is com.svetlana.home.voice.SvetlanaSpeechRecognizer.SttResult.Success -> {
-                    _state.value = _state.value.copy(isListening = false, orbActive = false)
-                    handleInput(context, result.text)
-                }
-                null -> {
-                    ServiceLocator.speechRecognizer.stopListening()
-                    _state.value = _state.value.copy(
-                        isListening = false, orbActive = false,
-                        lastReply = "Не удалось дождаться результата распознавания"
-                    )
-                }
+            } finally {
+                ServiceLocator.speechRecognizer.finishSession()
             }
         }
     }
