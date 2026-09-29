@@ -34,7 +34,9 @@ data class AIModel(
      */
     val expectedSha256: String? = null,
     /** capabilities модели: text/vision/audio/tools (аудит §13). */
-    val capabilities: List<ModelCapability> = listOf(ModelCapability.TEXT)
+    val capabilities: List<ModelCapability> = listOf(ModelCapability.TEXT),
+    /** True only when an actual in-app runtime can load/infer this model. */
+    val runtimeImplemented: Boolean = true
 ) {
     val supportsNnapi: Boolean get() = npuSupport
 
@@ -109,7 +111,7 @@ class AIModelRegistry {
             ramRequirementMb = 7168,
             storageRequirementMb = 4600,
             backend = "llama.cpp",
-            cpuSupport = false, gpuSupport = false, npuSupport = true,
+            cpuSupport = false, gpuSupport = false, npuSupport = false,
             context = 8192,
             license = "Apache 2.0",
             source = "Qwen (Alibaba)",
@@ -145,12 +147,12 @@ class AIModelRegistry {
             ramRequirementMb = 3072,
             storageRequirementMb = 1700,
             backend = "llama.cpp",
-            cpuSupport = true, gpuSupport = false, npuSupport = true,
+            cpuSupport = true, gpuSupport = false, npuSupport = false,
             context = 4096,
             license = "Gemma Terms of Use",
             source = "Google",
             downloadUrl = "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf",
-            description = "Локальная модель Google с поддержкой NNAPI"
+            description = "Локальная модель Google; текущий встроенный runtime работает на CPU"
         ),
         AIModel(
             id = "whisper-tiny-ru-stt",
@@ -163,12 +165,13 @@ class AIModelRegistry {
             ramRequirementMb = 512,
             storageRequirementMb = 90,
             backend = "onnxruntime",
-            cpuSupport = true, gpuSupport = false, npuSupport = true,
+            cpuSupport = true, gpuSupport = false, npuSupport = false,
             context = 0,
             license = "MIT",
             source = "whisper-tiny-russian-ggml",
             downloadUrl = "https://huggingface.co/wabisabisocial/whisper-tiny-russian-ggml/resolve/main/ggml-tiny-ru.bin",
-            description = "Локальное распознавание русской речи"
+            description = "Каталог offline-STT; встроенного ONNX/GGML runtime пока нет",
+            runtimeImplemented = false
         ),
         AIModel(
             id = "piper-ru-irina-tts",
@@ -186,7 +189,8 @@ class AIModelRegistry {
             license = "MIT",
             source = "vits-piper-ru_RU-irina-medium",
             downloadUrl = "https://huggingface.co/csukuangfj/vits-piper-ru_RU-irina-medium/resolve/main/ru_RU-irina-medium.onnx",
-            description = "Локальный синтез русской речи"
+            description = "Каталог offline-TTS; встроенного ONNX runtime пока нет",
+            runtimeImplemented = false
         ),
         AIModel(
             id = "rubert-embeddings-int8",
@@ -199,12 +203,13 @@ class AIModelRegistry {
             ramRequirementMb = 768,
             storageRequirementMb = 200,
             backend = "onnxruntime",
-            cpuSupport = true, gpuSupport = true, npuSupport = true,
+            cpuSupport = true, gpuSupport = false, npuSupport = false,
             context = 512,
             license = "Apache 2.0",
             source = "rion-rubert-nli-onnx",
             downloadUrl = "https://huggingface.co/VoKaP/rion-rubert-nli-onnx/resolve/main/onnx/model.onnx",
-            description = "Локальные эмбеддинги для памяти и поиска"
+            description = "Каталог локальных эмбеддингов; встроенного ONNX runtime пока нет",
+            runtimeImplemented = false
         ),
         AIModel(
             id = "aya-8b-q4",
@@ -217,7 +222,7 @@ class AIModelRegistry {
             ramRequirementMb = 8192,
             storageRequirementMb = 5000,
             backend = "llama.cpp",
-            cpuSupport = false, gpuSupport = false, npuSupport = true,
+            cpuSupport = false, gpuSupport = false, npuSupport = false,
             context = 8192,
             license = "CC BY-NC 4.0",
             source = "Cohere For AI",
@@ -241,7 +246,7 @@ class AIModelRegistry {
             ramRequirementMb = 6144,
             storageRequirementMb = 2600,
             backend = "litertlm",
-            cpuSupport = true, gpuSupport = true, npuSupport = true,
+            cpuSupport = true, gpuSupport = false, npuSupport = false,
             context = 4096,
             license = "Gemma Terms of Use",
             source = "Google AI Edge (litert-community)",
@@ -264,7 +269,7 @@ class AIModelRegistry {
             ramRequirementMb = 3072,
             storageRequirementMb = 1600,
             backend = "litertlm",
-            cpuSupport = true, gpuSupport = true, npuSupport = false,
+            cpuSupport = true, gpuSupport = false, npuSupport = false,
             context = 4096,
             license = "Apache 2.0",
             source = "Qwen (litert-community)",
