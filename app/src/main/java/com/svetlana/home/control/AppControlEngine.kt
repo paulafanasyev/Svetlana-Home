@@ -138,7 +138,7 @@ class AppControlEngine(
         val node = hands.findElement(element)
             ?: return ActionResult(SvetlanaAction.LongClick(target, element), false,
                 "Элемент не найден", proof.failed("element not found"))
-        val before = hands.nodeCount()
+        val before = hands.treeFingerprint()
         val ok = hands.longClick(node)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "long click performed" else "long click failed")
@@ -209,7 +209,7 @@ class AppControlEngine(
         proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "scroll $direction")
-        val before = hands.nodeCount()
+        val before = hands.treeFingerprint()
         val down = direction.equals("down", ignoreCase = true) || direction == "вниз"
         val ok = if (down) hands.scrollForward() else hands.scrollBackward()
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
@@ -231,7 +231,7 @@ class AppControlEngine(
         proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "swipe $direction")
-        val before = hands.nodeCount()
+        val before = hands.treeFingerprint()
         val ok = when (direction.lowercase()) {
             "up", "вверх" -> hands.swipe(540f, 1400f, 540f, 400f)
             "down", "вниз" -> hands.swipe(540f, 400f, 540f, 1400f)
@@ -294,7 +294,7 @@ class AppControlEngine(
         if (!hands.isActive) return handsOff(SvetlanaAction.PressBack, proof)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "global action back")
-        val before = hands.nodeCount()
+        val before = hands.treeFingerprint()
         val ok = hands.pressBack()
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "back performed" else "back failed")
@@ -314,7 +314,7 @@ class AppControlEngine(
         if (!hands.isActive) return handsOff(SvetlanaAction.PressHome, proof)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "global action home")
-        val before = hands.nodeCount()
+        val before = hands.treeFingerprint()
         val ok = hands.pressHome()
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "home performed" else "home failed")
@@ -334,7 +334,7 @@ class AppControlEngine(
         if (!hands.isActive) return handsOff(SvetlanaAction.OpenRecents, proof)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "global action recents")
-        val before = hands.nodeCount()
+        val before = hands.treeFingerprint()
         val ok = hands.openRecents()
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "recents performed" else "recents failed")
