@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class AIModel(
-    val id: String,
+val id: String,
     val name: String,
     val architecture: String,
     val parameters: String,          // например "1.5B"
@@ -40,9 +40,11 @@ data class AIModel(
      * considered installable. Future/unknown backends stay disabled until
      * explicitly implemented.
      */
-    val runtimeImplemented: Boolean =
-        backend.equals("llama.cpp", ignoreCase = true) ||
-            backend.equals("litertlm", ignoreCase = true)
+    /**
+     * Только модели с фактически подключённым runtime и проверяемым
+     * источником получают true. Безопасный default — false.
+     */
+    val runtimeImplemented: Boolean = false
 ) {
     val supportsNnapi: Boolean get() = npuSupport
 
@@ -87,10 +89,11 @@ class AIModelRegistry {
             source = "Qwen (Alibaba)",
             downloadUrl = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/dd26da440ef0330c47919d1ecae0966d24022222/qwen2.5-1.5b-instruct-q4_k_m.gguf",
             description = "Лёгкая русскоязычная модель для базовых диалогов и команд",
+            runtimeImplemented = true
             expectedSha256 = "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"
         ),
         AIModel(
-            id = "qwen2.5-3b-instruct-q4",
+id = "qwen2.5-3b-instruct-q4",
             name = "Qwen2.5 3B Instruct (Q4_K_M)",
             architecture = "Qwen2",
             parameters = "3B",
@@ -106,10 +109,11 @@ class AIModelRegistry {
             source = "Qwen (Alibaba)",
             downloadUrl = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/cc1e68eea5f05f88f41a6de1fc73110178f23715/qwen2.5-3b-instruct-q4_k_m.gguf",
             description = "Сбалансированная модель: качество выше, требует больше памяти",
+            runtimeImplemented = true
             expectedSha256 = "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d"
         ),
         AIModel(
-            id = "qwen2.5-7b-instruct-q4",
+id = "qwen2.5-7b-instruct-q4",
             name = "Qwen2.5 7B Instruct (Q4_K_M)",
             architecture = "Qwen2",
             parameters = "7B",
@@ -125,10 +129,11 @@ class AIModelRegistry {
             source = "Qwen (Alibaba)",
             downloadUrl = "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/8c2fd26a844d07c5b88ba9b1fd61989effec8593/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
             description = "Тяжёлая модель: только для мощных устройств или сервера",
+            runtimeImplemented = true
             expectedSha256 = "65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423"
         ),
         AIModel(
-            id = "llama3.2-1b-instruct-q4",
+id = "llama3.2-1b-instruct-q4",
             name = "Llama 3.2 1B Instruct (Q4_K_M)",
             architecture = "Llama3",
             parameters = "1B",
@@ -144,10 +149,11 @@ class AIModelRegistry {
             source = "Meta",
             downloadUrl = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/9971ce1bbba2f8b55de026a783323a808b3eeedb/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
             description = "Компактная модель Meta для локального вывода",
+            runtimeImplemented = true
             expectedSha256 = "6f85a640a97cf2bf5b8e764087b1e83da0fdb51d7c9fab7d0fece9385611df83"
         ),
         AIModel(
-            id = "gemma2-2b-instruct-q4",
+id = "gemma2-2b-instruct-q4",
             name = "Gemma 2 2B Instruct (Q4_K_M)",
             architecture = "Gemma2",
             parameters = "2B",
@@ -163,6 +169,7 @@ class AIModelRegistry {
             source = "Google",
             downloadUrl = "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/76b50500259581a0adb25b2d02a89351f0278ad5/gemma-2-2b-it-Q4_K_M.gguf",
             description = "Локальная модель Google; текущий встроенный runtime работает на CPU",
+            runtimeImplemented = true
             expectedSha256 = "e0aee85060f168f0f2d8473d7ea41ce2f3230c1bc1374847505ea599288a7787"
         ),
         AIModel(
@@ -238,7 +245,7 @@ class AIModelRegistry {
             license = "CC BY-NC 4.0",
             source = "Cohere For AI",
             downloadUrl = "https://huggingface.co/mradermacher/aya-8B-GGUF/resolve/main/AYA-8B.Q4_K_M.gguf",
-            description = "Мультиязычная модель с сильной поддержкой русского языка"
+            description = "Мультиязычная модель с сильной поддержкой русского языка; установка отключена до фиксации upstream revision и SHA-256",
         ),
         // Аудит §10-12 (P0-1): мультимодальные LiteRT-модели —
         // единственный путь on-device vision в LOCAL_ONLY.
@@ -247,7 +254,7 @@ class AIModelRegistry {
         // .task и device-specific сборки), как и gemma3-4b-it.litertlm.
         // gemma-4-E2B-it — реальная публичная мультимодальная модель.
         AIModel(
-            id = "gemma-4-e2b-it-litertlm",
+id = "gemma-4-e2b-it-litertlm",
             name = "Gemma 4 E2B IT (LiteRT)",
             architecture = "litertlm",
             parameters = "2B",
@@ -263,6 +270,7 @@ class AIModelRegistry {
             source = "Google AI Edge (litert-community)",
             downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/6e5c4f1/gemma-4-E2B-it.litertlm",
             description = "Локальная мультимодальная модель: текст + изображения + аудио. Vision on-device",
+            runtimeImplemented = true
             // Доверенный хеш вычислен по реальному скачанному файлу
             // (2588147712 байт) — сверки «вычислить SHA» недостаточно,
             // нужно сравнение с доверенным значением (аудит §13/§18).
