@@ -31,9 +31,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.GraphicEq
-import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -205,7 +202,9 @@ class HomeActivity : ComponentActivity() {
 
     /**
      * Страница 1: только голосовое общение.
-     * Орб, часы, ответ Светланы и кнопка микрофона.
+     * Орб, часы и ответ Светланы. Отдельной кнопки микрофона нет:
+     * касание орба запускает/останавливает ручное прослушивание,
+     * wake word остаётся основным способом запуска голоса.
      */
     @Composable
     private fun VoicePage(viewModel: HomeViewModel, uiState: HomeUiState) {
@@ -283,6 +282,12 @@ class HomeActivity : ComponentActivity() {
                 modifier = Modifier.padding(top = 8.dp)
             ) {
                 LivingOrb(
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .clickable {
+                            if (uiState.isListening) viewModel.stopListening()
+                            else viewModel.startListening(context)
+                        },
                     size = 210.dp,
                     level = uiState.orbLevel,
                     active = uiState.orbActive || uiState.isListening || uiState.isThinking,
@@ -372,25 +377,6 @@ class HomeActivity : ComponentActivity() {
                 }
             }
 
-            // Кнопка голосового ввода
-            Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .clip(CircleShape)
-                    .background(MintPrimary.copy(alpha = if (uiState.isListening) 0.3f else 0.16f))
-                    .clickable {
-                        if (uiState.isListening) viewModel.stopListening()
-                        else viewModel.startListening(context)
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (uiState.isListening) Icons.Outlined.GraphicEq else Icons.Outlined.Mic,
-                    contentDescription = "Микрофон",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
             Text(
                 text = if (uiState.isListening) "Слушаю…" else stringResource(R.string.home_input_hint),
                 style = MaterialTheme.typography.labelMedium,
