@@ -118,4 +118,27 @@ class DownloadValidationTest {
         assertThat(vision.expectedSha256).isNotEmpty()
         assertThat(vision.expectedSha256).hasLength(64)
     }
+
+    @Test
+    fun catalogOnlyOnnxModelsAreNotRuntimeImplemented() {
+        val registry = AIModelRegistry()
+        val onnx = registry.all().filter { it.backend == "onnxruntime" }
+        assertThat(onnx).isNotEmpty()
+        assertThat(onnx).allMatch { !it.runtimeImplemented }
+    }
+
+    @Test
+    fun localRuntimeAccelerationClaimsMatchCurrentImplementations() {
+        val registry = AIModelRegistry()
+        registry.all()
+            .filter { it.backend == "llama.cpp" || it.backend == "litertlm" }
+            .forEach { model ->
+                assertThat(model.gpuSupport)
+                    .named("${model.id}: GPU support must match current CPU-only runtime")
+                    .isFalse()
+                assertThat(model.npuSupport)
+                    .named("${model.id}: NPU support has no implemented path")
+                    .isFalse()
+            }
+    }
 }
