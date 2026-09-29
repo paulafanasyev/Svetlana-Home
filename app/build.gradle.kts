@@ -169,6 +169,9 @@ dependencies {
     // Сеть: внешние AI-провайдеры и personal server
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // On-device RU↔VI translation; translation models are downloaded explicitly.
+    implementation("com.google.mlkit:translate:17.0.3")
+
     // CameraX для Vision / camera translation.
     // 1.4.x поставляет нативные библиотеки с 16 KB ELF-выравниванием
     // (libimage_processing_util_jni.so в 1.3.3 собрана с 4 KB p_align).
