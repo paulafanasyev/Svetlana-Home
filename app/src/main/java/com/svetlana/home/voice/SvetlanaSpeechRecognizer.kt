@@ -13,6 +13,9 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
 /**
@@ -153,6 +156,18 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
      * и wake word получал пустой ответ. Сначала даём системе
      * отдать результат, уничтожаем только в release().
      */
+    /**
+     * Ожидает терминальный результат текущей STT-сессии.
+     *
+     * Используется вместо polling по StateFlow.value: финальный onResults/onError
+     * может прийти асинхронно после stopListening(). Таймаут оставляет системе
+     * возможность завершить сессию, но не блокирует вызывающий coroutine.
+     */
+    suspend fun awaitResult(timeoutMs: Long): SttResult? =
+        withTimeoutOrNull(timeoutMs.coerceAtLeast(1L)) {
+            result.filterNotNull().first()
+        }
+
     fun stopListening() {
         try {
             onMain { recognizer?.stopListening() }
