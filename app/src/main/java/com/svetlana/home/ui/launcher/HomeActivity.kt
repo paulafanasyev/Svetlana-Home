@@ -56,7 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
+import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.svetlana.home.R
 import com.svetlana.home.core.ServiceLocator
@@ -237,10 +237,14 @@ class HomeActivity : ComponentActivity() {
             // жизненный цикл Compose.
             val lifecycleOwner = LocalLifecycleOwner.current
             var isHome by remember { mutableStateOf(pm.isHomeLauncher()) }
-            LaunchedEffect(lifecycleOwner) {
-                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    isHome = pm.isHomeLauncher()
+            DisposableEffect(lifecycleOwner) {
+                val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        isHome = pm.isHomeLauncher()
+                    }
                 }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
             }
             if (!isHome) {
                 GlassCard(
