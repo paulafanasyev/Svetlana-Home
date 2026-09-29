@@ -76,6 +76,15 @@ class VoiceSessionStateMachineTest {
     }
 
     @Test
+    fun `stopped can restart directly`() {
+        val sm = VoiceSessionStateMachine()
+        assertTrue(sm.transitionTo(VoiceSessionState.STARTING))
+        assertTrue(sm.transitionTo(VoiceSessionState.STOPPED))
+        assertTrue(sm.transitionTo(VoiceSessionState.STARTING))
+        assertEquals(VoiceSessionState.STARTING, sm.state)
+    }
+
+    @Test
     fun `processing returns to idle is allowed`() {
         val sm = VoiceSessionStateMachine().apply {
             transitionTo(VoiceSessionState.STARTING)
