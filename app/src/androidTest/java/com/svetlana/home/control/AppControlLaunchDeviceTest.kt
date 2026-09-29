@@ -87,11 +87,33 @@ class AppControlLaunchDeviceTest : SvetlanaDeviceTest() {
     }
 
     @Test
-    fun takeScreenshotWorksOrFailsHonestly() = runBlocking {
+    fun takeScreenshotProducesHonestProof() = runBlocking {
         val engine = ServiceLocator.controlEngine
-        val bmp = engine.takeScreenshot("Настройки")
-        // Скриншот может требовать Hands/API — вызов не должен падать
-        println("SCREENSHOT=${if (bmp != null) "OK ${bmp.width}x${bmp.height}" else "null"}")
+        val result = engine.takeScreenshotAction("Настройки")
+        println("SCREENSHOT=" + if (result.success) "OK" else "FAILED")
+        println("PROOF=" + result.proof.joinToString(" | ") { "${it.stage}=${it.status}" })
+
+        assertTrue("Screenshot must record PLAN", result.proof.any { it.stage == ProofStage.PLAN })
+        assertTrue(
+            "Screenshot must record ACTION_ATTEMPTED",
+            result.proof.any { it.stage == ProofStage.ACTION_ATTEMPTED }
+        )
+
+        if (result.success) {
+            assertTrue(
+                "Successful screenshot must prove ACTION_PERFORMED",
+                result.proof.any { it.stage == ProofStage.ACTION_PERFORMED && it.status == StepStatus.OK }
+            )
+            assertTrue(
+                "Successful screenshot must prove RESULT_VERIFIED",
+                result.proof.any { it.stage == ProofStage.RESULT_VERIFIED && it.status == StepStatus.OK }
+            )
+        } else {
+            assertFalse(
+                "Failed screenshot must never claim ACTION_PERFORMED=OK",
+                result.proof.any { it.stage == ProofStage.ACTION_PERFORMED && it.status == StepStatus.OK }
+            )
+        }
     }
 
     /**
