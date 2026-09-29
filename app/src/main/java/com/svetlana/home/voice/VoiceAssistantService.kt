@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.cancel
 
 /**
  * VoiceAssistantService — фоновый голосовой AI-агент.
@@ -45,7 +46,12 @@ class VoiceAssistantService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundNotification()
+        if (!startForegroundNotification()) {
+            Log.e(TAG, "Foreground microphone service не запущен; voice loop запрещён")
+            ServiceLocator.wakeWord.stop()
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_STOP -> {
                 Log.i(TAG, "Остановлен пользователем")
@@ -66,9 +72,10 @@ class VoiceAssistantService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
         ServiceLocator.wakeWord.stop()
+        scope.cancel()
         jobActive = false
+        super.onDestroy()
     }
 
     /**
