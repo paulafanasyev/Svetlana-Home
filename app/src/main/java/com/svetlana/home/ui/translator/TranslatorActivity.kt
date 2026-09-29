@@ -165,7 +165,9 @@ private fun TranslatorScreen() {
         ) {
             Button(
                 onClick = {
-                    if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    if (!speechRecognizer.isOnDeviceAvailable) {
+                        status = "Голосовой перевод требует on-device STT. Используйте текстовый режим на этом устройстве."
+                    } else if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                         if (context is Activity) {
                             ActivityCompat.requestPermissions(
                                 context,
