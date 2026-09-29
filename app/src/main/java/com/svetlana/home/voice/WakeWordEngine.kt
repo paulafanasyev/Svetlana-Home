@@ -92,6 +92,10 @@ class WakeWordEngine(
                     } else {
                         processSttResult(result)
                     }
+                    // Эта сессия больше не держит микрофон. Следующий цикл
+                    // разрешён только после завершения текущего результата.
+                    recognizer.finishSession()
+                    waitForDetectionConsumption()
                 } catch (t: Throwable) {
                     Log.w(TAG, "Цикл wake word прерван", t)
                     delay(2000)
@@ -111,6 +115,10 @@ class WakeWordEngine(
         val command = matchWakeWord(current.text) ?: return
         Log.i(TAG, "Слово пробуждения обнаружено, команда: $command")
         _detection.value = command
+    }
+
+    private suspend fun waitForDetectionConsumption() {
+        while (_detection.value != null) delay(100)
     }
 
     /**
