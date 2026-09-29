@@ -217,6 +217,9 @@ interface InferenceRuntime {
     fun vision(modelId: String, prompt: String, imageBytes: ByteArray, maxTokens: Int): String? = null
 
     /** Поддерживает ли runtime vision для данной модели. */
+    /** Поддерживает ли runtime vision для данной модели. */
+    fun supportsVision(modelId: String): Boolean = false
+
     /**
      * Последние фактические inference-метрики конкретной модели.
      * Runtime может не уметь измерять скорость — тогда возвращается null,
