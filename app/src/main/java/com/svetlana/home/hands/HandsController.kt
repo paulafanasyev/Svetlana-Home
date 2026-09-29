@@ -260,6 +260,20 @@ class HandsController(private val context: Context) {
     }
 
     /**
+     * Строгое пост-условие для отправки сообщения: текст должен быть виден
+     * в элементе, который не определяется как поле ввода. Наличие того же
+     * текста в EditText после клика «Отправить» не доказывает отправку.
+     */
+    fun verifyTextVisibleInNonEditableNode(text: String): Boolean {
+        val needle = text.trim()
+        if (needle.isBlank()) return false
+        val tree = uiTree() ?: return false
+        return tree.nodes.any { node ->
+            node.visibleText.contains(needle, ignoreCase = true) && !isEditable(node)
+        }
+    }
+
+    /**
      * Пост-условие для typeText: указанный узел теперь содержит введённый текст.
      * Это настоящая RESULT_VERIFIED-проверка, а не «команда отправлена».
      */
