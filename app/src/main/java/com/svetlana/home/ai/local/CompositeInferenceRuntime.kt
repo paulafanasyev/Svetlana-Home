@@ -1,7 +1,7 @@
 package com.svetlana.home.ai.local
 
 import android.util.Log
-import com.svetlana.home.ai.InferenceMetrics
+import com.svetlana.home.ai.providers.InferenceMetrics
 import com.svetlana.home.ai.providers.InferenceRuntime
 
 /**
