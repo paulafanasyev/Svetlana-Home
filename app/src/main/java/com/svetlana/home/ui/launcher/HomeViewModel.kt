@@ -140,26 +140,26 @@ class HomeViewModel : ViewModel() {
         ServiceLocator.speechRecognizer.startListening(java.util.Locale.forLanguageTag("ru-RU"))
 
         viewModelScope.launch(Dispatchers.Default) {
-            var waited = 0
-            while (waited < 9000) {
-                val result = ServiceLocator.speechRecognizer.result.value
-                if (result is com.svetlana.home.voice.SvetlanaSpeechRecognizer.SttResult.Error) {
+            val result = ServiceLocator.speechRecognizer.awaitResult(9_000L)
+            when (result) {
+                is com.svetlana.home.voice.SvetlanaSpeechRecognizer.SttResult.Error -> {
                     _state.value = _state.value.copy(
                         isListening = false, orbActive = false,
                         lastReply = result.message
                     )
-                    return@launch
                 }
-                if (result is com.svetlana.home.voice.SvetlanaSpeechRecognizer.SttResult.Success) {
+                is com.svetlana.home.voice.SvetlanaSpeechRecognizer.SttResult.Success -> {
                     _state.value = _state.value.copy(isListening = false, orbActive = false)
                     handleInput(context, result.text)
-                    return@launch
                 }
-                kotlinx.coroutines.delay(200)
-                waited += 200
+                null -> {
+                    ServiceLocator.speechRecognizer.stopListening()
+                    _state.value = _state.value.copy(
+                        isListening = false, orbActive = false,
+                        lastReply = "Не удалось дождаться результата распознавания"
+                    )
+                }
             }
-            ServiceLocator.speechRecognizer.stopListening()
-            _state.value = _state.value.copy(isListening = false, orbActive = false)
         }
     }
 
