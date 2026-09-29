@@ -15,7 +15,7 @@
 | Size | 1080 МБ |
 | RAM requirement | 2048 МБ |
 | Storage requirement | 1150 МБ |
-| Backend | llama.cpp / onnxruntime |
+| Backend | llama.cpp / litertlm / catalog-only onnxruntime |
 | CPU support | да |
 | GPU support | да/нет |
 | NPU support | да/нет (только при наличии реального runtime) |
