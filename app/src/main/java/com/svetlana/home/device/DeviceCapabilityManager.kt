@@ -241,7 +241,9 @@ class DeviceCapabilityManager(private val context: Context) {
     } catch (t: Throwable) { false to "unknown" }
 
     private fun detectBackends(abis: List<String>, glEs: String, gpuName: String): BackendSupport {
-        val arm64 = abis.any { it.contains("arm64-v8a") || it.contains("x86_64") }
+        // llama.cpp в APK поставляется только для arm64-v8a.
+        // x86_64 — отдельная ABI и не может считаться ARM64 даже в CI.
+        val arm64 = abis.any { it.equals("arm64-v8a", ignoreCase = true) }
         val npu = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
                 context.packageManager.hasSystemFeature("android.software.neuralnetworks")
