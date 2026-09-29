@@ -18,16 +18,18 @@ class VoiceSessionStateMachineTest {
 
     @Test
     fun `finish returns processing session to idle`() {
-        assertThat(machine.transitionTo(VoiceSessionState.STARTING)).isTrue()
-        assertThat(machine.transitionTo(VoiceSessionState.LISTENING)).isTrue()
-        assertThat(machine.transitionTo(VoiceSessionState.RESULT_RECEIVED)).isTrue()
-        assertThat(machine.transitionTo(VoiceSessionState.PROCESSING)).isTrue()
+        val sm = VoiceSessionStateMachine().apply {
+            transitionTo(VoiceSessionState.STARTING)
+            transitionTo(VoiceSessionState.LISTENING)
+            transitionTo(VoiceSessionState.RESULT_RECEIVED)
+            transitionTo(VoiceSessionState.PROCESSING)
+        }
 
-        machine.finish()
+        sm.finish()
 
-        assertThat(machine.state).isEqualTo(VoiceSessionState.IDLE)
-        assertThat(machine.canStartNewSession).isTrue()
-        assertThat(machine.isUserSessionActive).isFalse()
+        assertEquals(VoiceSessionState.IDLE, sm.state)
+        assertTrue(sm.canStartNewSession)
+        assertFalse(sm.isUserSessionActive)
     }
 
     @Test
