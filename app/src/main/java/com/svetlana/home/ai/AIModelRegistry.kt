@@ -89,7 +89,7 @@ class AIModelRegistry {
             source = "Qwen (Alibaba)",
             downloadUrl = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/dd26da440ef0330c47919d1ecae0966d24022222/qwen2.5-1.5b-instruct-q4_k_m.gguf",
             description = "Лёгкая русскоязычная модель для базовых диалогов и команд",
-            runtimeImplemented = true
+            runtimeImplemented = true,
             expectedSha256 = "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"
         ),
         AIModel(
@@ -109,7 +109,7 @@ id = "qwen2.5-3b-instruct-q4",
             source = "Qwen (Alibaba)",
             downloadUrl = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/cc1e68eea5f05f88f41a6de1fc73110178f23715/qwen2.5-3b-instruct-q4_k_m.gguf",
             description = "Сбалансированная модель: качество выше, требует больше памяти",
-            runtimeImplemented = true
+            runtimeImplemented = true,
             expectedSha256 = "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d"
         ),
         AIModel(
@@ -129,7 +129,7 @@ id = "qwen2.5-7b-instruct-q4",
             source = "Qwen (Alibaba)",
             downloadUrl = "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/8c2fd26a844d07c5b88ba9b1fd61989effec8593/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
             description = "Тяжёлая модель: только для мощных устройств или сервера",
-            runtimeImplemented = true
+            runtimeImplemented = true,
             expectedSha256 = "65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423"
         ),
         AIModel(
@@ -149,7 +149,7 @@ id = "llama3.2-1b-instruct-q4",
             source = "Meta",
             downloadUrl = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/9971ce1bbba2f8b55de026a783323a808b3eeedb/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
             description = "Компактная модель Meta для локального вывода",
-            runtimeImplemented = true
+            runtimeImplemented = true,
             expectedSha256 = "6f85a640a97cf2bf5b8e764087b1e83da0fdb51d7c9fab7d0fece9385611df83"
         ),
         AIModel(
@@ -169,7 +169,7 @@ id = "gemma2-2b-instruct-q4",
             source = "Google",
             downloadUrl = "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/76b50500259581a0adb25b2d02a89351f0278ad5/gemma-2-2b-it-Q4_K_M.gguf",
             description = "Локальная модель Google; текущий встроенный runtime работает на CPU",
-            runtimeImplemented = true
+            runtimeImplemented = true,
             expectedSha256 = "e0aee85060f168f0f2d8473d7ea41ce2f3230c1bc1374847505ea599288a7787"
         ),
         AIModel(
