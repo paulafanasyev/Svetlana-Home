@@ -6,6 +6,7 @@ import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
 import com.svetlana.home.permissions.PermissionManager
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 /** UI-элемент в удобном виде. */
@@ -148,9 +149,23 @@ class HandsController(private val context: Context) {
     fun pressHome(): Boolean = service()?.pressHome() ?: false
     fun openRecents(): Boolean = service()?.openRecents() ?: false
 
-    suspend fun takeScreenshot(): Bitmap? = suspendCancellableCoroutine { cont ->
-        service()?.captureScreen { cont.resume(it) } ?: cont.resume(null)
-    }
+    /**
+     * Скриншот имеет bounded timeout: Accessibility API обязан ответить
+     * callback-ом, иначе action не должен оставлять корутину навсегда.
+     */
+    suspend fun takeScreenshot(timeoutMs: Long = 8000L): Bitmap? =
+        withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine { cont ->
+                val svc = service()
+                if (svc == null) {
+                    cont.resume(null)
+                    return@suspendCancellableCoroutine
+                }
+                svc.captureScreen { bitmap ->
+                    if (cont.isActive) cont.resume(bitmap)
+                }
+            }
+        }
 
     /**
      * Поиск элемента в текущем UI tree.
