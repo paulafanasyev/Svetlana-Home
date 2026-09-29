@@ -18,11 +18,12 @@
 | Backend | llama.cpp / onnxruntime |
 | CPU support | да |
 | GPU support | да/нет |
-| NPU support | да/нет |
+| NPU support | да/нет (только при наличии реального runtime) |
 | Android support | minSdk |
 | Context | 4096 |
 | License | Apache 2.0 |
 | Source | Qwen (Alibaba) |
+| Runtime implemented | да/нет |
 
 ## Модели в реестре
 
@@ -37,12 +38,12 @@
 
 ### STT / TTS
 
-- `sherpa-onnx-ru-stt` — Apache 2.0
-- `sherpa-onnx-ru-tts` — Apache 2.0
+- `whisper-tiny-ru-stt` — каталог модели; `runtimeImplemented=false`
+- `piper-ru-irina-tts` — каталог модели; `runtimeImplemented=false`
 
 ### Embeddings
 
-- `rubert-embeddings-int8` — Apache 2.0, DeepPavlod
+- `rubert-embeddings-int8` — каталог модели; `runtimeImplemented=false`
 
 ## Требования лицензий
 
