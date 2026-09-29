@@ -17,7 +17,7 @@
 
 - [x] APK собирается (debug 26 MB + release 8.6 MB R8, CI VERIFIED)
 - [x] CI работает (dev gate + production gate + instrumentation)
-- [x] Unit-тесты проходят (80 тестов)
+- [x] Unit-тесты проходят в CI
 - [x] Нет секретов в репозитории (secret scan в CI)
 - [ ] APK установлен на физическом устройстве
 
@@ -41,6 +41,16 @@
 - [ ] App Registry работает
 - [ ] App Drawer работает
 - [ ] Search работает
+
+### Переводчик RU ↔ VI
+
+- [x] Текстовый RU→VI/VI→RU экран присутствует (CODE VERIFIED)
+- [x] Скачивание translation model выполняется только после явного действия (CODE VERIFIED)
+- [x] Перевод после установки модели выполняется локально (CODE VERIFIED)
+- [x] Голосовой режим блокируется без on-device STT (CODE VERIFIED)
+- [ ] RU→VI текстовый перевод на физическом устройстве
+- [ ] VI→RU текстовый перевод на физическом устройстве
+- [ ] Голосовой RU↔VI перевод + target-locale TTS на физическом устройстве
 
 ### Voice
 
