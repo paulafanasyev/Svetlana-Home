@@ -30,8 +30,6 @@ object BenchmarkRunner {
     ): BenchmarkResult {
         val device = DeviceCapabilityManager(com.svetlana.home.SvetlanaApp.instance)
         val capsBefore = device.refresh()
-        val startedTotal = System.currentTimeMillis()
-
         // 1. Load time: чтение файла модели
         val file = manager.fileFor(model.id)
         val loadTimeMs = if (file != null && file.exists()) {
@@ -49,10 +47,12 @@ object BenchmarkRunner {
         if (inferenceRuntime != null && file != null && file.exists() && inferenceRuntime.isReadyFor(model.id)) {
             try {
                 val output = inferenceRuntime.generate(model.id, BENCHMARK_PROMPT, maxTokens = 32)
-                // Runtime-specific metrics are available for runtimes that expose them.
-                if (inferenceRuntime is com.svetlana.home.ai.local.LlamaCppRuntime) {
-                    firstTokenMs = inferenceRuntime.lastLatencyMs()
-                    tokensPerSecond = inferenceRuntime.lastTokensPerSecond()
+                // Получаем метрики от конкретного runtime. Composite делегирует
+                // их выбранному движку, поэтому Llama.cpp и будущие runtime'ы
+                // больше не теряют фактические измерения.
+                inferenceRuntime.metrics(model.id)?.let {
+                    firstTokenMs = it.firstTokenMs
+                    tokensPerSecond = it.tokensPerSecond
                 }
                 inferenceOk = output.isNotBlank()
                 Log.i(TAG, "Inference benchmark: ${tokensPerSecond} ток/с, " +
@@ -71,12 +71,14 @@ object BenchmarkRunner {
         val contextStable = capsAfter.thermalStatus in listOf("none", "light", "moderate")
         val batteryImpact = (capsBefore.batteryPercent - capsAfter.batteryPercent).coerceAtLeast(0)
 
-        // ТЗ §35: DEVICE VERIFIED — только после фактического теста с inference.
-        // Чтение файла без генерации таковым не является.
-        val status = when {
-            !inferenceOk -> SvetlanaStatus.NOT_PROVEN
-            contextStable && tokensPerSecond > 0 -> SvetlanaStatus.DEVICE_VERIFIED
-            else -> SvetlanaStatus.NOT_PROVEN
+        // ТЗ §35: DEVICE VERIFIED — только после фактического inference на
+        // конкретном устройстве и стабильного теплового состояния. Наличие
+        // tokens/sec не является обязательным доказательством: некоторые
+        // runtime'ы (например LiteRT-LM) пока не экспортируют эту метрику.
+        val status = if (inferenceOk && contextStable) {
+            SvetlanaStatus.DEVICE_VERIFIED
+        } else {
+            SvetlanaStatus.NOT_PROVEN
         }
 
         return BenchmarkResult(
