@@ -427,7 +427,7 @@ battery, screen, camera, mic, network.
 | External AI Providers | CODE VERIFIED | **полный config UI**: endpoint→key→/models→выбор→test inference→save; Custom preset; **нормализация /v1** |
 | Personal Server | CODE VERIFIED | /health, /capabilities, /inference + кнопка «Проверить inference» в UI |
 | Hybrid AI | CODE VERIFIED | `HybridPipeline`: privacy→preprocess→sanitize→remote→postprocess |
-| Privacy / LOCAL_ONLY | CODE VERIFIED | `PrivacyPolicy` + device-тест блокировки egress |
+| Privacy / LOCAL_ONLY | CODE VERIFIED | `PrivacyPolicy` + unit/instrumentation routing checks; реальный network egress capture — NOT PROVEN |
 | Owner Identity | CODE VERIFIED | Android Keystore; `Build.SERIAL` убран |
 | Permissions | CODE VERIFIED | **геолокация разделена**: permission vs location services |
 | Avatar Engine | CODE VERIFIED | `AvatarFallback`: L0/L1 доступны; false-capability покрыт unit-тестами |
