@@ -106,12 +106,14 @@ class CompositeRuntimeLogicTest {
     }
 
     @Test
-    fun litertlmModelsSupportGpu() {
-        // LiteRT-LM — единственный локальный runtime с GPU backend;
-        // это его основное преимущество над CPU-only llama.cpp.
-        val litert = registry.all().first {
-            it.architecture.equals("litertlm", ignoreCase = true)
-        }
-        assertThat(litert.gpuSupport).isTrue()
+    fun currentLiteRtRuntimeDoesNotClaimAccelerationBeforeBackendExists() {
+        // Текущая LiteRT-LM реализация выбирает CPU. Не рекламируем
+        // GPU/NPU до фактического backend implementation + device proof.
+        registry.all()
+            .filter { it.architecture.equals("litertlm", ignoreCase = true) }
+            .forEach { model ->
+                assertThat(model.gpuSupport).isFalse()
+                assertThat(model.npuSupport).isFalse()
+            }
     }
 }
