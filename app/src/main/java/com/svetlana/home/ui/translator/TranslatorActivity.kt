@@ -298,7 +298,7 @@ private fun TranslatorScreen() {
         }
 
         Text(
-            "После загрузки модели перевод не использует внешний AI-сервер.                 "Скачивание модели выполняется только после нажатия кнопки.",
+            "После загрузки модели перевод не использует внешний AI-сервер. Скачивание модели выполняется только после нажатия кнопки.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.outlineVariant
         )
