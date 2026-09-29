@@ -195,8 +195,16 @@ class SvetlanaAccessibilityService : AccessibilityService() {
         } else Display.DEFAULT_DISPLAY
         takeScreenshot(displayId, ContextCompat.getMainExecutor(this), object : TakeScreenshotCallback {
             override fun onSuccess(screenshot: ScreenshotResult) {
-                val bitmap = Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
-                onResult(bitmap)
+                val buffer = screenshot.hardwareBuffer
+                try {
+                    val bitmap = Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace)
+                    onResult(bitmap)
+                } finally {
+                    // ScreenshotResult owns a native HardwareBuffer. Close it
+                    // after creating the Bitmap to avoid accumulating native
+                    // graphics resources during repeated screenshots.
+                    buffer.close()
+                }
             }
             override fun onFailure(errorCode: Int) { onResult(null) }
         })
