@@ -1,6 +1,7 @@
 package com.svetlana.home.ui.translator
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.translator.RuViTranslator
 import com.svetlana.home.translator.TranslatorDirection
@@ -155,6 +157,19 @@ private fun TranslatorScreen() {
         ) {
             Button(
                 onClick = {
+                    if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                        if (context is Activity) {
+                            ActivityCompat.requestPermissions(
+                                context,
+                                arrayOf(Manifest.permission.RECORD_AUDIO),
+                                401
+                            )
+                            status = "Разрешите микрофон и нажмите «Говорить» ещё раз"
+                        } else {
+                            status = "Нет разрешения на микрофон"
+                        }
+                        return@Button
+                    }
                     scope.launch {
                         busy = true
                         status = "Слушаю…"
@@ -188,7 +203,8 @@ private fun TranslatorScreen() {
                         busy = false
                     }
                 },
-                enabled = !busy && context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                enabled = !busy,
+                modifier = Modifier
             ) {
                 Text("Говорить")
             }
