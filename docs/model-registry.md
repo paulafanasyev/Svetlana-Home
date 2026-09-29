@@ -34,7 +34,7 @@
 - `qwen2.5-7b-instruct-q4` — Apache 2.0, Qwen (мощные устройства/сервер)
 - `llama3.2-1b-instruct-q4` — Llama 3.2 Community License, Meta
 - `gemma2-2b-instruct-q4` — Gemma Terms of Use, Google
-- `aya-8b-q4` — CC BY-NC 4.0, Cohere For AI (RU+VI)
+- `aya-8b-q4` — CC BY-NC 4.0; `runtimeImplemented=false` до фиксации upstream revision + SHA-256, Cohere For AI (RU+VI)
 
 ### STT / TTS
 
