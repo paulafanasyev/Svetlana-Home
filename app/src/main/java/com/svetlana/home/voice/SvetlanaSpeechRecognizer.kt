@@ -38,6 +38,8 @@ import java.util.Locale
 class SvetlanaSpeechRecognizer(private val context: Context) {
 
     private var recognizer: SpeechRecognizer? = null
+    @Volatile
+    private var listenGeneration: Long = 0L
     // SpeechRenderer требует main-thread Looper. WakeWordEngine и другие
     // фоновые корутины могут вызывать startListening() не из main thread —
     // поэтому все операции с recogniser'ом выполняем через главный Handler.
@@ -112,8 +114,14 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         }
         _foregroundSession.value = true
         session.transitionTo(VoiceSessionState.STARTING)
+        val generation = listenGeneration + 1L
+        listenGeneration = generation
         try {
             onMain {
+                // stopListening() может быть вызван до выполнения этого runnable.
+                // Проверяем generation, чтобы отложенный startListening() не
+                // воскресил уже завершённую сессию.
+                if (generation != listenGeneration) return@onMain
                 // Аудит §16: предпочитаем гарантированно on-device распознаватель.
                 recognizer = createRecognizer().apply {
                     setRecognitionListener(listener)
@@ -166,6 +174,14 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
     fun finishSession() {
         _foregroundSession.value = false
         _listening.value = false
+        listenGeneration += 1L
+        onMain {
+            try {
+                recognizer?.cancel()
+                recognizer?.destroy()
+            } catch (_: Throwable) { }
+            recognizer = null
+        }
         session.finish()
     }
 
@@ -182,6 +198,8 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         }
 
     fun stopListening() {
+        // Invalidates any start runnable that has not executed yet.
+        listenGeneration += 1L
         try {
             onMain { recognizer?.stopListening() }
         } catch (t: Throwable) { /* ignore */ }
