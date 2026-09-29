@@ -111,7 +111,8 @@
 ### Hybrid / offline
 
 - [x] Hybrid AI работает (HybridPipeline: preprocess→sanitize→remote→postprocess)
-- [x] Local-only работает (PrivacyPolicy + device test блокировки egress)
+- [x] Local-only policy блокирует внешние backends (unit/instrumentation)
+- [ ] Сетевой egress физически проверен через packet capture
 - [x] Offline работает (launcher/registry/hands без сети)
 - [ ] Offline-тест на устройстве
 
@@ -199,7 +200,7 @@ runtime, а не только компилируется.
 | `LocalAiDeviceTest` | Совместимость → приоритеты → отчёт о inference; **LiteRT-LM dispatch по формату**; **honest local vision capability**; **composite runtime** |
 | `VisionDeviceTest` | Скриншот, анализ изображения, честный отказ без провайдера |
 | `PerformanceDeviceTest` | Реальные замеры: probe, registry scan, proof chain |
-| `LocalOnlyDeviceTest` | LOCAL_ONLY физически блокирует egress любых данных |
+| `LocalOnlyDeviceTest` | LOCAL_ONLY блокирует внешние backends на уровне routing/policy; packet-capture физически не выполняется в CI |
 | `AppDrawerScanDeviceTest` | **scan() строит реальный список из PackageManager** (P0) |
 | `RoleAndLocationDeviceTest` | ROLE_HOME intent + геолокация: 2 независимых состояния (P0) |
 | `AppControlLaunchDeviceTest` | **device-only**: реальный запуск Настроек, pressHome, screenshot (arm64) |
