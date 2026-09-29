@@ -109,7 +109,7 @@ class AppControlEngine(
             return ActionResult(SvetlanaAction.Click(target, element), false,
                 "Элемент не найден на экране", proof.failed("element not found"))
         }
-        val before = hands.nodeCount()
+        val before = hands.treeFingerprint()
         val ok = hands.clickNode(node)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "click performed" else "click failed")
@@ -258,9 +258,9 @@ class AppControlEngine(
      * закономерно не изменился (например, прокрутка в самом низу). В этом
      * случае ставим UNVERIFIED, а не VERIFIED.
      */
-    private suspend fun verifyScreenChanged(beforeNodeCount: Int, settleMs: Long): Boolean {
+    private suspend fun verifyScreenChanged(beforeFingerprint: Long, settleMs: Long): Boolean {
         kotlinx.coroutines.delay(settleMs)
-        return hands.verifyTreeChanged(beforeNodeCount)
+        return hands.verifyTreeChanged(beforeFingerprint)
     }
 
     private fun handsOff(action: SvetlanaAction, proof: ProofBuilder): ActionResult =
