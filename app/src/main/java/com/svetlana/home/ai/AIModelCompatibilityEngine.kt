@@ -63,6 +63,22 @@ class AIModelCompatibilityEngine(
             )
         }
 
+        // ABI — жёсткий критерий для llama.cpp: нативный AAR этого проекта
+        // содержит только arm64-v8a. Не считаем x86_64 совместимым.
+        if (model.backend.equals("llama.cpp", ignoreCase = true) &&
+            caps.abis.none { it.equals("arm64-v8a", ignoreCase = true) }
+        ) {
+            reasons.add("ABI: llama.cpp требует arm64-v8a; найдено " + caps.abis.joinToString())
+            return CompatibilityReport(
+                model = model,
+                level = CompatibilityLevel.INCOMPATIBLE,
+                reasons = reasons,
+                expectedPerf = "Установка невозможна: нативный llama.cpp runtime требует arm64-v8a",
+                canRunOnDevice = false,
+                canRunOnServer = true
+            )
+        }
+
         // CPU / ядра
         if (!model.cpuSupport) {
             reasons.add("Модель не рассчитана на CPU-вывод на телефоне")
