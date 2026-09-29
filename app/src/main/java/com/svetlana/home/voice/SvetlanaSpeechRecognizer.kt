@@ -157,6 +157,19 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
      * отдать результат, уничтожаем только в release().
      */
     /**
+     * Завершает текущую STT-сессию после обработки результата.
+     *
+     * Без явного завершения VoiceSessionStateMachine могла навсегда остаться
+     * в PROCESSING после onResults() или в STOPPED после ошибки, блокируя
+     * последующий startListening().
+     */
+    fun finishSession() {
+        _foregroundSession.value = false
+        _listening.value = false
+        session.finish()
+    }
+
+    /**
      * Ожидает терминальный результат текущей STT-сессии.
      *
      * Используется вместо polling по StateFlow.value: финальный onResults/onError
@@ -192,7 +205,7 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         _foregroundSession.value = false
         // Аудит §18: гарантированное освобождение — сессия снова доступна.
         session.transitionTo(VoiceSessionState.STOPPED)
-        session.reset()
+        session.finish()
     }
 
     private val listener = object : RecognitionListener {
