@@ -138,7 +138,9 @@ class AIModelCompatibilityEngine(
      */
     fun compatibleModels(registry: AIModelRegistry, caps: DeviceCapabilityManager.Capabilities = device.current())
             : List<CompatibilityReport> {
-        return registry.llmModels().map { evaluate(it, caps) }
+        return registry.llmModels()
+            .filter { it.runtimeImplemented }
+            .map { evaluate(it, caps) }
             .filter { it.canRunOnDevice }
             .sortedBy { it.model.sizeMb }
     }
