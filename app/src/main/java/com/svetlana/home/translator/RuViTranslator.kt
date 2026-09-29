@@ -1,6 +1,5 @@
 package com.svetlana.home.translator
 
-import android.content.Context
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.common.model.RemoteModelManager
@@ -43,9 +42,7 @@ enum class TranslatorDirection(
     )
 }
 
-class RuViTranslator(context: Context) {
-    init { context.applicationContext // bind lifecycle explicitly to app context
-    }
+class RuViTranslator { 
     private val modelManager: RemoteModelManager = RemoteModelManager.getInstance()
 
     suspend fun isModelDownloaded(direction: TranslatorDirection): Boolean =
