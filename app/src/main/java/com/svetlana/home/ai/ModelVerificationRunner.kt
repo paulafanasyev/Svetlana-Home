@@ -38,8 +38,14 @@ object ModelVerificationRunner {
             stages.forEach { appendLine("${if (it.ok) "✓" else "✕"} ${it.name}${if (it.ok) "" else " — ${it.detail}"}") }
             if (inferenceOk) {
                 appendLine()
-                appendLine("Первый токен: ${firstTokenMs / 1000.0} сек")
-                appendLine("Скорость: ${"%.1f".format(tokensPerSecond)} ток/с")
+                if (firstTokenMs > 0L) {
+                    appendLine("Первый токен: ${firstTokenMs / 1000.0} сек")
+                }
+                if (tokensPerSecond > 0.0) {
+                    appendLine("Скорость: ${"%.1f".format(tokensPerSecond)} ток/с")
+                } else {
+                    appendLine("Скорость: метрика недоступна для этого runtime")
+                }
                 appendLine("RAM: $ramUsedMb МБ")
             } else {
                 appendLine()
