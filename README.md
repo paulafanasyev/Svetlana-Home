@@ -434,7 +434,7 @@ battery, screen, camera, mic, network.
 | **Мгновенный голосовой отклик** | CODE VERIFIED | **filler «Дай подумать…» + SSE-стриминг** ответа |
 | Wake word | NOT PROVEN | не always-on low-power детектор (STT-polling); state machine защищает от гонок |
 | Vision | CODE VERIFIED | **изображение реально передаётся**: JPEG→`AIRouter.vision()`→OpenAI image_url base64 / `/vlm` сервера / **локальный LiteRT-LM**; раньше был BLOCKED (вызывался text-only chat) |
-| Local AI runtime | CODE VERIFIED | **два runtime'а**: llama.cpp (GGUF, text) + **LiteRT-LM 0.17.1** (.litertlm, multimodal, tool use); диспетчер `CompositeInferenceRuntime` по формату модели; проверка модели после установки |
+| Local AI runtime | CODE VERIFIED | **два runtime'а**: llama.cpp (GGUF, text) + **LiteRT-LM 0.17.1** (.litertlm, multimodal text/vision); диспетчер `CompositeInferenceRuntime` по формату модели; проверка модели после установки |
 | Model Registry / Compatibility | CODE VERIFIED | LiteRT-модели указывают на **реальные публичные файлы** (gemma-4-E2B-it, Qwen2.5-1.5B q8) с **доверенным SHA-256**; **magic-проверка настоящего контейнера "LITERTLM"** (не TFL); файлы сохраняются как `.litertlm` (Engine отклоняет .bin) |
 | External AI Providers | CODE VERIFIED | **полный config UI**: endpoint→key→/models→выбор→test inference→save; Custom preset; **нормализация /v1** |
 | Personal Server | CODE VERIFIED | /health, /capabilities, /inference + кнопка «Проверить inference» в UI |
