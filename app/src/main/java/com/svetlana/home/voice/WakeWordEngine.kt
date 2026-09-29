@@ -97,6 +97,9 @@ class WakeWordEngine(
                     recognizer.finishSession()
                     waitForDetectionConsumption()
                 } catch (t: Throwable) {
+                    // Любая ошибка после старта STT не должна оставлять
+                    // VoiceSessionStateMachine в STOPPED/PROCESSING.
+                    recognizer.finishSession()
                     Log.w(TAG, "Цикл wake word прерван", t)
                     delay(2000)
                 }
@@ -131,6 +134,7 @@ class WakeWordEngine(
         job = null
         _state.value = State.IDLE
         recognizer.stopListening()
+        recognizer.finishSession()
     }
 
     /**
