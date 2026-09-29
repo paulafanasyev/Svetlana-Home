@@ -133,6 +133,7 @@ private fun TranslatorScreen() {
                             onFailure = { "Не удалось скачать модель: " + (it.message ?: "ошибка") }
                         )
                         busy = false
+                        }
                     }
                 },
                 enabled = !busy,
@@ -168,9 +169,8 @@ private fun TranslatorScreen() {
                         } else {
                             status = "Нет разрешения на микрофон"
                         }
-                        return@Button
-                    }
-                    scope.launch {
+                    } else {
+                        scope.launch {
                         busy = true
                         status = "Слушаю…"
                         speechRecognizer.startListening(direction.sourceLocale)
