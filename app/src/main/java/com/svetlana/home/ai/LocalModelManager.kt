@@ -79,6 +79,10 @@ open class LocalModelManager(
         progress: (percent: Int) -> Unit = {}
     ): Result<InstalledModel> {
         return try {
+            if (!model.runtimeImplemented) {
+                return Result.failure(IllegalStateException(
+                    "Для модели ${model.name} встроенный runtime ещё не реализован; скачивание отключено."))
+            }
             if (!isSpaceEnough(model)) {
                 return Result.failure(IllegalStateException("Недостаточно свободного места"))
             }
@@ -157,7 +161,9 @@ open class LocalModelManager(
                 sha256 = sha,
                 formatVerified = true
             )
-            installed = installed + installedModel
+            // Повторная установка той же модели не должна плодить дубликаты
+            // в реестре установленных моделей.
+            installed = installed.filterNot { it.modelId == model.id } + installedModel
             save()
             Log.i(TAG, "Модель ${model.name} установлена")
             Result.success(installedModel)
