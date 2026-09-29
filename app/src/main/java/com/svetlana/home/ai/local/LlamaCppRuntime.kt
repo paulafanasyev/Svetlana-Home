@@ -5,6 +5,7 @@ import android.util.Log
 import com.svetlana.home.ai.AIModelRegistry
 import com.svetlana.home.ai.InstalledModel
 import com.svetlana.home.ai.LocalModelManager
+import com.svetlana.home.ai.InferenceMetrics
 import com.svetlana.home.ai.providers.InferenceRuntime
 import dev.ffmpegkit.llama.Llama
 import dev.ffmpegkit.llama.LlamaConfig
@@ -112,6 +113,9 @@ class LlamaCppRuntime(
 
     fun lastTokensPerSecond(): Double = lastTokensPerSecond
     fun lastLatencyMs(): Long = lastLatencyMs
+
+    override fun metrics(modelId: String): InferenceMetrics =
+        InferenceMetrics(lastLatencyMs, lastTokensPerSecond)
 
     private fun ensureLoaded(modelId: String, file: File) {
         if (loaded != null && loadedModelId == modelId) return
