@@ -81,7 +81,7 @@ Google AI Edge: https://github.com/google-ai-edge/LiteRT-LM (Apache-2.0)
   а не игнорируется (это и было ядром BLOCKED Vision);
 - **vision-поддержка определяется самой моделью** через
   `Capabilities.inputModalities().vision` — мы не декларируем её за неё;
-- **tool use** (`@Tool` / `@ToolParam`) — для действий на устройстве;
+- **tool use** не заявляется: Actions выполняются отдельным `ActionRouter`/Hands слоем;
 - CPU backend по умолчанию (GPU требует нативные библиотеки в манифесте,
   NPU — vendor-библиотеки; оба требуют device-проверки).
 
