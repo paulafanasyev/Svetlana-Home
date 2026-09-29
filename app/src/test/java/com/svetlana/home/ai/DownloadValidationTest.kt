@@ -141,6 +141,18 @@ class DownloadValidationTest {
     }
 
     @Test
+    fun allRuntimeImplementedModelsArePinnedAndHashed() {
+        val registry = AIModelRegistry()
+        registry.all()
+            .filter { it.runtimeImplemented }
+            .forEach { model ->
+                assertThat(model.downloadUrl).doesNotContain("/resolve/main/")
+                assertThat(model.expectedSha256).isNotNull()
+                assertThat(model.expectedSha256).hasLength(64)
+            }
+    }
+
+    @Test
     fun implementedGgufModelsUsePinnedRevisionAndTrustedSha() {
         val registry = AIModelRegistry()
         val expected = mapOf(
