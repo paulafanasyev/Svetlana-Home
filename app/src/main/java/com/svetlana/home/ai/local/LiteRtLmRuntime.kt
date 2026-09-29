@@ -25,7 +25,8 @@ import java.io.File
  *    а не игнорируется;
  *  - vision-поддержка определяется самой моделью через
  *    [Capabilities.inputModalities], а не декларируется нами;
- *  - CPU / GPU / NPU backends.
+ *  - текущая реализация использует CPU backend; GPU/NPU не включаются
+ *    до появления фактического backend implementation и device proof.
  *
  * llama.cpp остаётся text-fallback для GGUF-моделей.
  *
@@ -51,8 +52,8 @@ class LiteRtLmRuntime(
     private val lock = Any()
 
     /**
-     * Backend: CPU надёжен везде. GPU требует нативные библиотеки
-     * (см. docs/local-ai.md). После device-проверки можно включить GPU.
+     * Backend: пока только CPU. GPU/NPU намеренно не выбираются без
+     * фактической backend-реализации и device proof.
      */
     private fun chooseBackend(): Backend = Backend.CPU()
 
@@ -78,7 +79,7 @@ class LiteRtLmRuntime(
      */
     override fun supportedModelIds(): List<String> = try {
         registry.all()
-            .filter { isLitertlmModel(it) }
+            .filter { isLitertlmModel(it) && it.runtimeImplemented }
             .map { it.id }
     } catch (t: Throwable) {
         Log.w(TAG, "supportedModelIds: ${t.message}")
