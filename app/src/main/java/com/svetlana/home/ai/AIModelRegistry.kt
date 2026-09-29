@@ -35,8 +35,14 @@ data class AIModel(
     val expectedSha256: String? = null,
     /** capabilities модели: text/vision/audio/tools (аудит §13). */
     val capabilities: List<ModelCapability> = listOf(ModelCapability.TEXT),
-    /** True only when an actual in-app runtime can load/infer this model. */
-    val runtimeImplemented: Boolean = true
+    /**
+     * Secure-by-default: only backends with a real in-app runtime are
+     * considered installable. Future/unknown backends stay disabled until
+     * explicitly implemented.
+     */
+    val runtimeImplemented: Boolean =
+        backend.equals("llama.cpp", ignoreCase = true) ||
+            backend.equals("litertlm", ignoreCase = true)
 ) {
     val supportsNnapi: Boolean get() = npuSupport
 
