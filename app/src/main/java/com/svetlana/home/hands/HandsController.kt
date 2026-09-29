@@ -266,14 +266,36 @@ class HandsController(private val context: Context) {
      * Проверка, что элемент всё ещё присутствует на экране (для swipe/scroll —
      * содержимое могло измениться, но дерево осталось валидным).
      */
-    fun verifyTreeChanged(beforeNodeCount: Int): Boolean {
-        val tree = uiTree() ?: return false
-        return tree.nodes.size != beforeNodeCount
+    /**
+     * Стабильный отпечаток текущего UI tree.
+     *
+     * Количество узлов недостаточно: после scroll/swipe/bаck/home дерево
+     * часто имеет то же число элементов, хотя тексты/позиции изменились.
+     */
+    fun treeFingerprint(): Long {
+        val tree = uiTree() ?: return 0L
+        var hash = 1125899906842597L
+        tree.nodes.forEach { node ->
+            hash = 31L * hash + node.className.hashCode()
+            hash = 31L * hash + node.visibleText.hashCode()
+            hash = 31L * hash + node.id.hashCode()
+            hash = 31L * hash + node.bounds.left
+            hash = 31L * hash + node.bounds.top
+            hash = 31L * hash + node.bounds.right
+            hash = 31L * hash + node.bounds.bottom
+            hash = 31L * hash + if (node.isFocused) 1 else 0
+            hash = 31L * hash + if (node.isEnabled) 1 else 0
+        }
+        return hash
+    }
+
+    fun verifyTreeChanged(beforeFingerprint: Long): Boolean {
+        val after = treeFingerprint()
+        return after != 0L && after != beforeFingerprint
     }
 
     /**
-     * Снимок количества узлов — «до» действия, для последующей проверки
-     * реального изменения экрана.
+     * Снимок количества узлов — оставлен для диагностических тестов.
      */
     fun nodeCount(): Int = uiTree()?.nodes?.size ?: -1
 }

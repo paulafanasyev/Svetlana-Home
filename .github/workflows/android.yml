@@ -190,15 +190,15 @@ jobs:
           SVETLANA_KEY_ALIAS: ${{ secrets.SVETLANA_KEY_ALIAS }}
           SVETLANA_KEY_PASSWORD: ${{ secrets.SVETLANA_KEY_PASSWORD }}
         run: |
-          if [ -n "$SVETLANA_KEYSTORE_BASE64" ]; then
-            echo "$SVETLANA_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/svetlana-release.jks"
-            echo "SVETLANA_STORE_FILE=$RUNNER_TEMP/svetlana-release.jks" >> "$GITHUB_ENV"
-            echo "SIGNING_ENABLED=true" >> "$GITHUB_ENV"
-            echo "Release keystore prepared"
-          else
-            echo "SIGNING_ENABLED=false" >> "$GITHUB_ENV"
-            echo "::warning::Release keystore secret not set — release APK/AAB will be UNSIGNED"
+          if [ -z "$SVETLANA_KEYSTORE_BASE64" ] ||              [ -z "$SVETLANA_STORE_PASSWORD" ] ||              [ -z "$SVETLANA_KEY_ALIAS" ] ||              [ -z "$SVETLANA_KEY_PASSWORD" ]; then
+            echo "::error::Release signing secrets are incomplete. Production gate requires a signed release."
+            exit 1
           fi
+          echo "$SVETLANA_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/svetlana-release.jks"
+          test -s "$RUNNER_TEMP/svetlana-release.jks"
+          echo "SVETLANA_STORE_FILE=$RUNNER_TEMP/svetlana-release.jks" >> "$GITHUB_ENV"
+          echo "SIGNING_ENABLED=true" >> "$GITHUB_ENV"
+          echo "Release keystore prepared"
 
       - name: Release APK with R8 (strict)
         # ТЗ §29: release-сборка с минификацией. Подпись подключается
@@ -233,18 +233,18 @@ jobs:
             echo "::error::apksigner не найден в build-tools" && exit 1
           fi
           echo "Using: $APKSIGNER"
-          if [ "$SIGNING_ENABLED" = "true" ]; then
-            # apksigner verify падает с ненулевым кодом, если подпись неверная.
-            "$APKSIGNER" verify --verbose --print-certs "$APK"
-            echo "APK_SIGNATURE=SIGNED (apksigner)"
-          else
-            echo "APK_SIGNATURE=UNSIGNED (keystore secret not set)"
+          if [ "$SIGNING_ENABLED" != "true" ]; then
+            echo "::error::Production gate reached signature verification without signing enabled"
+            exit 1
           fi
-          if jarsigner -verify "$AAB" 2>/dev/null; then
-            echo "AAB_SIGNATURE=SIGNED"
-          else
-            echo "AAB_SIGNATURE=UNSIGNED"
+          # apksigner verify падает с ненулевым кодом, если подпись неверная.
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          echo "APK_SIGNATURE=SIGNED (apksigner)"
+          if ! jarsigner -verify "$AAB" >/dev/null 2>&1; then
+            echo "::error::AAB_SIGNATURE=UNSIGNED or invalid"
+            exit 1
           fi
+          echo "AAB_SIGNATURE=SIGNED"
 
       - name: Check 16 KB native library alignment
         # Аудит п.22/п.4: настоящая проверка. p_align лежит в Elf64_Phdr
@@ -296,8 +296,8 @@ jobs:
           echo "✓ lint: 0 errors (lintDebug)"
           echo "✓ unit tests: testDebugUnitTest"
           echo "✓ debug APK собран и провалидирован"
-          echo "✓ release APK: подпись проверена apksigner (не jarsigner)"
-          echo "✓ release AAB собран"
+          echo "✓ release APK: подпись проверена apksigner"
+          echo "✓ release AAB: подпись проверена jarsigner"
           echo "✓ 16 KB: все нативные библиотеки (check_16kb_alignment.py)"
           echo "✓ checksums: SHA-256 для каждого артефакта"
           echo "✓ secret scan: шаблоны ключей не найдены"
@@ -343,14 +343,14 @@ jobs:
           SVETLANA_KEY_ALIAS: ${{ secrets.SVETLANA_KEY_ALIAS }}
           SVETLANA_KEY_PASSWORD: ${{ secrets.SVETLANA_KEY_PASSWORD }}
         run: |
-          if [ -n "$SVETLANA_KEYSTORE_BASE64" ]; then
-            echo "$SVETLANA_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/svetlana-release.jks"
-            echo "SVETLANA_STORE_FILE=$RUNNER_TEMP/svetlana-release.jks" >> "$GITHUB_ENV"
-            echo "SIGNING_ENABLED=true" >> "$GITHUB_ENV"
-          else
-            echo "SIGNING_ENABLED=false" >> "$GITHUB_ENV"
-            echo "::warning::Release keystore secret not set — APK will be UNSIGNED"
+          if [ -z "$SVETLANA_KEYSTORE_BASE64" ] ||              [ -z "$SVETLANA_STORE_PASSWORD" ] ||              [ -z "$SVETLANA_KEY_ALIAS" ] ||              [ -z "$SVETLANA_KEY_PASSWORD" ]; then
+            echo "::error::Release signing secrets are incomplete. Publishing a release requires a signed APK."
+            exit 1
           fi
+          echo "$SVETLANA_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/svetlana-release.jks"
+          test -s "$RUNNER_TEMP/svetlana-release.jks"
+          echo "SVETLANA_STORE_FILE=$RUNNER_TEMP/svetlana-release.jks" >> "$GITHUB_ENV"
+          echo "SIGNING_ENABLED=true" >> "$GITHUB_ENV"
 
       - name: Build signed release APK + AAB
         env:

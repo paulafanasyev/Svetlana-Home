@@ -57,8 +57,12 @@ class OpenAiCompatibleProvider(
 
     override fun capabilities(): ProviderCapabilities = ProviderCapabilities(
         chat = true,
-        vision = config.model.contains("vision", ignoreCase = true) ||
-                config.model.contains("gpt-4o", ignoreCase = true),
+        // OpenAI-compatible APIs do not define a reliable model-name convention
+        // for multimodal capability. Names such as "qwen2-vl", "gemma3n",
+        // "pixtral" or provider-specific IDs are not safely discoverable from
+        // the string alone. The actual vision() request is the capability check;
+        // a provider/model rejection is returned honestly to the user.
+        vision = config.model.isNotBlank(),
         embeddings = true,
         maxContext = 8192
     )
@@ -246,12 +250,8 @@ class OpenAiCompatibleProvider(
         if (config.baseUrl.isBlank() || config.model.isBlank()) {
             return@withContext AIResult(false, "Провайдер не настроен: укажите endpoint и модель", AIBackend.EXTERNAL)
         }
-        if (!capabilities().vision) {
-            return@withContext AIResult(false,
-                "Модель ${config.model} не поддерживает изображения. Выберите vision-модель.",
-                AIBackend.EXTERNAL)
-        }
-
+        // Возможность vision для OpenAI-compatible endpoint не выводим из имени модели.
+        // Отправляем реальный multimodal запрос и возвращаем фактический ответ/ошибку.
         val started = System.currentTimeMillis()
         try {
             val b64 = android.util.Base64.encodeToString(

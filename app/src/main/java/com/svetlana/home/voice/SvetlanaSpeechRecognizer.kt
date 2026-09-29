@@ -13,6 +13,9 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
 /**
@@ -35,6 +38,10 @@ import java.util.Locale
 class SvetlanaSpeechRecognizer(private val context: Context) {
 
     private var recognizer: SpeechRecognizer? = null
+    @Volatile
+    private var startGeneration: Long = 0L
+    @Volatile
+    private var activeSessionGeneration: Long? = null
     // SpeechRenderer требует main-thread Looper. WakeWordEngine и другие
     // фоновые корутины могут вызывать startListening() не из main thread —
     // поэтому все операции с recogniser'ом выполняем через главный Handler.
@@ -109,11 +116,17 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         }
         _foregroundSession.value = true
         session.transitionTo(VoiceSessionState.STARTING)
+        val generation = startGeneration + 1L
+        startGeneration = generation
         try {
             onMain {
+                // stopListening()/finishSession() могут быть вызваны до выполнения
+                // этого runnable. Не разрешаем отложенному старту воскресить сессию.
+                if (generation != startGeneration || !session.isUserSessionActive) return@onMain
+                activeSessionGeneration = generation
                 // Аудит §16: предпочитаем гарантированно on-device распознаватель.
                 recognizer = createRecognizer().apply {
-                    setRecognitionListener(listener)
+                    setRecognitionListener(createListener(generation))
                 }
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -153,7 +166,45 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
      * и wake word получал пустой ответ. Сначала даём системе
      * отдать результат, уничтожаем только в release().
      */
+    /**
+     * Завершает текущую STT-сессию после обработки результата.
+     *
+     * Без явного завершения VoiceSessionStateMachine могла навсегда остаться
+     * в PROCESSING после onResults() или в STOPPED после ошибки, блокируя
+     * последующий startListening().
+     */
+    fun finishSession() {
+        _foregroundSession.value = false
+        _listening.value = false
+        startGeneration += 1L
+        activeSessionGeneration = null
+        onMain {
+            try {
+                recognizer?.cancel()
+                recognizer?.destroy()
+            } catch (_: Throwable) { }
+            recognizer = null
+        }
+        session.finish()
+    }
+
+    /**
+     * Ожидает терминальный результат текущей STT-сессии.
+     *
+     * Используется вместо polling по StateFlow.value: финальный onResults/onError
+     * может прийти асинхронно после stopListening(). Таймаут оставляет системе
+     * возможность завершить сессию, но не блокирует вызывающий coroutine.
+     */
+    suspend fun awaitResult(timeoutMs: Long): SttResult? =
+        withTimeoutOrNull(timeoutMs.coerceAtLeast(1L)) {
+            result.filterNotNull().first()
+        }
+
     fun stopListening() {
+        // Invalidates only a not-yet-executed start runnable. The active session
+        // generation remains valid so a terminal onResults()/onError() can still
+        // be delivered after stopListening().
+        startGeneration += 1L
         try {
             onMain { recognizer?.stopListening() }
         } catch (t: Throwable) { /* ignore */ }
@@ -166,6 +217,8 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
      * или при выходе из экрана.
      */
     fun release() {
+        startGeneration += 1L
+        activeSessionGeneration = null
         try {
             onMain {
                 recognizer?.cancel()
@@ -177,37 +230,61 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         _foregroundSession.value = false
         // Аудит §18: гарантированное освобождение — сессия снова доступна.
         session.transitionTo(VoiceSessionState.STOPPED)
-        session.reset()
+        session.finish()
     }
 
-    private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {
-            session.transitionTo(VoiceSessionState.LISTENING)
-            _listening.value = true
+    private fun createListener(generation: Long): RecognitionListener =
+        object : RecognitionListener {
+            private fun current(): Boolean = activeSessionGeneration == generation
+
+            override fun onReadyForSpeech(params: Bundle?) {
+                if (!current()) return
+                session.transitionTo(VoiceSessionState.LISTENING)
+                _listening.value = true
+            }
+
+            override fun onBeginningOfSpeech() {
+                if (!current()) return
+            }
+
+            override fun onRmsChanged(rmsdB: Float) {
+                if (!current()) return
+            }
+
+            override fun onBufferReceived(buffer: ByteArray?) {
+                if (!current()) return
+            }
+
+            override fun onEndOfSpeech() {
+                if (!current()) return
+                _listening.value = false
+            }
+
+            override fun onError(error: Int) {
+                if (!current()) return
+                _listening.value = false
+                session.transitionTo(VoiceSessionState.STOPPED)
+                _result.value = SttResult.Error(errorText(error))
+            }
+
+            override fun onResults(results: Bundle?) {
+                if (!current()) return
+                _listening.value = false
+                // Аудит §18: только финальный результат завершает этап распознавания.
+                session.transitionTo(VoiceSessionState.RESULT_RECEIVED)
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                _result.value = SttResult.Success(matches?.firstOrNull().orEmpty())
+                session.transitionTo(VoiceSessionState.PROCESSING)
+            }
+
+            override fun onPartialResults(partialResults: Bundle?) {
+                if (!current()) return
+                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                _partial.value = matches?.firstOrNull().orEmpty()
+            }
+
+            override fun onEvent(eventType: Int, params: Bundle?) {}
         }
-        override fun onBeginningOfSpeech() {}
-        override fun onRmsChanged(rmsdB: Float) {}
-        override fun onBufferReceived(buffer: ByteArray?) {}
-        override fun onEndOfSpeech() { _listening.value = false }
-        override fun onError(error: Int) {
-            _listening.value = false
-            session.transitionTo(VoiceSessionState.STOPPED)
-            _result.value = SttResult.Error(errorText(error))
-        }
-        override fun onResults(results: Bundle?) {
-            _listening.value = false
-            // Аудит §18: только финальный результат завершает сессию.
-            session.transitionTo(VoiceSessionState.RESULT_RECEIVED)
-            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            _result.value = SttResult.Success(matches?.firstOrNull().orEmpty())
-            session.transitionTo(VoiceSessionState.PROCESSING)
-        }
-        override fun onPartialResults(partialResults: Bundle?) {
-            val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            _partial.value = matches?.firstOrNull().orEmpty()
-        }
-        override fun onEvent(eventType: Int, params: Bundle?) {}
-    }
 
     private fun errorText(error: Int): String = when (error) {
         SpeechRecognizer.ERROR_NO_MATCH -> "Речь не распознана"

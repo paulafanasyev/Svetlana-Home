@@ -46,7 +46,7 @@ private val ALLOWED_TRANSITIONS = mapOf(
     ),
     VoiceSessionState.RESULT_RECEIVED to setOf(VoiceSessionState.PROCESSING, VoiceSessionState.STOPPED),
     VoiceSessionState.PROCESSING to setOf(VoiceSessionState.IDLE, VoiceSessionState.STOPPED),
-    VoiceSessionState.STOPPED to setOf(VoiceSessionState.IDLE)
+    VoiceSessionState.STOPPED to setOf(VoiceSessionState.IDLE, VoiceSessionState.STARTING)
 )
 
 /**
@@ -82,7 +82,7 @@ class VoiceSessionStateMachine {
     fun transitionTo(target: VoiceSessionState): Boolean {
         val allowed = ALLOWED_TRANSITIONS[_state] ?: emptySet()
         if (target !in allowed) {
-            // STOPPED → IDLE и IDLE → STARTING — единственные циклы.
+            // STOPPED → IDLE/STARTING и IDLE → STARTING закрывают новый цикл.
             if (!(_state == VoiceSessionState.STOPPED && target == VoiceSessionState.IDLE)) {
                 return false
             }
@@ -91,7 +91,17 @@ class VoiceSessionStateMachine {
         return true
     }
 
-    /** Сброс в IDLE — после освобождения ресурсов. */
+    /**
+     * Завершить текущую STT-сессию после того, как потребитель получил результат
+     * (или после таймаута/ошибки). Это единственный переход, который закрывает
+     * цикл и гарантирует возможность следующего wake-word / пользовательского ввода.
+     */
+    @Synchronized
+    fun finish() {
+        _state = VoiceSessionState.IDLE
+    }
+
+    /** Сброс в IDLE — для полного освобождения ресурсов. */
     @Synchronized
     fun reset() {
         _state = VoiceSessionState.IDLE

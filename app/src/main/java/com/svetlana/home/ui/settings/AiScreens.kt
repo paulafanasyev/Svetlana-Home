@@ -80,6 +80,10 @@ fun AiProvidersScreen() {
         ProviderEditScreen(config = cfg, onSaved = {
             editing = null
             configs = manager.list()
+            scope.launch {
+                activeId = settings.activeProviderId.first()
+                mode = settings.aiMode.first()
+            }
         })
         return
     }

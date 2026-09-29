@@ -17,6 +17,22 @@ import org.junit.Test
 class VoiceSessionStateMachineTest {
 
     @Test
+    fun `finish returns processing session to idle`() {
+        val sm = VoiceSessionStateMachine().apply {
+            transitionTo(VoiceSessionState.STARTING)
+            transitionTo(VoiceSessionState.LISTENING)
+            transitionTo(VoiceSessionState.RESULT_RECEIVED)
+            transitionTo(VoiceSessionState.PROCESSING)
+        }
+
+        sm.finish()
+
+        assertEquals(VoiceSessionState.IDLE, sm.state)
+        assertTrue(sm.canStartNewSession)
+        assertFalse(sm.isUserSessionActive)
+    }
+
+    @Test
     fun `idle can start new session`() {
         val sm = VoiceSessionStateMachine()
         assertTrue("Из IDLE можно стартовать", sm.canStartNewSession)
@@ -57,6 +73,15 @@ class VoiceSessionStateMachineTest {
             transitionTo(VoiceSessionState.RESULT_RECEIVED)
         }
         assertTrue(sm.transitionTo(VoiceSessionState.PROCESSING))
+    }
+
+    @Test
+    fun `stopped can restart directly`() {
+        val sm = VoiceSessionStateMachine()
+        assertTrue(sm.transitionTo(VoiceSessionState.STARTING))
+        assertTrue(sm.transitionTo(VoiceSessionState.STOPPED))
+        assertTrue(sm.transitionTo(VoiceSessionState.STARTING))
+        assertEquals(VoiceSessionState.STARTING, sm.state)
     }
 
     @Test

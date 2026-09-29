@@ -82,10 +82,15 @@ class VoiceAssistantService : Service() {
             try {
                 ServiceLocator.wakeWord.detection.collect { command ->
                     if (command.isNullOrBlank()) return@collect
-                    ServiceLocator.wakeWord.consumeDetection()
                     ServiceLocator.historyManager.record(
                         HistoryCategory.COMMANDS, "Голосовая команда: ${command.take(120)}")
-                    handleCommand(command)
+                    try {
+                        handleCommand(command)
+                    } finally {
+                        // WakeWordEngine ждёт завершения текущей команды перед новым окном.
+                        ServiceLocator.wakeWord.consumeDetection()
+                        ServiceLocator.speechRecognizer.finishSession()
+                    }
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "Цикл команд прерван", t)

@@ -79,15 +79,27 @@ class WakeWordEngine(
                     }
                     _state.value = State.LISTENING
                     recognizer.startListening()
-                    // окно прослушивания
-                    delay(4000)
-                    recognizer.stopListening()
-                    delay(400)
-                    // КЛЮЧВОЕ место (аудит п.8): ранее результат STT никогда
-                    // не читался — слово пробуждения физически не могло быть
-                    // обнаружено. Теперь берём распознанный текст и проверяем.
-                    processSttResult()
+                    // Ожидаем финальный результат асинхронно. Нельзя полагаться
+                    // на фиксированные 400 мс после stopListening(): onResults()
+                    // может прийти позже и wake word будет потерян.
+                    val result = recognizer.awaitResult(4_000L)
+                    if (result == null) {
+                        recognizer.stopListening()
+                        // Даём SpeechRecognizer короткое дополнительное окно
+                        // на доставку финального onResults после stopListening().
+                        val finalResult = recognizer.awaitResult(1_200L)
+                        processSttResult(finalResult)
+                    } else {
+                        processSttResult(result)
+                    }
+                    // Эта сессия больше не держит микрофон. Следующий цикл
+                    // разрешён только после завершения текущего результата.
+                    recognizer.finishSession()
+                    waitForDetectionConsumption()
                 } catch (t: Throwable) {
+                    // Любая ошибка после старта STT не должна оставлять
+                    // VoiceSessionStateMachine в STOPPED/PROCESSING.
+                    recognizer.finishSession()
                     Log.w(TAG, "Цикл wake word прерван", t)
                     delay(2000)
                 }
@@ -100,12 +112,16 @@ class WakeWordEngine(
      * проверяет его на слово пробуждения. Полный путь:
      *   Микрофон → STT → WakeWordMatcher → DETECTED → команда
      */
-    private fun processSttResult() {
-        val current = recognizer.result.value ?: return
+    private fun processSttResult(current: SvetlanaSpeechRecognizer.SttResult? = recognizer.result.value) {
+        current ?: return
         if (current !is SvetlanaSpeechRecognizer.SttResult.Success) return
         val command = matchWakeWord(current.text) ?: return
         Log.i(TAG, "Слово пробуждения обнаружено, команда: $command")
         _detection.value = command
+    }
+
+    private suspend fun waitForDetectionConsumption() {
+        while (_detection.value != null) delay(100)
     }
 
     /**
@@ -118,6 +134,7 @@ class WakeWordEngine(
         job = null
         _state.value = State.IDLE
         recognizer.stopListening()
+        recognizer.finishSession()
     }
 
     /**
