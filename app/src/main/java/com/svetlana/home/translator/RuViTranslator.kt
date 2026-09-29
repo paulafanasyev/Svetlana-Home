@@ -43,7 +43,9 @@ enum class TranslatorDirection(
     )
 }
 
-class RuViTranslator(private val context: Context) {
+class RuViTranslator(context: Context) {
+    init { context.applicationContext // bind lifecycle explicitly to app context
+    }
     private val modelManager: RemoteModelManager = RemoteModelManager.getInstance()
 
     suspend fun isModelDownloaded(direction: TranslatorDirection): Boolean =
