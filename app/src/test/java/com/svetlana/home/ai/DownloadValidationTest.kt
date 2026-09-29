@@ -124,7 +124,9 @@ class DownloadValidationTest {
         val registry = AIModelRegistry()
         val onnx = registry.all().filter { it.backend == "onnxruntime" }
         assertThat(onnx).isNotEmpty()
-        assertThat(onnx).allMatch { !it.runtimeImplemented }
+        onnx.forEach { model ->
+            assertThat(model.runtimeImplemented).isFalse()
+        }
     }
 
     @Test
@@ -133,12 +135,8 @@ class DownloadValidationTest {
         registry.all()
             .filter { it.backend == "llama.cpp" || it.backend == "litertlm" }
             .forEach { model ->
-                assertThat(model.gpuSupport)
-                    .named("${model.id}: GPU support must match current CPU-only runtime")
-                    .isFalse()
-                assertThat(model.npuSupport)
-                    .named("${model.id}: NPU support has no implemented path")
-                    .isFalse()
+                assertThat(model.gpuSupport).isFalse()
+                assertThat(model.npuSupport).isFalse()
             }
     }
 
@@ -155,12 +153,8 @@ class DownloadValidationTest {
         expected.forEach { (id, sha) ->
             val model = registry.byId(id)
             assertThat(model).isNotNull()
-            assertThat(model!!.downloadUrl)
-                .named("$id must use an immutable revision")
-                .doesNotContain("/resolve/main/")
-            assertThat(model.downloadUrl)
-                .named("$id must be a direct model file")
-                .contains("/resolve/")
+            assertThat(model!!.downloadUrl).doesNotContain("/resolve/main/")
+            assertThat(model.downloadUrl).contains("/resolve/")
             assertThat(model.expectedSha256).isEqualTo(sha)
         }
     }
