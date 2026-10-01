@@ -82,7 +82,7 @@ class LocalAiDeviceTest : SvetlanaDeviceTest() {
         val model = ServiceLocator.modelRegistry.byId(manager.list().first().modelId)
         assertNotNull("Реестр должен знать об установленной модели", model)
         if (model != null) {
-            val result = BenchmarkRunner.run(model, manager, ServiceLocator.llamaRuntime)
+            val result = BenchmarkRunner.run(model, manager, ServiceLocator.compositeRuntime)
             println("BENCHMARK_STATUS=${result.status} tps=${result.tokensPerSecond}")
             // После реального inference на устройстве статус должен стать
             // DEVICE_VERIFIED. Если стал NOT_PROVEN — inference не прошёл.
