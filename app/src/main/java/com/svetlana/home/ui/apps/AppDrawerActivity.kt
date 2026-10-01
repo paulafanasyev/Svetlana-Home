@@ -260,12 +260,25 @@ private fun AppDrawerScreen() {
                     AppRow(
                         app = app,
                         onLaunch = {
+                            if (!app.isLaunchable) {
+                                ServiceLocator.historyManager.record(
+                                    com.svetlana.home.memory.HistoryCategory.APPS,
+                                    "Нельзя открыть ${app.label}: нет launcher activity"
+                                )
+                                return@AppRow
+                            }
                             try {
-                                context.packageManager.getLaunchIntentForPackage(app.packageName)?.let { intent ->
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
-                                    ServiceLocator.appRepository.markUsed(app.packageName)
+                                val intent = context.packageManager.getLaunchIntentForPackage(app.packageName)
+                                if (intent == null) {
+                                    ServiceLocator.historyManager.record(
+                                        com.svetlana.home.memory.HistoryCategory.APPS,
+                                        "Нельзя открыть ${app.label}: launcher intent недоступен"
+                                    )
+                                    return@AppRow
                                 }
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(intent)
+                                ServiceLocator.appRepository.markUsed(app.packageName)
                             } catch (t: Throwable) {
                                 ServiceLocator.historyManager.record(
                                     com.svetlana.home.memory.HistoryCategory.APPS,
@@ -341,7 +354,7 @@ private fun AppRow(app: AppModel, onLaunch: () -> Unit, onTogglePin: () -> Unit)
                 // пользователь должен это видеть, а не обнаруживать при попытке.
                 if (!app.isLaunchable) {
                     Text(
-                        text = "без экрана запуска — открывается через Hands",
+                        text = "нет launcher activity — открыть с главного экрана нельзя",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outlineVariant
                     )
