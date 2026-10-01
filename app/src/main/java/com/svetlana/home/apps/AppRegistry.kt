@@ -275,20 +275,18 @@ class AppRegistry(
     private fun refresh(packageName: String) {
         scope.launch {
             try {
-                val ai = pm.getApplicationInfo(packageName, 0)
                 val saved = repository.apps.value.firstOrNull { it.packageName == packageName }
-                val label = ai.loadLabel(pm).toString()
-                val updated = (saved ?: AppModel(packageName, label)).copy(
-                    label = label,
-                    enabled = ai.enabled,
-                    aliases = (AppAliases.builtIn[packageName] ?: emptyList()) + (saved?.aliases ?: emptyList())
-                )
+                // Rebuild the complete record after install/update. The previous
+                // incremental refresh left launchability/capabilities/category
+                // stale until the next full drawer scan.
+                val updated = build(packageName, saved)
                 repository.persist(
-                    (repository.apps.value.filterNot { it.packageName == packageName } + updated)
+                    repository.apps.value
+                        .filterNot { it.packageName == packageName } + updated
                 )
                 Log.i(TAG, "Пакет обновлён: $packageName")
             } catch (t: Throwable) {
-                // пакет удалён
+                // Пакет мог быть удалён между discovery и metadata read.
                 remove(packageName)
             }
         }
