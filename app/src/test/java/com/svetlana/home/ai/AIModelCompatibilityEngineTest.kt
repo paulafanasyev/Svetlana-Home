@@ -100,8 +100,8 @@ class AIModelCompatibilityEngineTest {
             model,
             caps(ramMb = 8192, storageMb = 65536L, gpu = true, npu = true)
         )
-        assertThat(report.expectedPerf).contains("4–8 ток/с")
-        assertThat(report.expectedPerf).doesNotContain("8–14 ток/с")
+        assertThat(report.expectedPerf).contains("2–5 ток/с")
+        assertThat(report.expectedPerf).doesNotContain("5–9 ток/с")
     }
 
     @Test
