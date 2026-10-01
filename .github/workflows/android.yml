@@ -335,7 +335,7 @@ jobs:
     needs: [ build, production-gate ]
     # Normal releases are tag-driven. For v1.2.1 this one-time main commit
     # bootstraps the first release tag through softprops/action-gh-release.
-    if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && github.event.head_commit.message == 'release: v1.2.1')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && github.sha == 'b63b4bb809c70c1aae14fc0dd3a199037f713417')
 
     permissions:
       contents: write
