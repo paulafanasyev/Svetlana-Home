@@ -40,21 +40,19 @@ class AppRepository(private val context: Context) {
     val apps: StateFlow<List<AppModel>> = _apps.asStateFlow()
 
     init {
-        load()
+        // Реестр небольшой и нужен сразу при старте launcher. Читаем его
+        // синхронно до первого scan(), чтобы старые данные с диска не
+        // завершили загрузку позже и не перезаписали свежий PackageManager scan.
+        _apps.value = loadFromDisk()
     }
 
-    private fun load() {
-        scope.launch {
-            val list: List<AppModel> = try {
-                if (storeFile.exists() && storeFile.length() > 0) {
-                    json.decodeFromString(ListSerializer(AppModel.serializer()), storeFile.readText())
-                } else emptyList()
-            } catch (t: Throwable) {
-                Log.w(TAG, "Не удалось прочитать реестр приложений", t)
-                emptyList()
-            }
-            _apps.value = list
-        }
+    private fun loadFromDisk(): List<AppModel> = try {
+        if (storeFile.exists() && storeFile.length() > 0) {
+            json.decodeFromString(ListSerializer(AppModel.serializer()), storeFile.readText())
+        } else emptyList()
+    } catch (t: Throwable) {
+        Log.w(TAG, "Не удалось прочитать реестр приложений", t)
+        emptyList()
     }
 
     fun persist(apps: List<AppModel>) {
