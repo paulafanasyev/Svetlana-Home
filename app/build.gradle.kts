@@ -25,7 +25,7 @@ android {
         // установиться ("0 of which were compatible"). На x86_64 нативный
         // llama.cpp не загрузится — runtime честно сообщит об этом через
         // UnsatisfiedLinkError, а вся JVM-логика (launcher, registry,
-        // permissions, owner, proof chain, translator) тестируется полноценно.
+        // permissions, owner и proof chain) тестируется полноценно.
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
@@ -169,6 +169,9 @@ dependencies {
     // Сеть: внешние AI-провайдеры и personal server
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // On-device RU↔VI translation; translation models are downloaded explicitly.
+    implementation("com.google.mlkit:translate:17.0.3")
+
     // CameraX для Vision / camera translation.
     // 1.4.x поставляет нативные библиотеки с 16 KB ELF-выравниванием
     // (libimage_processing_util_jni.so в 1.3.3 собрана с 4 KB p_align).
@@ -183,7 +186,7 @@ dependencies {
     implementation("dev.ffmpegkit-maintained:llama-android:0.1.1")
 
     // Локальный ИИ: LiteRT-LM (аудит §10-12, P0-1) — Google AI Edge.
-    // Multimodal (image/audio), tool use, CPU/GPU/NPU backends.
+    // Multimodal (image/audio), tool use; текущий встроенный backend — CPU.
     // Apache-2.0. Основной multimodal-рантайм; llama.cpp остаётся
     // text-fallback. Модель (.litertlm) пользователь ставит сам.
     // Исключаем транзитивные kotlin-reflect/stdlib 2.4 — проект на

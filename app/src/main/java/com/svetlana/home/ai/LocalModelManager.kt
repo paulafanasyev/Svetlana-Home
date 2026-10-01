@@ -78,7 +78,16 @@ open class LocalModelManager(
         model: AIModel,
         progress: (percent: Int) -> Unit = {}
     ): Result<InstalledModel> {
+        val ext = extensionFor(model)
+        val target = File(modelsDir, "${model.id}.$ext")
+        val temp = File(modelsDir, ".${model.id}.$ext.part")
+        val backup = File(modelsDir, ".${model.id}.$ext.previous")
+
         return try {
+            if (!model.runtimeImplemented) {
+                return Result.failure(IllegalStateException(
+                    "Для модели ${model.name} встроенный runtime ещё не реализован; скачивание отключено."))
+            }
             if (!isSpaceEnough(model)) {
                 return Result.failure(IllegalStateException("Недостаточно свободного места"))
             }
@@ -87,10 +96,8 @@ open class LocalModelManager(
             // отклоняет тот же контент, если файл назван .bin вместо .litertlm
             // (upstream issue: загрузка зависит от расширения). Для GGUF
             // расширение не принципиально, но оставляем осмысленное.
-            val ext = extensionFor(model)
-            val target = File(modelsDir, "${model.id}.$ext")
-            val temp = File(modelsDir, ".${model.id}.$ext.part")
             temp.delete()
+            backup.delete()
             val client = okhttp3.OkHttpClient.Builder().build()
             val request = okhttp3.Request.Builder().url(model.downloadUrl).build()
             client.newCall(request).execute().use { response ->
@@ -138,17 +145,26 @@ open class LocalModelManager(
             }
             val shaVerified = expected.isNullOrBlank() || sha.equals(expected, ignoreCase = true)
             if (!shaVerified) {
-                target.delete()
-                return Result.failure(IllegalStateException(
-                    "Контрольная сумма файла не совпадает с доверенной. Загрузка отменена."))
-            }
-            if (target.exists() && !target.delete()) {
                 temp.delete()
-                return Result.failure(IllegalStateException("Не удалось заменить предыдущий файл модели"))
+                return Result.failure(IllegalStateException(
+                    "Контрольная сумма файла не совпадает с доверенной. Загрузка отменена. Предыдущая модель сохранена."))
+            }
+
+            // Безопасная замена: сначала сохраняем рабочий файл, затем
+            // устанавливаем новый. При сбое rename старый файл возвращается.
+            if (target.exists() && !target.renameTo(backup)) {
+                temp.delete()
+                return Result.failure(IllegalStateException(
+                    "Не удалось сохранить предыдущую версию модели перед заменой"))
             }
             if (!temp.renameTo(target)) {
                 temp.delete()
-                return Result.failure(IllegalStateException("Не удалось атомарно завершить установку модели"))
+                if (backup.exists()) backup.renameTo(target)
+                return Result.failure(IllegalStateException(
+                    "Не удалось завершить установку модели; предыдущая модель восстановлена"))
+            }
+            if (backup.exists() && !backup.delete()) {
+                Log.w(TAG, "Новая модель установлена, но не удалось удалить backup: ${backup.name}")
             }
             val installedModel = InstalledModel(
                 modelId = model.id, name = model.name,
@@ -157,11 +173,17 @@ open class LocalModelManager(
                 sha256 = sha,
                 formatVerified = true
             )
-            installed = installed + installedModel
+            // Повторная установка той же модели не должна плодить дубликаты
+            // в реестре установленных моделей.
+            installed = installed.filterNot { it.modelId == model.id } + installedModel
             save()
             Log.i(TAG, "Модель ${model.name} установлена")
             Result.success(installedModel)
         } catch (t: Throwable) {
+            temp.delete()
+            if (!target.exists() && backup.exists()) {
+                backup.renameTo(target)
+            }
             Log.e(TAG, "Не удалось загрузить модель", t)
             Result.failure(t)
         }

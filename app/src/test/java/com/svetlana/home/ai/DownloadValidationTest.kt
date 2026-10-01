@@ -8,8 +8,8 @@ import java.io.File
  * Аудит п.9: проверка скачиваемого файла.
  *
  * До исправления install() сохранял любой HTTP-ответ как <model-id>.bin —
- * в том числе HTML-страницу 404. Теперь формат проверяется по magic bytes,
- * а для ONNX — "нетекстовая" проверка.
+ * в том числе HTML-страницу 404. Для поддержанных runtime форматов
+ * проверяются тип/заголовок файла; неподдержанные ONNX-модели отклоняются.
  */
 class DownloadValidationTest {
 
@@ -118,4 +118,57 @@ class DownloadValidationTest {
         assertThat(vision.expectedSha256).isNotEmpty()
         assertThat(vision.expectedSha256).hasLength(64)
     }
+
+    @Test
+    fun catalogOnlyOnnxModelsAreNotRuntimeImplemented() {
+        val registry = AIModelRegistry()
+        val onnx = registry.all().filter { it.backend == "onnxruntime" }
+        assertThat(onnx).isNotEmpty()
+        onnx.forEach { model ->
+            assertThat(model.runtimeImplemented).isFalse()
+        }
+    }
+
+    @Test
+    fun localRuntimeAccelerationClaimsMatchCurrentImplementations() {
+        val registry = AIModelRegistry()
+        registry.all()
+            .filter { it.backend == "llama.cpp" || it.backend == "litertlm" }
+            .forEach { model ->
+                assertThat(model.gpuSupport).isFalse()
+                assertThat(model.npuSupport).isFalse()
+            }
+    }
+
+    @Test
+    fun allRuntimeImplementedModelsArePinnedAndHashed() {
+        val registry = AIModelRegistry()
+        registry.all()
+            .filter { it.runtimeImplemented }
+            .forEach { model ->
+                assertThat(model.downloadUrl).doesNotContain("/resolve/main/")
+                assertThat(model.expectedSha256).isNotNull()
+                assertThat(model.expectedSha256).hasLength(64)
+            }
+    }
+
+    @Test
+    fun implementedGgufModelsUsePinnedRevisionAndTrustedSha() {
+        val registry = AIModelRegistry()
+        val expected = mapOf(
+            "qwen2.5-1.5b-instruct-q4" to "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+            "qwen2.5-3b-instruct-q4" to "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d",
+            "qwen2.5-7b-instruct-q4" to "65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423",
+            "llama3.2-1b-instruct-q4" to "6f85a640a97cf2bf5b8e764087b1e83da0fdb51d7c9fab7d0fece9385611df83",
+            "gemma2-2b-instruct-q4" to "e0aee85060f168f0f2d8473d7ea41ce2f3230c1bc1374847505ea599288a7787"
+        )
+        expected.forEach { (id, sha) ->
+            val model = registry.byId(id)
+            assertThat(model).isNotNull()
+            assertThat(model!!.downloadUrl).doesNotContain("/resolve/main/")
+            assertThat(model.downloadUrl).contains("/resolve/")
+            assertThat(model.expectedSha256).isEqualTo(sha)
+        }
+    }
+
 }

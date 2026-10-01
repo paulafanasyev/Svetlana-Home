@@ -46,6 +46,7 @@
 | Доказательство | `ProofBuilder`, `ProofStep` | Доказательная цепочка |
 | Приложения | `AppRegistry`, `AppRepository` | Обнаружение, capability matrix |
 | Зрение | `VisionManager` | Скриншоты, чтение экрана, анализ |
+| Перевод | `RuViTranslator`, `TranslatorActivity` | RU↔VI text/voice translation with explicit model download |
 | ИИ | `AIModelRegistry`, `AIModelCompatibilityEngine`, `AIRouter`, `ModelRouter`, `PrivacyRouter` | Модели, маршрутизация, приватность |
 | Провайдеры | `AIProvider` + реализации | Local / OpenAI-compatible / Personal Server |
 | Сервер | `PersonalServerManager` | Подключение пользовательского compute |

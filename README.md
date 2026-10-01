@@ -23,6 +23,7 @@ Hands + Voice + Vision + управление приложениями + Mobile 
 - [Launcher](#launcher)
 - [Voice](#voice)
 - [Hands](#hands)
+- [Переводчик](#переводчик-ru--vi)
 - [Mobile Harness](#mobile-harness)
 - [Vision](#vision)
 - [Local AI](#local-ai)
@@ -85,11 +86,11 @@ Hands + Voice + Vision + управление приложениями + Mobile 
 
 Подписанный release APK доступен в [GitHub Releases](https://github.com/paulafanasyev/Svetlana-Home/releases/latest):
 
-[⬇ Скачать Svetlana Home](https://github.com/paulafanasyev/Svetlana-Home/releases/latest/download/Svetlana-Home-v1.2.0-arm64.apk)
+[⬇ Скачать последнюю опубликованную сборку](https://github.com/paulafanasyev/Svetlana-Home/releases/latest)
 
-> **v1.2.0** — исправлен краш при запуске (`LocalLifecycleOwner`, Lifecycle 2.8.3),
-> все нативные библиотеки 16 KB-совместимы, автоматически публикуется из CI
-> по тегу `v*` с проверкой подписи через `apksigner`.
+> Версия APK и имя файла берутся из конкретного GitHub Release. Не следует считать
+> локальную `versionName` доказательством опубликованного релиза: release проходит
+> отдельную проверку подписи и 16 KB ELF alignment в CI.
 
 1. Откройте ссылку на Android-устройстве и скачайте APK;
 2. Разрешите установку из неизвестных источников
@@ -127,10 +128,10 @@ compileSdk 36, AGP 8.11.0, Kotlin 1.9.22, Java 17.
 - Поддержка официального механизма `ROLE_HOME` (Android 10+) и
   `CATEGORY_HOME` для старых версий;
 - Главный экран — три страницы (свайп между ними):
-  1. **Голос** — Living Orb, реплика, кнопка микрофона;
+  1. **Голос** — Living Orb и голосовое общение; отдельной кнопки микрофона нет, ручное прослушивание запускается касанием орба; wake word — через отдельный foreground-сервис;
   2. **Чат** — текстовый диалог со Светланой;
   3. **Приложения и настройки** — App Drawer и разделы настроек;
-- Работает после перезагрузки;
+- Поддерживает системный Home/boot lifecycle; фактическая работа launcher после перезагрузки на физическом устройстве — отдельный acceptance-тест;
 - App Drawer: список, поиск, избранное, недавние, скрытые;
 - **Светлая и тёмная тема** (по системе / тёмная / светлая) — раздел
   «О Светлане» → «Тема»; в светлой теме используется логотип.
@@ -141,12 +142,23 @@ compileSdk 36, AGP 8.11.0, Kotlin 1.9.22, Java 17.
 ## Voice
 
 - Русский STT и TTS через системные движки;
-- Wake words: **Света**, **Светочка**, **Светлана**;
+- Wake words: **Света**, **Светочка**, **Светлана**; ручной запуск голосового ввода — касанием орба;
 - Команды: «открой Telegram», «сделай скриншот», «пролистай вниз»,
   «нажми кнопку», «введи это значение»;
 - Управление режимами ИИ голосом.
 
 Подробно: [docs/voice.md](docs/voice.md).
+
+## Переводчик RU ↔ VI
+
+В launcher доступен отдельный переводчик русского и вьетнамского языка:
+текстовый и голосовой ввод, локальный перевод и озвучивание результата.
+
+Модели перевода скачиваются только после явного нажатия пользователя.
+После установки самой модели перевод не обращается к внешнему AI.
+Голосовой режим доступен только при наличии on-device SpeechRecognizer.
+
+Подробно: [docs/translation.md](docs/translation.md).
 
 ## Hands
 
@@ -422,12 +434,12 @@ battery, screen, camera, mic, network.
 | **Мгновенный голосовой отклик** | CODE VERIFIED | **filler «Дай подумать…» + SSE-стриминг** ответа |
 | Wake word | NOT PROVEN | не always-on low-power детектор (STT-polling); state machine защищает от гонок |
 | Vision | CODE VERIFIED | **изображение реально передаётся**: JPEG→`AIRouter.vision()`→OpenAI image_url base64 / `/vlm` сервера / **локальный LiteRT-LM**; раньше был BLOCKED (вызывался text-only chat) |
-| Local AI runtime | CODE VERIFIED | **два runtime'а**: llama.cpp (GGUF, text) + **LiteRT-LM 0.17.1** (.litertlm, multimodal, tool use); диспетчер `CompositeInferenceRuntime` по формату модели; проверка модели после установки |
+| Local AI runtime | CODE VERIFIED | **два runtime'а**: llama.cpp (GGUF, text) + **LiteRT-LM 0.17.1** (.litertlm, multimodal text/vision); диспетчер `CompositeInferenceRuntime` по формату модели; проверка модели после установки |
 | Model Registry / Compatibility | CODE VERIFIED | LiteRT-модели указывают на **реальные публичные файлы** (gemma-4-E2B-it, Qwen2.5-1.5B q8) с **доверенным SHA-256**; **magic-проверка настоящего контейнера "LITERTLM"** (не TFL); файлы сохраняются как `.litertlm` (Engine отклоняет .bin) |
 | External AI Providers | CODE VERIFIED | **полный config UI**: endpoint→key→/models→выбор→test inference→save; Custom preset; **нормализация /v1** |
 | Personal Server | CODE VERIFIED | /health, /capabilities, /inference + кнопка «Проверить inference» в UI |
 | Hybrid AI | CODE VERIFIED | `HybridPipeline`: privacy→preprocess→sanitize→remote→postprocess |
-| Privacy / LOCAL_ONLY | CODE VERIFIED | `PrivacyPolicy` + device-тест блокировки egress |
+| Privacy / LOCAL_ONLY | CODE VERIFIED | `PrivacyPolicy` + unit/instrumentation routing checks; реальный network egress capture — NOT PROVEN |
 | Owner Identity | CODE VERIFIED | Android Keystore; `Build.SERIAL` убран |
 | Permissions | CODE VERIFIED | **геолокация разделена**: permission vs location services |
 | Avatar Engine | CODE VERIFIED | `AvatarFallback`: L0/L1 доступны; false-capability покрыт unit-тестами |

@@ -1,6 +1,7 @@
 package com.svetlana.home.ai.local
 
 import android.util.Log
+import com.svetlana.home.ai.providers.InferenceMetrics
 import com.svetlana.home.ai.providers.InferenceRuntime
 
 /**
@@ -66,6 +67,9 @@ class CompositeInferenceRuntime(
 
     override fun supportsVision(modelId: String): Boolean =
         litertlm.supportedModelIds().contains(modelId) && litertlm.supportsVision(modelId)
+
+    override fun metrics(modelId: String): InferenceMetrics? =
+        runtimeFor(modelId)?.metrics(modelId)
 
     override fun generate(modelId: String, prompt: String, maxTokens: Int): String {
         val runtime = runtimeFor(modelId)

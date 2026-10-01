@@ -134,11 +134,17 @@ class PermissionManager(private val context: Context) {
     fun homeRoleIntent(): Intent {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val rm = context.getSystemService(Context.ROLE_SERVICE) as RoleManager
-            rm.isRoleAvailable(RoleManager.ROLE_HOME)
-            return rm.createRequestRoleIntent(RoleManager.ROLE_HOME)
+            if (rm.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                return rm.createRequestRoleIntent(RoleManager.ROLE_HOME)
+            }
+            // Some OEM builds expose HOME selection without a usable RoleManager
+            // role. Fall back to the standard launcher settings instead of
+            // returning an intent that cannot be handled.
         }
-        // Для старых версий — стандартный выбор launcher
-        return Intent(Settings.ACTION_HOME_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        // Для старых версий и OEM fallback — стандартный выбор launcher.
+        return Intent(Settings.ACTION_HOME_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
     }
 
     fun isHomeLauncher(): Boolean {

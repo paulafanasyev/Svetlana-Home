@@ -8,6 +8,8 @@
     <string name="home_input_hint">Скажите или напишите</string>
     <string name="home_apps">Приложения</string>
     <string name="home_settings">Настройки</string>
+    <string name="translator_title">Переводчик RU ↔ VI</string>
+    <string name="translator_subtitle">Голосовой и текстовый перевод на устройстве</string>
     <string name="home_thinking">Светлана думает…</string>
 
     <!-- Страницы главного экрана -->
@@ -66,7 +68,7 @@
     <string name="launcher_already_home">Светлана назначена главным экраном</string>
     <string name="launcher_not_home">Не назначен</string>
     <string name="launcher_status_current">Текущий статус</string>
-    <string name="launcher_hint">После назначения нажатие Home будет открывать Светлану. Работает после перезагрузки.</string>
+    <string name="launcher_hint">После назначения нажатие Home будет открывать Светлану. Сохранение выбора после перезагрузки требует проверки на физическом устройстве.</string>
 
     <!-- Системные настройки телефона -->
     <string name="title_system_settings">Системные настройки телефона</string>

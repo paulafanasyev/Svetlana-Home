@@ -63,6 +63,22 @@ class AIModelCompatibilityEngine(
             )
         }
 
+        // ABI — жёсткий критерий для llama.cpp: нативный AAR этого проекта
+        // содержит только arm64-v8a. Не считаем x86_64 совместимым.
+        if (model.backend.equals("llama.cpp", ignoreCase = true) &&
+            caps.abis.none { it.equals("arm64-v8a", ignoreCase = true) }
+        ) {
+            reasons.add("ABI: llama.cpp требует arm64-v8a; найдено " + caps.abis.joinToString())
+            return CompatibilityReport(
+                model = model,
+                level = CompatibilityLevel.INCOMPATIBLE,
+                reasons = reasons,
+                expectedPerf = "Установка невозможна: нативный llama.cpp runtime требует arm64-v8a",
+                canRunOnDevice = false,
+                canRunOnServer = true
+            )
+        }
+
         // CPU / ядра
         if (!model.cpuSupport) {
             reasons.add("Модель не рассчитана на CPU-вывод на телефоне")
@@ -123,9 +139,11 @@ class AIModelCompatibilityEngine(
 
     private fun expectedPerformance(model: AIModel, caps: DeviceCapabilityManager.Capabilities): String {
         if (model.context == 0) return "Назначение: не LLM (STT/TTS/эмбеддинги)"
+        val modelHasAccelerator = (model.npuSupport && caps.backendSupport.npu) ||
+            (model.gpuSupport && caps.backendSupport.gpu)
         val perSec = when {
-            model.parameterCountB <= 1.0 -> if (caps.backendSupport.npu) "8–14 ток/с" else "4–8 ток/с"
-            model.parameterCountB <= 2.0 -> if (caps.backendSupport.npu) "5–9 ток/с" else "2–5 ток/с"
+            model.parameterCountB <= 1.0 -> if (modelHasAccelerator) "8–14 ток/с" else "4–8 ток/с"
+            model.parameterCountB <= 2.0 -> if (modelHasAccelerator) "5–9 ток/с" else "2–5 ток/с"
             model.parameterCountB <= 3.5 -> "1–3 ток/с"
             else -> "менее 1 ток/с — только сервер"
         }
@@ -138,7 +156,9 @@ class AIModelCompatibilityEngine(
      */
     fun compatibleModels(registry: AIModelRegistry, caps: DeviceCapabilityManager.Capabilities = device.current())
             : List<CompatibilityReport> {
-        return registry.llmModels().map { evaluate(it, caps) }
+        return registry.llmModels()
+            .filter { it.runtimeImplemented }
+            .map { evaluate(it, caps) }
             .filter { it.canRunOnDevice }
             .sortedBy { it.model.sizeMb }
     }

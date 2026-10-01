@@ -62,6 +62,22 @@ class ModelVerificationRunnerTest {
     }
 
     @Test
+    fun `успешный inference без speed metrics не показывает ноль как измерение`() {
+        val report = ModelVerificationRunner.Report(
+            modelId = "litert",
+            stages = listOf(ModelVerificationRunner.Stage("Inference", true, "ответ получен")),
+            firstTokenMs = 0,
+            tokensPerSecond = 0.0,
+            ramUsedMb = 1800,
+            inferenceOk = true,
+            failureReason = null
+        )
+        val text = report.summary()
+        assertTrue(text.contains("метрика недоступна для этого runtime"))
+        assertFalse(text.contains("0.0 ток/с"))
+    }
+
+    @Test
     fun `отчёт без причины не падает на null-форматировании`() {
         val report = ModelVerificationRunner.Report(
             modelId = "test",

@@ -42,6 +42,18 @@ class AIModelCompatibilityEngineTest {
     }
 
     @Test
+    fun `llama cpp is incompatible on x86_64 despite enough RAM`() {
+        val model = registry.byId("qwen2.5-1.5b-instruct-q4")!!
+        val report = engine.evaluate(
+            model,
+            caps(ramMb = 8192, storageMb = 65536L).copy(abis = listOf("x86_64"))
+        )
+        assertThat(report.level).isEqualTo(CompatibilityLevel.INCOMPATIBLE)
+        assertThat(report.canRunOnDevice).isFalse()
+        assertThat(report.reasons.joinToString(" ")).contains("arm64-v8a")
+    }
+
+    @Test
     fun `7B model on low-RAM device is incompatible`() {
         val model = registry.byId("qwen2.5-7b-instruct-q4")!!
         val report = engine.evaluate(model, caps(ramMb = 2048, storageMb = 8192L))
@@ -79,6 +91,17 @@ class AIModelCompatibilityEngineTest {
         val best = engine.bestFit(registry, caps(ramMb = 12288, storageMb = 131072L, cores = 8))
         assertThat(best).isNotNull()
         assertThat(best!!.canRunOnDevice).isTrue()
+    }
+
+    @Test
+    fun `expected performance does not use unrelated device NPU capability`() {
+        val model = registry.byId("qwen2.5-1.5b-instruct-q4")!!
+        val report = engine.evaluate(
+            model,
+            caps(ramMb = 8192, storageMb = 65536L, gpu = true, npu = true)
+        )
+        assertThat(report.expectedPerf).contains("2–5 ток/с")
+        assertThat(report.expectedPerf).doesNotContain("5–9 ток/с")
     }
 
     @Test

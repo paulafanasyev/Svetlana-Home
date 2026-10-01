@@ -17,7 +17,7 @@
 
 - [x] APK собирается (debug 26 MB + release 8.6 MB R8, CI VERIFIED)
 - [x] CI работает (dev gate + production gate + instrumentation)
-- [x] Unit-тесты проходят (80 тестов)
+- [x] Unit-тесты проходят в CI
 - [x] Нет секретов в репозитории (secret scan в CI)
 - [ ] APK установлен на физическом устройстве
 
@@ -41,6 +41,16 @@
 - [ ] App Registry работает
 - [ ] App Drawer работает
 - [ ] Search работает
+
+### Переводчик RU ↔ VI
+
+- [x] Текстовый RU→VI/VI→RU экран присутствует (CODE VERIFIED)
+- [x] Скачивание translation model выполняется только после явного действия (CODE VERIFIED)
+- [x] Перевод после установки модели выполняется локально (CODE VERIFIED)
+- [x] Голосовой режим блокируется без on-device STT (CODE VERIFIED)
+- [ ] RU→VI текстовый перевод на физическом устройстве
+- [ ] VI→RU текстовый перевод на физическом устройстве
+- [ ] Голосовой RU↔VI перевод + target-locale TTS на физическом устройстве
 
 ### Voice
 
@@ -111,7 +121,8 @@
 ### Hybrid / offline
 
 - [x] Hybrid AI работает (HybridPipeline: preprocess→sanitize→remote→postprocess)
-- [x] Local-only работает (PrivacyPolicy + device test блокировки egress)
+- [x] Local-only policy блокирует внешние backends (unit/instrumentation)
+- [ ] Сетевой egress физически проверен через packet capture
 - [x] Offline работает (launcher/registry/hands без сети)
 - [ ] Offline-тест на устройстве
 
@@ -199,7 +210,7 @@ runtime, а не только компилируется.
 | `LocalAiDeviceTest` | Совместимость → приоритеты → отчёт о inference; **LiteRT-LM dispatch по формату**; **honest local vision capability**; **composite runtime** |
 | `VisionDeviceTest` | Скриншот, анализ изображения, честный отказ без провайдера |
 | `PerformanceDeviceTest` | Реальные замеры: probe, registry scan, proof chain |
-| `LocalOnlyDeviceTest` | LOCAL_ONLY физически блокирует egress любых данных |
+| `LocalOnlyDeviceTest` | LOCAL_ONLY блокирует внешние backends на уровне routing/policy; packet-capture физически не выполняется в CI |
 | `AppDrawerScanDeviceTest` | **scan() строит реальный список из PackageManager** (P0) |
 | `RoleAndLocationDeviceTest` | ROLE_HOME intent + геолокация: 2 независимых состояния (P0) |
 | `AppControlLaunchDeviceTest` | **device-only**: реальный запуск Настроек, pressHome, screenshot (arm64) |

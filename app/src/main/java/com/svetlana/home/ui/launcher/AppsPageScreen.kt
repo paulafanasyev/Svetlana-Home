@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -55,6 +56,7 @@ import com.svetlana.home.ui.theme.MintSoft
 import com.svetlana.home.ui.theme.TextPrimary
 import com.svetlana.home.ui.theme.TextSecondary
 import com.svetlana.home.ui.theme.TextTertiary
+import com.svetlana.home.ui.translator.TranslatorActivity
 
 /**
  * Страница 3: приложения + настройки.
@@ -69,8 +71,8 @@ fun AppsPageScreen(appRegistry: AppRegistry) {
     val apps by appRegistry.apps.collectAsState()
 
     val visible = apps.filterNot { it.isHidden }
-    val pinned = visible.filter { it.isFavorite }
-    val others = visible.filterNot { it.isFavorite }
+    val pinned = visible.filter { it.isFavorite && it.isLaunchable }
+    val others = visible.filterNot { it.isFavorite && it.isLaunchable }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(4),
@@ -122,6 +124,15 @@ fun AppsPageScreen(appRegistry: AppRegistry) {
                 context.startActivity(Intent(context, SettingsActivity::class.java))
             }
         }
+        item(span = { GridItemSpan(4) }) {
+            EntryRow(
+                icon = Icons.Outlined.Language,
+                label = stringResource(R.string.translator_title),
+                sub = stringResource(R.string.translator_subtitle)
+            ) {
+                context.startActivity(Intent(context, TranslatorActivity::class.java))
+            }
+        }
 
         // Все приложения
         if (others.isNotEmpty()) {
@@ -151,7 +162,7 @@ private fun AppIcon(app: AppModel, onClick: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
+            .clickable(enabled = app.isLaunchable, onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 8.dp)
     ) {
         AppIconDrawable(app.packageName, Modifier.size(52.dp))
@@ -276,8 +287,10 @@ private fun drawableToBitmap(drawable: android.graphics.drawable.Drawable): andr
 }
 
 private fun launch(context: android.content.Context, app: AppModel) {
+    if (!app.isLaunchable) return
     runCatching {
-        val intent = context.packageManager.getLaunchIntentForPackage(app.packageName) ?: return@runCatching
+        val intent = context.packageManager.getLaunchIntentForPackage(app.packageName)
+            ?: return@runCatching
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
         ServiceLocator.appRepository.markUsed(app.packageName)

@@ -15,14 +15,15 @@
 | Size | 1080 МБ |
 | RAM requirement | 2048 МБ |
 | Storage requirement | 1150 МБ |
-| Backend | llama.cpp / onnxruntime |
+| Backend | llama.cpp / litertlm / catalog-only onnxruntime |
 | CPU support | да |
 | GPU support | да/нет |
-| NPU support | да/нет |
+| NPU support | да/нет (только при наличии реального runtime) |
 | Android support | minSdk |
 | Context | 4096 |
 | License | Apache 2.0 |
 | Source | Qwen (Alibaba) |
+| Runtime implemented | да/нет |
 
 ## Модели в реестре
 
@@ -33,16 +34,16 @@
 - `qwen2.5-7b-instruct-q4` — Apache 2.0, Qwen (мощные устройства/сервер)
 - `llama3.2-1b-instruct-q4` — Llama 3.2 Community License, Meta
 - `gemma2-2b-instruct-q4` — Gemma Terms of Use, Google
-- `aya-8b-q4` — CC BY-NC 4.0, Cohere For AI (RU+VI)
+- `aya-8b-q4` — CC BY-NC 4.0; `runtimeImplemented=false` до фиксации upstream revision + SHA-256, Cohere For AI (RU+VI)
 
 ### STT / TTS
 
-- `sherpa-onnx-ru-stt` — Apache 2.0
-- `sherpa-onnx-ru-tts` — Apache 2.0
+- `whisper-tiny-ru-stt` — каталог модели; `runtimeImplemented=false`
+- `piper-ru-irina-tts` — каталог модели; `runtimeImplemented=false`
 
 ### Embeddings
 
-- `rubert-embeddings-int8` — Apache 2.0, DeepPavlod
+- `rubert-embeddings-int8` — каталог модели; `runtimeImplemented=false`
 
 ## Требования лицензий
 

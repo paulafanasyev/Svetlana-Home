@@ -40,21 +40,19 @@ class AppRepository(private val context: Context) {
     val apps: StateFlow<List<AppModel>> = _apps.asStateFlow()
 
     init {
-        load()
+        // Реестр небольшой и нужен сразу при старте launcher. Читаем его
+        // синхронно до первого scan(), чтобы старые данные с диска не
+        // завершили загрузку позже и не перезаписали свежий PackageManager scan.
+        _apps.value = loadFromDisk()
     }
 
-    private fun load() {
-        scope.launch {
-            val list: List<AppModel> = try {
-                if (storeFile.exists() && storeFile.length() > 0) {
-                    json.decodeFromString(ListSerializer(AppModel.serializer()), storeFile.readText())
-                } else emptyList()
-            } catch (t: Throwable) {
-                Log.w(TAG, "Не удалось прочитать реестр приложений", t)
-                emptyList()
-            }
-            _apps.value = list
-        }
+    private fun loadFromDisk(): List<AppModel> = try {
+        if (storeFile.exists() && storeFile.length() > 0) {
+            json.decodeFromString(ListSerializer(AppModel.serializer()), storeFile.readText())
+        } else emptyList()
+    } catch (t: Throwable) {
+        Log.w(TAG, "Не удалось прочитать реестр приложений", t)
+        emptyList()
     }
 
     fun persist(apps: List<AppModel>) {
@@ -275,20 +273,18 @@ class AppRegistry(
     private fun refresh(packageName: String) {
         scope.launch {
             try {
-                val ai = pm.getApplicationInfo(packageName, 0)
                 val saved = repository.apps.value.firstOrNull { it.packageName == packageName }
-                val label = ai.loadLabel(pm).toString()
-                val updated = (saved ?: AppModel(packageName, label)).copy(
-                    label = label,
-                    enabled = ai.enabled,
-                    aliases = (AppAliases.builtIn[packageName] ?: emptyList()) + (saved?.aliases ?: emptyList())
-                )
+                // Rebuild the complete record after install/update. The previous
+                // incremental refresh left launchability/capabilities/category
+                // stale until the next full drawer scan.
+                val updated = build(packageName, saved)
                 repository.persist(
-                    (repository.apps.value.filterNot { it.packageName == packageName } + updated)
+                    repository.apps.value
+                        .filterNot { it.packageName == packageName } + updated
                 )
                 Log.i(TAG, "Пакет обновлён: $packageName")
             } catch (t: Throwable) {
-                // пакет удалён
+                // Пакет мог быть удалён между discovery и metadata read.
                 remove(packageName)
             }
         }

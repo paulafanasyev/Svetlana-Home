@@ -22,7 +22,8 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
      * отправит команду до завершения onInit(), фраза молча терялась.
      * Теперь ждём готовности и затем проигрываем очередь.
      */
-    private val pending = mutableListOf<String>()
+    private data class PendingSpeech(val text: String, val locale: Locale, val flush: Boolean)
+    private val pending = mutableListOf<PendingSpeech>()
     private val lock = Any()
 
     private val _speaking = MutableStateFlow(false)
@@ -59,7 +60,7 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
             _state.value = TtsState.READY
             // Проигрываем всё, что накопилось во время инициализации.
             synchronized(lock) {
-                pending.forEach { text -> speakInternal(text) }
+                pending.forEach { item -> speakInternal(item.text, item.locale, item.flush) }
                 pending.clear()
             }
         } else {
@@ -73,23 +74,31 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
     /**
      * Озвучить текст на русском.
      */
-    fun speak(text: String, flush: Boolean = true) {
+    fun speak(text: String, flush: Boolean = true) = speak(text, Locale.forLanguageTag("ru-RU"), flush)
+
+    /** Озвучить текст с указанной локалью, например vi-VN для переводчика. */
+    fun speak(text: String, locale: Locale, flush: Boolean = true) {
         if (text.isBlank()) return
         if (!isAvailable) {
             // Аудит п.12: ещё инициализируется — поставим в очередь, а не
             // молча выбросим.
             if (_state.value == TtsState.INITIALIZING) {
-                synchronized(lock) { pending.add(text) }
+                synchronized(lock) { pending.add(PendingSpeech(text, locale, flush)) }
             } else {
                 Log.w(TAG, "TTS не готов, фраза утеряна: ${text.take(40)}")
             }
             return
         }
-        speakInternal(text, flush)
+        speakInternal(text, locale, flush)
     }
 
-    private fun speakInternal(text: String, flush: Boolean = true) {
+    private fun speakInternal(text: String, locale: Locale, flush: Boolean = true) {
         try {
+            val language = tts?.setLanguage(locale)
+            if (language == TextToSpeech.LANG_MISSING_DATA || language == TextToSpeech.LANG_NOT_SUPPORTED) {
+                Log.w(TAG, "Язык TTS не поддерживается: ${locale.toLanguageTag()}")
+                tts?.setLanguage(Locale.getDefault())
+            }
             tts?.speak(text, if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "svetlana_${System.currentTimeMillis()}")
         } catch (t: Throwable) {
             Log.w(TAG, "Не удалось озвучить текст", t)

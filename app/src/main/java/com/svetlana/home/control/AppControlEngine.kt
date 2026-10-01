@@ -500,11 +500,13 @@ class AppControlEngine(
 
         // Шаг 5: проверить — сообщение появилось в чате
         kotlinx.coroutines.delay(UI_SETTLE_MS)
-        val verified = sent && (hands.verifyTextVisible(text) || hands.findEditableField() != null)
+        val messageVisible = hands.verifyTextVisibleInNonEditableNode(text)
+        val verified = sent && messageVisible
         steps += ProofStep(ProofStage.ACTION_PERFORMED, if (sent) StepStatus.OK else StepStatus.FAILED,
             "PLAN_STEP4=SEND PLAN_STEP4_STATUS=${if (sent) "ACTION_PERFORMED" else "FAILED"}")
         steps += ProofStep(ProofStage.RESULT_VERIFIED, if (verified) StepStatus.OK else StepStatus.UNVERIFIED,
-            if (verified) "PLAN_RESULT=VERIFIED" else "PLAN_RESULT=NOT PROVEN")
+            if (verified) "PLAN_RESULT=VERIFIED message_visible_non_editable"
+            else "PLAN_RESULT=NOT PROVEN message_visible_non_editable=$messageVisible")
 
         return ActionResult(action, verified,
             if (verified) "Сообщение «${text.take(24)}» отправлено контакту $contact"

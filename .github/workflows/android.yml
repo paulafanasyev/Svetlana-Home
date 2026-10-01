@@ -1,5 +1,9 @@
 name: SvetlanaHome CI
 
+concurrency:
+  group: svetlana-home-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [ main, master, develop ]

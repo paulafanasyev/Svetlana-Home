@@ -217,5 +217,18 @@ interface InferenceRuntime {
     fun vision(modelId: String, prompt: String, imageBytes: ByteArray, maxTokens: Int): String? = null
 
     /** Поддерживает ли runtime vision для данной модели. */
+    /** Поддерживает ли runtime vision для данной модели. */
     fun supportsVision(modelId: String): Boolean = false
+
+    /**
+     * Последние фактические inference-метрики конкретной модели.
+     * Runtime может не уметь измерять скорость — тогда возвращается null,
+     * но сам inference по-прежнему может быть подтверждён непустым ответом.
+     */
+    fun metrics(modelId: String): InferenceMetrics? = null
 }
+
+data class InferenceMetrics(
+    val firstTokenMs: Long = 0L,
+    val tokensPerSecond: Double = 0.0
+)
