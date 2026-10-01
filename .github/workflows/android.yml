@@ -95,7 +95,9 @@ jobs:
 
   # ─── Instrumentation (emulator) ────────────────────────────────
   # Эмулятор НЕ заменяет тестирование на физическом устройстве (ТЗ §77).
-  # Запускается как информация; для production-gate не учитывается.
+  # Перед тестами run_instrumentation.sh проверяет реальную готовность
+  # PackageManager и сохраняет диагностику при инфраструктурном сбое.
+  # Повтор failed job выполняется GitHub Actions на новом hosted runner.
   instrumentation:
     name: Instrumentation tests (emulator)
     runs-on: ubuntu-latest
@@ -116,20 +118,32 @@ jobs:
 
       - name: Install emulator system image
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "system-images;android-30;default;x86_64" || true
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"             "system-images;android-30;default;x86_64"
 
       - name: Instrumentation tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
+          target: default
           arch: x86_64
-          # Даём эмулятору время на полную загрузку, иначе adb падает
-          # с "device offline" на медленных раннерах.
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          profile: pixel_2
+          force-avd-creation: true
+          cores: 2
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048
           disable-animations: true
           emulator-boot-timeout: 600
           script: ./scripts/run_instrumentation.sh
+
+      - name: Upload instrumentation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumentation-diagnostics-${{ github.run_id }}
+          path: |
+            instrumentation-result-*.env
+            instrumentation-gradle-*.log
+            instrumentation-diagnostics-*.txt
+          if-no-files-found: ignore
 
   # ─── Production gate ──────────────────────────────────────────
   # Жёсткий: все шаги обязательны. Только этот джоб может разрешать
