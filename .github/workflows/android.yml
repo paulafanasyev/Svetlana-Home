@@ -94,12 +94,10 @@ jobs:
           if-no-files-found: ignore
 
   # ─── Instrumentation (emulator) ────────────────────────────────
-  # Эмулятор НЕ заменяет тестирование на физическом устройстве (ТЗ §77),
-  # но в этом CI он является обязательной частью production-gate.
-  #
-  # При явном emulator/ADB failure делаем ровно один retry на НОВОМ AVD.
-  # Повтор внутри того же AVD/ADB запрещён: при падении system_server
-  # "adb kill-server" не восстанавливает Binder service "package".
+  # Эмулятор НЕ заменяет тестирование на физическом устройстве (ТЗ §77).
+  # Перед тестами run_instrumentation.sh проверяет реальную готовность
+  # PackageManager и сохраняет диагностику при инфраструктурном сбое.
+  # Повтор failed job выполняется GitHub Actions на новом hosted runner.
   instrumentation:
     name: Instrumentation tests (emulator)
     runs-on: ubuntu-latest
@@ -120,15 +118,10 @@ jobs:
 
       - name: Install emulator system image
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "system-images;android-30;default;x86_64"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"             "system-images;android-30;default;x86_64"
 
-      - name: Instrumentation attempt 1
-        id: instrumentation_attempt_1
-        continue-on-error: true
-        uses: reactivecircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a # v2.37.0
-        env:
-          INSTRUMENTATION_ATTEMPT: 1
+      - name: Instrumentation tests
+        uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
           target: default
@@ -136,29 +129,23 @@ jobs:
           profile: pixel_2
           force-avd-creation: true
           cores: 2
-          # Memory is explicit to reduce host/AVD variance.
-          # Cold boot is mandatory for CI reproducibility.
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048
           disable-animations: true
           emulator-boot-timeout: 600
           script: ./scripts/run_instrumentation.sh
 
-      - name: Classify instrumentation failure
-        id: classify_instrumentation
-        if: steps.instrumentation_attempt_1.outcome == 'failure'
-        shell: bash
-        run: |
-          RESULT="instrumentation-result-1.env"
-          # If the emulator runner itself failed before our script ran,
-          # there is no result marker; treat that as infrastructure and
-          # give the fresh-emulator retry a chance.
-          if [ ! -f "$RESULT" ]; then
-            echo "retry=true" >> "$GITHUB_OUTPUT"
-            echo "reason=runner_failed_before_script" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+      - name: Upload instrumentation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumentation-diagnostics-${{ github.run_id }}
+          path: |
+            instrumentation-result-*.env
+            instrumentation-gradle-*.log
+            instrumentation-diagnostics-*.txt
+          if-no-files-found: ignore
 
-          if grep -q '^INFRA_FAILURE=true  # ─── Production gate ──────────────────────────────────────────
+  # ─── Production gate ──────────────────────────────────────────
   # Жёсткий: все шаги обязательны. Только этот джоб может разрешать
   # релиз (аудит п.2). continue-on-error здесь недопустим.
   production-gate:
