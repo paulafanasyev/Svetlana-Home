@@ -168,7 +168,9 @@ class HomeViewModel : ViewModel() {
     }
 
     fun stopListening() {
-        ServiceLocator.speechRecognizer.stopListening()
+        // Явное касание орба = отмена ручной сессии. Полностью освобождаем
+        // STT и возвращаем state machine в IDLE, чтобы следующий запуск работал.
+        ServiceLocator.speechRecognizer.finishSession()
         _state.value = _state.value.copy(isListening = false, orbActive = false)
     }
 
