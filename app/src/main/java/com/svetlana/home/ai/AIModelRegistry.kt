@@ -56,7 +56,7 @@ class AIModelRegistry {
 
     private val models: List<AIModel> = listOf(
         AIModel(
-            id = "svetlana-gemma4-e2b-it-litertlm",
+            id = "gemma-4-e2b-it-litertlm",
             name = "★ Светлана 2.0 (Gemma 4 LiteRT, Обученная)",
             architecture = "litertlm",
             parameters = "2B",
