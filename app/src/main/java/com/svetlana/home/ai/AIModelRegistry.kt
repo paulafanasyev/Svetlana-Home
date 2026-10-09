@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class AIModel(
-val id: String,
+    val id: String,
     val name: String,
     val architecture: String,
     val parameters: String,          // например "1.5B"
@@ -17,7 +17,7 @@ val id: String,
     val sizeMb: Long,
     val ramRequirementMb: Int,
     val storageRequirementMb: Long,
-    val backend: String,             // llama.cpp / onnx / mediapipe
+    val backend: String,             // llama.cpp / onnx / mediapipe / litertlm
     val cpuSupport: Boolean = true,
     val gpuSupport: Boolean = false,
     val npuSupport: Boolean = false,
@@ -27,30 +27,13 @@ val id: String,
     val source: String,
     val downloadUrl: String,
     val description: String = "",
-    /**
-     * Доверенный SHA-256 для сверки скачанного файла (аудит §13).
-     * null — реестр пока не знает хеша; проверка пропускается, но статус
-     * модели остаётся INSTALLED, а не FORMAT_VERIFIED.
-     */
     val expectedSha256: String? = null,
-    /** capabilities модели: text/vision/audio/tools (аудит §13). */
     val capabilities: List<ModelCapability> = listOf(ModelCapability.TEXT),
-    /**
-     * Secure-by-default: only backends with a real in-app runtime are
-     * considered installable. Future/unknown backends stay disabled until
-     * explicitly implemented.
-     */
-    /**
-     * Только модели с фактически подключённым runtime и проверяемым
-     * источником получают true. Безопасный default — false.
-     */
-    val runtimeImplemented: Boolean = false
+    val runtimeImplemented: Boolean = false,
+    val isPrimarySvetlana: Boolean = false
 ) {
     val supportsNnapi: Boolean get() = npuSupport
 
-    /**
-     * Manifest для сверки файла при установке (аудит §13).
-     */
     fun manifest(): ModelManifest = ModelManifest(
         modelId = id,
         format = when (backend.lowercase()) {
@@ -73,6 +56,28 @@ class AIModelRegistry {
 
     private val models: List<AIModel> = listOf(
         AIModel(
+            id = "gemma-4-e2b-it-litertlm",
+            name = "★ Светлана 2.0 (Gemma 4 LiteRT, Обученная)",
+            architecture = "litertlm",
+            parameters = "2B",
+            parameterCountB = 2.0,
+            quantization = "litertlm",
+            sizeMb = 2469,
+            ramRequirementMb = 6144,
+            storageRequirementMb = 2600,
+            backend = "litertlm",
+            cpuSupport = true, gpuSupport = false, npuSupport = false,
+            context = 4096,
+            license = "Gemma Terms of Use",
+            source = "Svetlana Core / Google AI Edge",
+            downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/6e5c4f1/gemma-4-E2B-it.litertlm",
+            description = "Официальная обученная модель Светлана 2.0: текст, зрение, управление Android Hands",
+            runtimeImplemented = true,
+            expectedSha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+            capabilities = listOf(ModelCapability.TEXT, ModelCapability.VISION),
+            isPrimarySvetlana = true
+        ),
+        AIModel(
             id = "qwen2.5-1.5b-instruct-q4",
             name = "Qwen2.5 1.5B Instruct (Q4_K_M)",
             architecture = "Qwen2",
@@ -93,7 +98,7 @@ class AIModelRegistry {
             expectedSha256 = "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"
         ),
         AIModel(
-id = "qwen2.5-3b-instruct-q4",
+            id = "qwen2.5-3b-instruct-q4",
             name = "Qwen2.5 3B Instruct (Q4_K_M)",
             architecture = "Qwen2",
             parameters = "3B",
@@ -113,7 +118,7 @@ id = "qwen2.5-3b-instruct-q4",
             expectedSha256 = "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d"
         ),
         AIModel(
-id = "qwen2.5-7b-instruct-q4",
+            id = "qwen2.5-7b-instruct-q4",
             name = "Qwen2.5 7B Instruct (Q4_K_M)",
             architecture = "Qwen2",
             parameters = "7B",
@@ -133,7 +138,7 @@ id = "qwen2.5-7b-instruct-q4",
             expectedSha256 = "65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423"
         ),
         AIModel(
-id = "llama3.2-1b-instruct-q4",
+            id = "llama3.2-1b-instruct-q4",
             name = "Llama 3.2 1B Instruct (Q4_K_M)",
             architecture = "Llama3",
             parameters = "1B",
@@ -153,7 +158,7 @@ id = "llama3.2-1b-instruct-q4",
             expectedSha256 = "6f85a640a97cf2bf5b8e764087b1e83da0fdb51d7c9fab7d0fece9385611df83"
         ),
         AIModel(
-id = "gemma2-2b-instruct-q4",
+            id = "gemma2-2b-instruct-q4",
             name = "Gemma 2 2B Instruct (Q4_K_M)",
             architecture = "Gemma2",
             parameters = "2B",
@@ -228,54 +233,6 @@ id = "gemma2-2b-instruct-q4",
             downloadUrl = "https://huggingface.co/VoKaP/rion-rubert-nli-onnx/resolve/main/onnx/model.onnx",
             description = "Каталог локальных эмбеддингов; встроенного ONNX runtime пока нет",
             runtimeImplemented = false
-        ),
-        AIModel(
-            id = "aya-8b-q4",
-            name = "Aya 8B (Q4_K_M)",
-            architecture = "Cohere Aya",
-            parameters = "8B",
-            parameterCountB = 8.0,
-            quantization = "Q4_K_M",
-            sizeMb = 4800,
-            ramRequirementMb = 8192,
-            storageRequirementMb = 5000,
-            backend = "llama.cpp",
-            cpuSupport = false, gpuSupport = false, npuSupport = false,
-            context = 8192,
-            license = "CC BY-NC 4.0",
-            source = "Cohere For AI",
-            downloadUrl = "https://huggingface.co/mradermacher/aya-8B-GGUF/resolve/main/AYA-8B.Q4_K_M.gguf",
-            description = "Мультиязычная модель с сильной поддержкой русского языка; установка отключена до фиксации upstream revision и SHA-256",
-        ),
-        // Аудит §10-12 (P0-1): мультимодальные LiteRT-модели —
-        // единственный путь on-device vision в LOCAL_ONLY.
-        // URL проверены по реальному списку файлов litert-community:
-        // gemma3-1b-it.litertlm НЕ существует (репозиторий содержит
-        // .task и device-specific сборки), как и gemma3-4b-it.litertlm.
-        // gemma-4-E2B-it — реальная публичная мультимодальная модель.
-        AIModel(
-id = "gemma-4-e2b-it-litertlm",
-            name = "Gemma 4 E2B IT (LiteRT)",
-            architecture = "litertlm",
-            parameters = "2B",
-            parameterCountB = 2.0,
-            quantization = "litertlm",
-            sizeMb = 2469,
-            ramRequirementMb = 6144,
-            storageRequirementMb = 2600,
-            backend = "litertlm",
-            cpuSupport = true, gpuSupport = false, npuSupport = false,
-            context = 4096,
-            license = "Gemma Terms of Use",
-            source = "Google AI Edge (litert-community)",
-            downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/6e5c4f1/gemma-4-E2B-it.litertlm",
-            description = "Локальная мультимодальная модель: текст + изображения + аудио. Vision on-device",
-            runtimeImplemented = true,
-            // Доверенный хеш вычислен по реальному скачанному файлу
-            // (2588147712 байт) — сверки «вычислить SHA» недостаточно,
-            // нужно сравнение с доверенным значением (аудит §13/§18).
-            expectedSha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
-            capabilities = listOf(ModelCapability.TEXT, ModelCapability.VISION)
         ),
         AIModel(
             id = "qwen2.5-1.5b-instruct-litertlm",

@@ -18,6 +18,7 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.svetlana.home.R
+import com.svetlana.home.server.LocalHandsServer
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -34,11 +35,26 @@ import kotlinx.coroutines.flow.asSharedFlow
  */
 class SvetlanaAccessibilityService : AccessibilityService() {
 
+    private var localHandsServer: LocalHandsServer? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         startForegroundNotification()
+        startLocalServer()
         Log.i(TAG, "Hands активирован пользователем")
+    }
+
+    private fun startLocalServer() {
+        try {
+            if (localHandsServer == null) {
+                localHandsServer = LocalHandsServer(applicationContext)
+                localHandsServer?.start()
+                Log.i(TAG, "LocalHandsServer успешно запущен на порту ${LocalHandsServer.DEFAULT_PORT}")
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Ошибка при запуске LocalHandsServer", t)
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -54,6 +70,12 @@ class SvetlanaAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         instance = null
+        try {
+            localHandsServer?.stop()
+            localHandsServer = null
+        } catch (t: Throwable) {
+            Log.w(TAG, "Ошибка при остановке LocalHandsServer", t)
+        }
         return super.onUnbind(intent)
     }
 
