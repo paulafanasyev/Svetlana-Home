@@ -225,7 +225,7 @@ class LocalHandsServer(
         val json = JSONObject()
         json.put("currentPackage", tree.packageName)
         val nodesArr = JSONArray()
-        for (node in tree.allNodes) {
+        for (node in tree.nodes) {
             val nodeObj = JSONObject().apply {
                 put("id", node.id)
                 put("text", node.text)
