@@ -44,7 +44,18 @@ class HomeActivity : ComponentActivity() {
         )
         // Рабочий стол рисуется поверх системных обоев пользователя.
         window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+        HomeLayoutStore.init(this)
         setContent { SvetlanaSettingsTheme { HomeScreen() } }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        LauncherWidgets.startListening(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        LauncherWidgets.stopListening(this)
     }
 
     override fun onNewIntent(intent: Intent) {
