@@ -1,34 +1,36 @@
 package com.svetlana.home.launcher
 
 import android.os.ParcelFileDescriptor
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.swipeUp
-import androidx.compose.ui.geometry.Offset
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.svetlana.home.SvetlanaDeviceTest
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.ui.launcher.HomeActivity
+import com.svetlana.home.ui.launcher.HomeItem
+import com.svetlana.home.ui.launcher.HomeLayout
+import com.svetlana.home.ui.launcher.HomeLayoutStore
+import com.svetlana.home.ui.launcher.LauncherModel
 import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Реальные скриншоты launcher на эмуляторе CI: рабочий стол, все приложения,
- * панель Светланы, чат, голос, поиск и меню рабочего стола.
- * Каждый шаг проверяет, что нужный экран действительно открылся.
- * Снимки кладутся в /data/local/tmp/svetlana-shots, их забирает
- * scripts/run_instrumentation.sh.
+ * Реальные скриншоты launcher на эмуляторе CI. Каждый шаг проверяет,
+ * что нужный экран действительно открылся; снимки кладутся в
+ * /data/local/tmp/svetlana-shots и публикуются scripts/run_instrumentation.sh.
  */
 @RunWith(AndroidJUnit4::class)
 class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
@@ -41,19 +43,33 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
         ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes() }
     }
 
-    private fun waitTag(tag: String) {
-        compose.waitUntil(10_000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
-    }
+    private fun exists(tag: String) = compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
 
-    private fun waitGone(tag: String) {
-        compose.waitUntil(10_000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty() }
+    private fun waitTag(tag: String) = compose.waitUntil(10_000) { exists(tag) }
+
+    private fun waitGone(tag: String) = compose.waitUntil(10_000) { !exists(tag) }
+
+    private fun node(tag: String) = compose.onAllNodesWithTag(tag).onFirst()
+
+    /** Эмулятор CI иногда показывает «System isn't responding» — закрываем системные диалоги перед снимком. */
+    private fun closeSystemDialogs() {
+        shell("am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS")
+        shell("input keyevent KEYCODE_WAKEUP")
     }
 
     private fun shot(name: String) {
         compose.waitForIdle()
-        Thread.sleep(900)
+        closeSystemDialogs()
+        Thread.sleep(1200)
+        closeSystemDialogs()
+        compose.waitForIdle()
         shell("screencap -p $DIR/$name.png")
         println("SVETLANA_SCREENSHOT=$name")
+    }
+
+    private fun back(scenario: ActivityScenario<HomeActivity>) {
+        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
     }
 
     @Test
@@ -63,10 +79,26 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
             ServiceLocator.settings.setSetupDone(true)
         }
         ServiceLocator.appRegistry.scan()
+        val apps = LauncherModel.sortByLabel(
+            LauncherModel.launchable(ServiceLocator.appRegistry.apps.value, context.packageName)
+        ).map { it.packageName }
+        // Раскладка как у реального пользователя: иконки и папка.
+        HomeLayoutStore.init(context)
+        HomeLayoutStore.update {
+            val folder = apps.drop(7).take(4)
+            val items = apps.take(7).map { p -> HomeItem.App(p) } +
+                (if (folder.size >= 2) listOf(HomeItem.Folder("shots", "Инструменты", folder)) else emptyList())
+            HomeLayout(items = items, initialized = true, coachmarkShown = false)
+        }
         shell("rm -rf $DIR")
         shell("mkdir -p $DIR")
-        // Скрываем системную подсказку «как выйти из полноэкранного режима» и т.п.
+        // Не показывать диалоги ANR/сбоев системных процессов эмулятора поверх launcher.
+        shell("settings put global hide_error_dialogs 1")
+        shell("settings put secure anr_show_background 0")
         shell("settings put secure immersive_mode_confirmations confirmed")
+        // Даём system_server эмулятора «прогреться», чтобы не ловить ANR-диалог.
+        Thread.sleep(15_000)
+        closeSystemDialogs()
 
         val scenario = ActivityScenario.launch(HomeActivity::class.java)
         try {
@@ -74,41 +106,62 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
             waitTag("dock")
             shot("01_home")
 
-            compose.onNodeWithTag("workspace").performTouchInput { swipeUp() }
+            node("workspace").performTouchInput { swipeUp() }
             waitTag("app_drawer")
             shot("02_all_apps")
-            compose.onNodeWithTag("drawer_grid").performTouchInput {
+            node("drawer_grid").performTouchInput {
                 swipe(Offset(centerX, top + 20f), Offset(centerX, bottom - 20f), 300)
             }
+            compose.waitForIdle()
+            if (exists("app_drawer")) back(scenario)
             waitGone("app_drawer")
 
-            compose.onNodeWithTag("workspace").performTouchInput { longClick(Offset(centerX, centerY)) }
+            node("workspace").performTouchInput { longClick(Offset(centerX, centerY)) }
             waitTag("home_menu")
             shot("03_home_menu")
-            compose.onNodeWithTag("home_menu").performClick()
-            waitGone("home_menu")
+            node("menu_widgets").performClick()
+            waitTag("window_widgets")
+            shot("04_widgets")
+            node("window_close").performClick()
+            waitGone("window_widgets")
 
-            compose.onNodeWithTag("workspace").performTouchInput { swipeRight() }
+            node("workspace").performTouchInput { longClick(Offset(centerX, centerY)) }
+            waitTag("home_menu")
+            node("menu_settings").performClick()
+            waitTag("window_home_settings")
+            shot("05_home_settings")
+            node("window_close").performClick()
+            waitGone("window_home_settings")
+
+            if (exists("home_folder")) {
+                node("home_folder").performClick()
+                waitTag("folder_popup")
+                shot("06_folder")
+                back(scenario)
+                waitGone("folder_popup")
+            }
+
+            node("workspace").performTouchInput { swipeRight() }
             waitTag("svetlana_panel")
-            shot("04_svetlana_panel")
+            shot("07_svetlana_panel")
 
-            compose.onNodeWithTag("tile_chat").performClick()
+            node("tile_chat").performClick()
             waitTag("window_chat")
-            shot("05_chat_window")
-            compose.onNodeWithTag("window_close").performClick()
+            shot("08_chat_window")
+            node("window_close").performClick()
             waitGone("window_chat")
 
-            compose.onNodeWithTag("tile_voice").performClick()
+            node("tile_voice").performClick()
             waitTag("window_voice")
-            shot("06_voice_window")
-            compose.onNodeWithTag("window_close").performClick()
+            shot("09_voice_window")
+            node("window_close").performClick()
             waitGone("window_voice")
 
-            compose.onNodeWithTag("svetlana_panel").performTouchInput { swipeLeft() }
+            node("svetlana_panel").performTouchInput { swipeLeft() }
             waitTag("search_pill")
-            compose.onNodeWithTag("search_pill").performClick()
+            node("search_pill").performClick()
             waitTag("window_search")
-            shot("07_search_window")
+            shot("10_search_window")
         } finally {
             scenario.close()
         }
