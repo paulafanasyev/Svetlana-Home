@@ -163,6 +163,10 @@ internal class LauncherActions(private val context: Context) {
         start(Intent(context, cls))
     }
 
+    fun notificationAccess() {
+        start(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
     fun requestHomeRole() {
         start(ServiceLocator.permissionManager.homeRoleIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
