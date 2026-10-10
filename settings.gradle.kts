@@ -23,3 +23,8 @@ dependencyResolutionManagement {
 
 rootProject.name = "SvetlanaHome"
 include(":app")
+
+// На GitHub Actions ошибки Kotlin и lint показываются аннотациями прямо в PR.
+if (System.getenv("GITHUB_ACTIONS") == "true") {
+    println("::add-matcher::" + rootDir.resolve("tools/kotlin-problem-matcher.json").absolutePath)
+}
