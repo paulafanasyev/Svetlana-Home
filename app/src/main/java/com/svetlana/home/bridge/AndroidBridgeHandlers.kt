@@ -87,6 +87,9 @@ class AndroidBridgeHandlers(private val context: Context) : BridgeHandlers {
             BridgeResult.Ok()
         } catch (e: ActivityNotFoundException) {
             BridgeResult.Error("NOT_FOUND", "Не удалось открыть $packageName")
+        } catch (e: SecurityException) {
+            // Android 10+ may block activity starts from the background.
+            BridgeResult.Error("PERMISSION_DENIED", "Android не дал открыть $packageName из фона")
         }
     }
 

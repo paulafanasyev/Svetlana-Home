@@ -8,14 +8,18 @@ import androidx.core.content.ContextCompat
 
 /**
  * Все runtime-разрешения, которые Светлане нужны для работы прямо на телефоне,
- * без компьютера. Запрашиваются одним системным диалогом при первом запуске.
+ * без компьютера. Запрашиваются одним системным диалогом один раз,
+ * сразу после онбординга. После отказа повторно не донимаем: дальше через
+ * Permission Center / мастер «Настроить Светлану».
  *
  * Android не позволяет выдать их при установке: runtime-разрешения
  * подтверждает только пользователь. Специальные доступы (Hands /
  * специальные возможности, главный экран) включаются в системных
- * настройках через мастер «Настроить Светлану».
+ * настройках через мастер.
  */
 object PermissionBootstrap {
+    const val PREFS = "svetlana_permissions"
+    const val KEY_PROMPTED = "bootstrap_prompted"
 
     fun runtimePermissions(sdkInt: Int = Build.VERSION.SDK_INT): List<String> = buildList {
         add(Manifest.permission.RECORD_AUDIO)

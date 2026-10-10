@@ -9,6 +9,8 @@ data class HttpRequest(
     val path: String,
     val headers: Map<String, String>,
     val body: String,
+    /** Client IP as seen by the server socket; used for rate limiting. */
+    val remoteAddress: String = "",
 )
 
 data class HttpResponse(

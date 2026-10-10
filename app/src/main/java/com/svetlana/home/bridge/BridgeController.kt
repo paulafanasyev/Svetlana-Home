@@ -16,24 +16,41 @@ import java.net.NetworkInterface
 import kotlin.concurrent.thread
 
 /**
- * Starts the bridge that lets the Svetlana 2.0 core (web / Windows) use this
+ * Starts the bridge that lets the Svetlana 2.0 core (Windows app) use this
  * phone: http://<phone-ip>:8080, protected by a pairing code shown in a
- * notification. The code is generated once and stored on the device.
+ * notification. Opt-in: off until the user enables it on the home screen.
  */
 object BridgeController {
     const val PORT = 8080
     private const val TAG = "SvetlanaBridge"
     private const val PREFS = "svetlana_bridge"
     private const val KEY_CODE = "pairing_code"
+    private const val KEY_ENABLED = "enabled"
     private const val CHANNEL_ID = "svetlana_bridge"
     private const val NOTIFICATION_ID = 8080
 
     @Volatile
     private var server: BridgeServer? = null
 
-    /** Non-blocking: binds the socket on a background thread. Never throws. */
+    /** The bridge is opt-in: off until the user turns it on from the home screen. */
+    fun isEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+
+    fun setEnabled(context: Context, enabled: Boolean) {
+        val app = context.applicationContext
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, enabled).apply()
+        if (enabled) {
+            startAsync(app)
+        } else {
+            thread(name = "svetlana-bridge-stop", isDaemon = true) { stop() }
+            app.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+        }
+    }
+
+    /** Non-blocking: binds the socket on a background thread if the bridge is enabled. Never throws. */
     fun startAsync(context: Context) {
         val app = context.applicationContext
+        if (!isEnabled(app)) return
         thread(name = "svetlana-bridge-start", isDaemon = true) {
             try {
                 start(app)
@@ -45,6 +62,7 @@ object BridgeController {
 
     @Synchronized
     fun start(context: Context) {
+        if (!isEnabled(context)) return
         if (server?.isRunning == true) {
             // Already running: re-post the notification (e.g. after the user
             // has just granted POST_NOTIFICATIONS).
@@ -110,8 +128,16 @@ object BridgeController {
         )
         val where = address() ?: "порт $PORT"
         val text = "Адрес: $where\nКод подключения: $code"
+        // На заблокированном экране код не показываем.
+        val publicVersion = Notification.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_menu_share)
+            .setContentTitle("Светлана готова к подключению")
+            .setContentText("Разблокируйте телефон, чтобы увидеть код")
+            .build()
         val notification = Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_share)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion)
             .setContentTitle("Светлана готова к подключению")
             .setContentText("$where · код $code")
             .setStyle(Notification.BigTextStyle().bigText(text))

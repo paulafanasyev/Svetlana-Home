@@ -9,21 +9,31 @@ object HttpRequestParser {
     const val MAX_HEADER_BYTES = 16 * 1024
     const val MAX_BODY_BYTES = 256 * 1024
 
+    private val SINGLE_HEADERS = setOf("content-length", "host", "authorization", "x-svetlana-token", "origin")
+
     class ParseException(val status: Int, message: String) : Exception(message)
 
     fun parse(input: InputStream): HttpRequest {
         val lines = readHead(input).split("\r\n")
         val requestLine = lines.first().split(" ")
-        if (requestLine.size < 3 || requestLine[0].isEmpty() || !requestLine[1].startsWith("/")) {
+        if (requestLine.size != 3 || requestLine[0].isEmpty() || !requestLine[1].startsWith("/")) {
             throw ParseException(400, "Bad request line")
+        }
+        if (requestLine[2] != "HTTP/1.1" && requestLine[2] != "HTTP/1.0") {
+            throw ParseException(400, "Unsupported HTTP version")
         }
         val headers = mutableMapOf<String, String>()
         for (line in lines.drop(1)) {
             if (line.isEmpty()) continue
             val colon = line.indexOf(':')
             if (colon <= 0) throw ParseException(400, "Bad header line")
-            headers[line.substring(0, colon).trim().lowercase()] = line.substring(colon + 1).trim()
+            val name = line.substring(0, colon).trim().lowercase()
+            if (name in SINGLE_HEADERS && headers.containsKey(name)) {
+                throw ParseException(400, "Duplicate $name header")
+            }
+            headers[name] = line.substring(colon + 1).trim()
         }
+        if (headers.containsKey("transfer-encoding")) throw ParseException(400, "Transfer-Encoding is not supported")
         val length = headers["content-length"]?.let { it.toIntOrNull() ?: throw ParseException(400, "Bad Content-Length") } ?: 0
         if (length < 0 || length > MAX_BODY_BYTES) throw ParseException(413, "Body too large")
         val body = ByteArray(length)
@@ -85,8 +95,11 @@ object HttpResponseWriter {
         404 -> "Not Found"
         405 -> "Method Not Allowed"
         413 -> "Payload Too Large"
+        421 -> "Misdirected Request"
+        429 -> "Too Many Requests"
         431 -> "Request Header Fields Too Large"
         500 -> "Internal Server Error"
+        503 -> "Service Unavailable"
         else -> "Status"
     }
 }

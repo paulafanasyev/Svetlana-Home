@@ -25,7 +25,10 @@ class BridgeServerTest {
     }
 
     private fun open(path: String): HttpURLConnection =
-        URL("http://127.0.0.1:${server.localPort}$path").openConnection() as HttpURLConnection
+        (URL("http://127.0.0.1:${server.localPort}$path").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 5_000
+            readTimeout = 5_000
+        }
 
     @Test
     fun servesHealthAndAuthorizedApiOverRealSockets() {
