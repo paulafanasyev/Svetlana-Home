@@ -53,10 +53,7 @@ collect_diagnostics() {
 # ответ каждого пишем в лог, чтобы было видно причину отказа.
 upload_png() {
   local f="$1" r u
-  r="$(curl -sS --max-time 60 -F "file=@$f" https://tmpfiles.org/api/v1/upload 2>&1 || true)"
-  u="$(echo "$r" | grep -o '"url":"[^"]*"' | head -1 | cut -d'"' -f4 | sed 's#tmpfiles.org/#tmpfiles.org/dl/#; s#^http:#https:#')"
-  case "$u" in https://*) echo "$u"; return 0 ;; esac
-  echo "tmpfiles: ${r:0:200}" >&2
+  # Сначала litterbox (ссылка живёт 72 часа), затем запасные сервисы.
   r="$(curl -sS --max-time 60 -F reqtype=fileupload -F time=72h -F "fileToUpload=@$f" https://litterbox.catbox.moe/resources/internals/api.php 2>&1 || true)"
   case "$r" in https://*) echo "$r"; return 0 ;; esac
   echo "litterbox: ${r:0:200}" >&2
@@ -64,6 +61,10 @@ upload_png() {
   u="$(echo "$r" | grep -o '"url":"[^"]*"' | head -1 | cut -d'"' -f4 | sed 's#\\/#/#g')"
   case "$u" in https://*) echo "$u"; return 0 ;; esac
   echo "uguu: ${r:0:200}" >&2
+  r="$(curl -sS --max-time 60 -F "file=@$f" https://tmpfiles.org/api/v1/upload 2>&1 || true)"
+  u="$(echo "$r" | grep -o '"url":"[^"]*"' | head -1 | cut -d'"' -f4 | sed 's#tmpfiles.org/#tmpfiles.org/dl/#; s#^http:#https:#')"
+  case "$u" in https://*) echo "$u"; return 0 ;; esac
+  echo "tmpfiles: ${r:0:200}" >&2
   r="$(curl -sS --max-time 60 -F reqtype=fileupload -F "fileToUpload=@$f" https://catbox.moe/user/api.php 2>&1 || true)"
   case "$r" in https://*) echo "$r"; return 0 ;; esac
   echo "catbox: ${r:0:200}" >&2

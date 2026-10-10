@@ -51,8 +51,27 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
 
     private fun node(tag: String) = compose.onAllNodesWithTag(tag).onFirst()
 
-    /** Эмулятор CI иногда показывает «System isn't responding» — закрываем системные диалоги перед снимком. */
+    private fun shellOut(cmd: String): String {
+        val pfd = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(cmd)
+        return ParcelFileDescriptor.AutoCloseInputStream(pfd).use { String(it.readBytes()) }
+    }
+
+    /**
+     * Эмулятор CI показывает «Process system isn't responding» поверх всего.
+     * Если такой диалог в фокусе — «Назад» (= «Подождать»), затем закрываем системные диалоги.
+     */
     private fun closeSystemDialogs() {
+        for (attempt in 0 until 4) {
+            val focus = shellOut("dumpsys window").lineSequence()
+                .filter { it.contains("mCurrentFocus") || it.contains("mFocusedWindow") }
+                .joinToString(" ")
+            if (focus.contains("Not Responding") || focus.contains("Application Error") || focus.contains("isn't responding")) {
+                shell("input keyevent KEYCODE_BACK")
+                Thread.sleep(700)
+            } else {
+                break
+            }
+        }
         shell("am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS")
         shell("input keyevent KEYCODE_WAKEUP")
     }
