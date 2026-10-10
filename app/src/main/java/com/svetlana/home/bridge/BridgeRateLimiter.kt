@@ -1,30 +1,24 @@
 package com.svetlana.home.bridge
 
 /**
- * Brute-force protection for the pairing code.
- * - per client: [perClientLimit] wrong codes inside [windowMs] lock that client for [lockMs];
- * - globally: [globalLimit] wrong codes inside [windowMs] lock every client that has not
- *   paired successfully yet (defeats IP rotation without letting an attacker lock out the owner's PC).
+ * Brute-force protection for the pairing code, per client IP:
+ * [perClientLimit] wrong codes inside [windowMs] lock that client for [lockMs].
+ *
+ * No global lock on purpose: it would let anyone on the LAN block the owner's
+ * first pairing. With 32^8 possible codes and 5 tries per IP per 10 minutes,
+ * even a whole /24 of rotated addresses needs millions of years.
  */
 class BridgeRateLimiter(
     private val clock: () -> Long = System::currentTimeMillis,
     private val perClientLimit: Int = 5,
-    private val globalLimit: Int = 30,
     private val windowMs: Long = 10 * 60_000L,
     private val lockMs: Long = 10 * 60_000L,
 ) {
     private val failures = HashMap<String, MutableList<Long>>()
-    private val globalFailures = ArrayList<Long>()
     private val lockedUntil = HashMap<String, Long>()
-    private var globalLockedUntil = 0L
-    private val trusted = HashSet<String>()
 
     @Synchronized
-    fun isLocked(client: String): Boolean {
-        val now = clock()
-        if (now < (lockedUntil[client] ?: 0L)) return true
-        return now < globalLockedUntil && client !in trusted
-    }
+    fun isLocked(client: String): Boolean = clock() < (lockedUntil[client] ?: 0L)
 
     @Synchronized
     fun recordFailure(client: String) {
@@ -36,20 +30,13 @@ class BridgeRateLimiter(
             lockedUntil[client] = now + lockMs
             list.clear()
         }
-        globalFailures.add(now)
-        globalFailures.removeAll { now - it > windowMs }
-        if (globalFailures.size >= globalLimit) {
-            globalLockedUntil = now + lockMs
-            globalFailures.clear()
-        }
-        if (failures.size > MAX_TRACKED) failures.clear()
+        if (failures.size > MAX_TRACKED) failures.entries.removeAll { it.value.isEmpty() }
         if (lockedUntil.size > MAX_TRACKED) lockedUntil.entries.removeAll { it.value <= now }
     }
 
     @Synchronized
     fun recordSuccess(client: String) {
         failures.remove(client)
-        if (trusted.size < MAX_TRACKED) trusted.add(client)
     }
 
     private companion object {

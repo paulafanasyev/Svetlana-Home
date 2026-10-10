@@ -44,15 +44,17 @@ object BridgeController {
     fun isEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
 
-    /** Blocking (Keystore + disk): call from a background thread. */
+    /** Blocking (Keystore + disk): call from a background thread. Throws if secure storage is unavailable. */
     fun setEnabled(context: Context, enabled: Boolean) {
         val app = context.applicationContext
-        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, enabled).apply()
         if (enabled) {
             // Каждое включение = новый код: старые подключения больше не работают.
+            // Бросает IllegalStateException, если Keystore недоступен — тогда мост не включаем.
             rotatePairingCode(app)
+            app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, true).apply()
             startAsync(app)
         } else {
+            app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, false).apply()
             thread(name = "svetlana-bridge-stop", isDaemon = true) { stop() }
             app.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
         }
@@ -121,7 +123,10 @@ object BridgeController {
         return code
     }
 
-    /** Код хранится в EncryptedSharedPreferences (ключ в Android Keystore). */
+    /**
+     * Код хранится в EncryptedSharedPreferences (ключ в Android Keystore).
+     * Fail closed: без защищённого хранилища мост не запускается.
+     */
     private fun securePrefs(context: Context): SharedPreferences = try {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -134,8 +139,8 @@ object BridgeController {
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
         )
     } catch (e: Exception) {
-        Log.w(TAG, "Keystore unavailable, falling back to private prefs", e)
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        Log.w(TAG, "Keystore unavailable, bridge disabled", e)
+        throw IllegalStateException("Защищённое хранилище недоступно, мост выключен", e)
     }
 
     /** http://<LAN IPv4>:8080, or null when the phone has no LAN address. */

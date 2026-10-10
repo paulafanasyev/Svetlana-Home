@@ -5,7 +5,7 @@ import org.junit.Test
 
 class BridgeRateLimiterTest {
     private var now = 0L
-    private val limiter = BridgeRateLimiter(clock = { now }, perClientLimit = 3, globalLimit = 5, windowMs = 1_000, lockMs = 10_000)
+    private val limiter = BridgeRateLimiter(clock = { now }, perClientLimit = 3, windowMs = 1_000, lockMs = 10_000)
 
     @Test
     fun locksClientAfterLimitAndUnlocksLater() {
@@ -26,17 +26,10 @@ class BridgeRateLimiterTest {
     }
 
     @Test
-    fun globalLockStopsIpRotation() {
-        listOf("a", "b", "c", "d", "e").forEach { limiter.recordFailure(it) }
-        assertThat(limiter.isLocked("fresh")).isTrue()
-    }
-
-    @Test
-    fun pairedClientSurvivesGlobalLock() {
-        limiter.recordSuccess("owner-pc")
-        listOf("a", "b", "c", "d", "e").forEach { limiter.recordFailure(it) }
+    fun attackerCannotLockOutOtherClients() {
+        listOf("a", "b", "c", "d", "e").forEach { ip -> repeat(3) { limiter.recordFailure(ip) } }
+        assertThat(limiter.isLocked("a")).isTrue()
         assertThat(limiter.isLocked("owner-pc")).isFalse()
-        assertThat(limiter.isLocked("attacker")).isTrue()
     }
 
     @Test
