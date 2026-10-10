@@ -18,6 +18,19 @@ class HttpCodecTest {
         assertThat(request.path).isEqualTo("/api/contacts/list")
         assertThat(request.headers["content-type"]).isEqualTo("application/json")
         assertThat(request.body).isEqualTo(body)
+        assertThat(request.httpVersion).isEqualTo("HTTP/1.1")
+    }
+
+    @Test
+    fun rejectsDuplicateContentLengthAndChunked() {
+        val dup = assertThrows(HttpRequestParser.ParseException::class.java) {
+            parse("POST /api/x HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\na")
+        }
+        assertThat(dup.status).isEqualTo(400)
+        val chunked = assertThrows(HttpRequestParser.ParseException::class.java) {
+            parse("POST /api/x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n")
+        }
+        assertThat(chunked.status).isEqualTo(400)
     }
 
     @Test

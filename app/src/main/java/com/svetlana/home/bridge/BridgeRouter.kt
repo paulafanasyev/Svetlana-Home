@@ -16,8 +16,8 @@ import kotlinx.serialization.json.put
  * Browser protection:
  * - only allow-listed origins (Tauri desktop app, localhost dev) get CORS headers;
  *   any other Origin on /api is rejected with 403 (blocks drive-by websites);
- * - Host must be an IP literal or localhost (blocks DNS rebinding);
- * - wrong pairing codes are rate limited per client and globally.
+ * - Host is required (HTTP/1.1) and must be an IP literal or localhost (blocks DNS rebinding);
+ * - wrong pairing codes are rate limited per client IP.
  */
 class BridgeRouter(
     private val tokenCheck: (String?) -> Boolean,
@@ -31,7 +31,11 @@ class BridgeRouter(
         val originAllowed = origin == null || isAllowedOrigin(origin)
         val cors = if (origin != null && originAllowed) corsHeaders(origin) else emptyMap()
 
-        if (!isAllowedHost(request.headers["host"])) {
+        val host = request.headers["host"]
+        if (host == null && request.httpVersion == "HTTP/1.1") {
+            return error(400, "BAD_HOST", "Host header is required", emptyMap())
+        }
+        if (!isAllowedHost(host)) {
             return error(421, "BAD_HOST", "Use the phone IP address", emptyMap())
         }
         if (request.method == "OPTIONS") return HttpResponse(if (originAllowed) 204 else 403, "", cors)
@@ -113,21 +117,26 @@ class BridgeRouter(
         private val PACKAGE_RE = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
         private val LOCAL_ORIGIN_RE = Regex("^https?://(localhost|127\\.0\\.0\\.1)(:\\d{1,5})?$")
         private val IPV4_HOST_RE = Regex("^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})(?::(\\d{1,5}))?$")
-        private val LOCAL_HOST_RE = Regex("^(localhost|\\[[0-9a-fA-F:.]+])(:\\d{1,5})?$")
+        private val LOCAL_HOST_RE = Regex("^(localhost|\\[(?:::1|0:0:0:0:0:0:0:1)])(?::(\\d{1,5}))?$")
         private val TAURI_ORIGINS = setOf("http://tauri.localhost", "https://tauri.localhost", "tauri://localhost")
 
         fun isAllowedOrigin(origin: String): Boolean =
             origin in TAURI_ORIGINS || LOCAL_ORIGIN_RE.matches(origin)
 
-        /** DNS-rebinding guard: a hostname other than localhost means the request came via someone's DNS. */
+        /**
+         * DNS-rebinding guard: only IPv4 literals, localhost and the IPv6 loopback are accepted.
+         * A hostname means the request came via someone's DNS. LAN IPv6 literals are not used
+         * by the bridge (it advertises an IPv4 address).
+         */
         fun isAllowedHost(host: String?): Boolean {
-            if (host == null || LOCAL_HOST_RE.matches(host)) return true
+            if (host == null) return true
+            LOCAL_HOST_RE.matchEntire(host)?.let { return portOk(it.groupValues[2]) }
             val m = IPV4_HOST_RE.matchEntire(host) ?: return false
             val octetsOk = (1..4).all { (m.groupValues[it].toIntOrNull() ?: 256) <= 255 }
-            val port = m.groupValues[5]
-            val portOk = port.isEmpty() || (port.toIntOrNull() ?: 0) in 1..65535
-            return octetsOk && portOk
+            return octetsOk && portOk(m.groupValues[5])
         }
+
+        private fun portOk(port: String): Boolean = port.isEmpty() || (port.toIntOrNull() ?: 0) in 1..65535
 
         fun extractToken(headers: Map<String, String>): String? {
             val auth = headers["authorization"]

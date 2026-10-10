@@ -94,6 +94,16 @@ class BridgeRouterTest {
         assertThat(BridgeRouter.isAllowedHost("192.168.1.20:8080")).isTrue()
         assertThat(BridgeRouter.isAllowedHost("localhost:8080")).isTrue()
         assertThat(BridgeRouter.isAllowedHost("[::1]:8080")).isTrue()
+        assertThat(BridgeRouter.isAllowedHost("300.1.1.1:8080")).isFalse()
+        assertThat(BridgeRouter.isAllowedHost("192.168.1.20:99999")).isFalse()
+        assertThat(BridgeRouter.isAllowedHost("[fe80::1]:8080")).isFalse()
+        assertThat(BridgeRouter.isAllowedHost("localhost:0")).isFalse()
+    }
+
+    @Test
+    fun http11RequiresHost() {
+        val response = router.handle(HttpRequest("GET", "/health", emptyMap(), "", httpVersion = "HTTP/1.1"))
+        assertThat(response.status).isEqualTo(400)
     }
 
     @Test

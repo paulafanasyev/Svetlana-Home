@@ -11,6 +11,8 @@ data class HttpRequest(
     val body: String,
     /** Client IP as seen by the server socket; used for rate limiting. */
     val remoteAddress: String = "",
+    /** "HTTP/1.1" or "HTTP/1.0" from the request line. */
+    val httpVersion: String = "HTTP/1.0",
 )
 
 data class HttpResponse(

@@ -43,7 +43,13 @@ object HttpRequestParser {
             if (n < 0) throw ParseException(400, "Truncated body")
             read += n
         }
-        return HttpRequest(requestLine[0].uppercase(), requestLine[1], headers, String(body, Charsets.UTF_8))
+        return HttpRequest(
+            method = requestLine[0].uppercase(),
+            path = requestLine[1],
+            headers = headers,
+            body = String(body, Charsets.UTF_8),
+            httpVersion = requestLine[2],
+        )
     }
 
     private fun readHead(input: InputStream): String {
