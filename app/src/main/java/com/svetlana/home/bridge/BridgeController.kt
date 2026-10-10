@@ -115,10 +115,11 @@ object BridgeController {
         return rotatePairingCode(context)
     }
 
-    /** New code; the running server picks it up on the next request. */
+    /** New code; the running server picks it up on the next request. Fails closed if it can't be saved. */
     fun rotatePairingCode(context: Context): String {
         val code = BridgeToken.generate()
-        securePrefs(context).edit().putString(KEY_CODE, code).commit()
+        val saved = securePrefs(context).edit().putString(KEY_CODE, code).commit()
+        check(saved) { "Не удалось сохранить код подключения" }
         currentCode = code
         return code
     }
