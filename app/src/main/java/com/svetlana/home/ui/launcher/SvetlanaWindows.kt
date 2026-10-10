@@ -1,10 +1,14 @@
 package com.svetlana.home.ui.launcher
 
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProviderInfo
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +30,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -53,8 +58,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -69,10 +78,14 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -88,6 +101,11 @@ import com.svetlana.home.ui.components.LivingOrb
 import com.svetlana.home.ui.history.HistoryActivity
 import com.svetlana.home.ui.settings.SettingsActivity
 import com.svetlana.home.ui.translator.TranslatorActivity
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.drawable.toBitmap
 
 /** Полноэкранное окно Светланы с кнопкой закрытия. */
 @Composable
@@ -187,7 +205,7 @@ internal fun SvetlanaPanel(
             Tile("tile_history", Icons.Outlined.History, "История", "Что делала Светлана") {
                 actions.open(HistoryActivity::class.java)
             },
-            Tile("tile_settings", Icons.Outlined.Settings, "Настройки", "ИИ, голос, Hands, доступы") {
+            Tile("tile_settings", Icons.Outlined.Settings, "Настройки", "ИИ, голос, Hands и разрешения") {
                 actions.open(SettingsActivity::class.java)
             },
             Tile("tile_apps", Icons.Outlined.Apps, "Приложения", "Все приложения телефона", onDrawer)
@@ -314,7 +332,7 @@ internal fun VoiceWindowContent(viewModel: HomeViewModel, uiState: HomeUiState) 
             }
         }
         Text(
-            text = if (uiState.isListening) "Слушаю…" else "Коснитесь орба и говорите",
+            text = if (uiState.isListening) "Слушаю…" else "Нажмите на орб, чтобы говорить",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.outlineVariant
         )
@@ -371,7 +389,7 @@ private fun SearchField(
 @Composable
 internal fun AppDrawer(
     apps: List<AppModel>,
-    menu: AppMenuActions,
+    menu: AppMenu,
     onLaunch: (AppModel) -> Unit,
     onAskSvetlana: (String) -> Unit,
     onClose: () -> Unit
@@ -404,6 +422,16 @@ internal fun AppDrawer(
         }
     }
     var headerDrag by remember { mutableFloatStateOf(0f) }
+    val gridState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
+    // Буква → индекс первого приложения на эту букву в алфавитном списке.
+    val letters = remember(sorted) {
+        sorted.withIndex()
+            .groupBy { LauncherModel.indexLetter(it.value.label) }
+            .map { (letter, list) -> letter to list.first().index }
+            .sortedBy { it.second }
+    }
+    val sortedOffset = if (recent.isNotEmpty()) recent.size + 3 else 1
 
     Column(
         Modifier
@@ -445,34 +473,122 @@ internal fun AppDrawer(
             )
         }
 
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(LauncherModel.HOME_COLUMNS),
-            modifier = Modifier.fillMaxSize().nestedScroll(closeOnPull).testTag("drawer_grid"),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            if (query.isBlank()) {
-                if (recent.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { DrawerHeader("Недавние") }
-                    items(recent, key = { "r_" + it.packageName }) { app ->
+        Box(Modifier.fillMaxSize()) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(LauncherModel.HOME_COLUMNS),
+                state = gridState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(end = if (query.isBlank() && letters.size > 1) 30.dp else 0.dp)
+                    .nestedScroll(closeOnPull)
+                    .testTag("drawer_grid"),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (query.isBlank()) {
+                    if (recent.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) { DrawerHeader("Недавние") }
+                        items(recent, key = { "r_" + it.packageName }) { app ->
+                            AppTile(app, menu, { onLaunch(app) }, onWallpaper = false)
+                        }
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                        }
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }) { DrawerHeader("Все приложения · ${sorted.size}") }
+                    items(sorted, key = { it.packageName }) { app ->
+                        AppTile(app, menu, { onLaunch(app) }, onWallpaper = false)
+                    }
+                } else {
+                    items(results, key = { it.packageName }) { app ->
                         AppTile(app, menu, { onLaunch(app) }, onWallpaper = false)
                     }
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                        AskRow(Icons.Outlined.Forum, "Спросить Светлану: «${query.trim()}»", "drawer_ask") {
+                            onAskSvetlana(query.trim())
+                        }
                     }
                 }
-                items(sorted, key = { it.packageName }) { app ->
-                    AppTile(app, menu, { onLaunch(app) }, onWallpaper = false)
-                }
-            } else {
-                items(results, key = { it.packageName }) { app ->
-                    AppTile(app, menu, { onLaunch(app) }, onWallpaper = false)
-                }
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    AskRow(Icons.Outlined.Forum, "Спросить Светлану: «${query.trim()}»", "drawer_ask") {
-                        onAskSvetlana(query.trim())
+            }
+            if (query.isBlank() && letters.size > 1) {
+                FastScroller(
+                    letters = letters.map { it.first },
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    onLetter = { i ->
+                        val target = sortedOffset + letters[i].second
+                        scope.launch { gridState.scrollToItem(target) }
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** Быстрый алфавитный указатель справа, как в стандартном списке приложений. */
+@Composable
+private fun FastScroller(letters: List<String>, modifier: Modifier, onLetter: (Int) -> Unit) {
+    var active by remember { mutableIntStateOf(-1) }
+    var heightPx by remember { mutableFloatStateOf(1f) }
+    val latestOnLetter by rememberUpdatedState(onLetter)
+    fun pick(y: Float) {
+        val i = ((y / heightPx) * letters.size).toInt().coerceIn(0, letters.lastIndex)
+        if (i != active) {
+            active = i
+            latestOnLetter(i)
+        }
+    }
+    Box(modifier) {
+        Column(
+            Modifier
+                .width(36.dp)
+                .onSizeChanged { heightPx = it.height.toFloat().coerceAtLeast(1f) }
+                .pointerInput(letters) {
+                    // Один детектор: касание и протягивание по буквам.
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        down.consume()
+                        pick(down.position.y)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            change.consume()
+                            pick(change.position.y)
+                        }
+                        active = -1
                     }
                 }
+                .semantics { contentDescription = "Алфавитный указатель приложений" }
+                .testTag("fast_scroller"),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            letters.forEachIndexed { i, l ->
+                Text(
+                    l,
+                    style = TextStyle(
+                        fontSize = 11.sp,
+                        fontWeight = if (i == active) FontWeight.Bold else FontWeight.Normal,
+                        color = if (i == active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    modifier = Modifier
+                        .padding(vertical = 1.dp)
+                        .semantics {
+                            contentDescription = "Приложения на букву $l"
+                            onClick(label = "Перейти") { latestOnLetter(i); true }
+                        }
+                )
+            }
+        }
+        if (active in letters.indices) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 48.dp)
+                    .size(64.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(letters[active], style = TextStyle(fontSize = 28.sp, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold))
             }
         }
     }
@@ -564,7 +680,7 @@ internal fun SearchWindow(
                     item {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                             recent.forEach { app ->
-                                AppTile(app, AppMenuActions({ false }, {}, {}, {}), { onLaunch(app) }, onWallpaper = false, modifier = Modifier.weight(1f))
+                                AppTile(app, AppMenu({ false }, { false }, {}, {}, {}), { onLaunch(app) }, onWallpaper = false, modifier = Modifier.weight(1f))
                             }
                             repeat(LauncherModel.HOME_COLUMNS - recent.size) { Spacer(Modifier.weight(1f)) }
                         }
@@ -594,6 +710,214 @@ internal fun SearchWindow(
                     AskRow(Icons.Outlined.Public, "Искать в интернете: «${query.trim()}»", "search_web") { onWeb(query.trim()) }
                 }
             }
+        }
+    }
+}
+
+/** Окно «Виджеты»: выбор системных виджетов и список размещённых. */
+@Composable
+internal fun WidgetPickerWindow(
+    placed: List<Int>,
+    onPick: (AppWidgetProviderInfo) -> Unit,
+    onRemove: (Int) -> Unit,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    val manager = remember(context) { AppWidgetManager.getInstance(context) }
+    val pm = context.packageManager
+    val providers = remember(context) {
+        runCatching { manager.installedProviders }.getOrDefault(emptyList())
+            .map { it to (runCatching { it.loadLabel(pm) }.getOrNull() ?: it.provider.className) }
+            .sortedWith(compareBy({ appLabel(pm, it.first.provider.packageName) }, { it.second }))
+    }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .testTag("window_widgets")
+    ) {
+        WindowHeader("Виджеты", onClose)
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            if (placed.isNotEmpty()) {
+                item { DrawerHeader("На главном экране") }
+                items(placed, key = { "placed_$it" }) { id ->
+                    val info = remember(id) { runCatching { manager.getAppWidgetInfo(id) }.getOrNull() }
+                    SettingsRow(
+                        title = info?.let { runCatching { it.loadLabel(pm) }.getOrNull() } ?: "Виджет",
+                        subtitle = info?.let { appLabel(pm, it.provider.packageName) } ?: "",
+                        actionLabel = "Удалить",
+                        tag = "widget_remove",
+                        onClick = { onRemove(id) }
+                    )
+                }
+                item { HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+            }
+            if (providers.isEmpty()) {
+                item {
+                    Text(
+                        "На телефоне нет приложений с виджетами.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(20.dp)
+                    )
+                }
+            } else {
+                item { DrawerHeader("Добавить на главный экран") }
+                items(providers, key = { it.first.provider.flattenToString() }) { (info, label) ->
+                    val density = context.resources.displayMetrics.density
+                    val cols = ((info.minWidth / density + 30) / 70).toInt().coerceIn(1, 4)
+                    val rows = ((info.minHeight / density + 30) / 70).toInt().coerceIn(1, 4)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onPick(info) }
+                            .testTag("widget_provider")
+                            .padding(horizontal = 20.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        WidgetPreview(info)
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(label, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                "${appLabel(pm, info.provider.packageName)} · $cols×$rows",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun appLabel(pm: android.content.pm.PackageManager, pkg: String): String =
+    runCatching { pm.getApplicationInfo(pkg, 0).loadLabel(pm).toString() }.getOrDefault(pkg)
+
+/** Окно «Настройки главного экрана» — как Home settings у Pixel. */
+@Composable
+internal fun HomeSettingsWindow(
+    isHome: Boolean,
+    dotsEnabled: Boolean,
+    widgetCount: Int,
+    actions: LauncherActions,
+    onWidgets: () -> Unit,
+    onResetLayout: () -> Unit,
+    onClose: () -> Unit
+) {
+    var confirmReset by remember { mutableStateOf(false) }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .testTag("window_home_settings")
+    ) {
+        WindowHeader("Главный экран", onClose)
+        SettingsRow(
+            title = "Главный экран по умолчанию",
+            subtitle = if (isHome) "Светлана" else "Сейчас другой launcher",
+            actionLabel = if (isHome) null else "Назначить",
+            tag = "settings_default_home",
+            onClick = actions::requestHomeRole
+        )
+        SettingsRow(
+            title = "Значки уведомлений",
+            subtitle = if (dotsEnabled) "Включены" else "Нужен доступ к уведомлениям (видно только, у каких приложений они есть)",
+            actionLabel = if (dotsEnabled) "Изменить" else "Включить",
+            tag = "settings_dots",
+            onClick = actions::notificationAccess
+        )
+        SettingsRow(
+            title = "Виджеты",
+            subtitle = if (widgetCount == 0) "Нет виджетов" else "На экране: $widgetCount",
+            actionLabel = "Открыть",
+            tag = "settings_widgets",
+            onClick = onWidgets
+        )
+        SettingsRow(
+            title = "Обои и стиль",
+            subtitle = "Системный выбор обоев",
+            actionLabel = "Открыть",
+            tag = "settings_wallpaper",
+            onClick = actions::wallpaper
+        )
+        SettingsRow(
+            title = "Настройки Светланы",
+            subtitle = "ИИ, голос, Hands и разрешения",
+            actionLabel = "Открыть",
+            tag = "settings_svetlana",
+            onClick = { actions.open(SettingsActivity::class.java) }
+        )
+        SettingsRow(
+            title = "Сбросить раскладку",
+            subtitle = if (confirmReset) "Нажмите ещё раз — иконки и папки вернутся к исходным" else "Иконки и папки по умолчанию",
+            actionLabel = if (confirmReset) "Сбросить" else null,
+            tag = "settings_reset",
+            onClick = { if (confirmReset) onResetLayout() else confirmReset = true }
+        )
+    }
+}
+
+@Composable
+private fun WindowHeader(title: String, onClose: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        CloseButton(onClose, "Закрыть")
+        Text(title, style = MaterialTheme.typography.titleLarge)
+    }
+}
+
+@Composable
+private fun SettingsRow(title: String, subtitle: String, actionLabel: String?, tag: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .testTag(tag)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            if (subtitle.isNotBlank()) {
+                Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outlineVariant)
+            }
+        }
+        if (actionLabel != null) {
+            Spacer(Modifier.width(12.dp))
+            Text(actionLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun WidgetPreview(info: AppWidgetProviderInfo) {
+    val context = LocalContext.current
+    val preview by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, info.provider) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val d = info.loadPreviewImage(context, 0) ?: return@runCatching null
+                val w = d.intrinsicWidth.coerceIn(1, 1024)
+                val h = d.intrinsicHeight.coerceIn(1, 1024)
+                val scale = 192f / maxOf(w, h)
+                d.toBitmap((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1)).asImageBitmap()
+            }.getOrNull()
+        }
+    }
+    Box(
+        Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center
+    ) {
+        val bmp = preview
+        if (bmp != null) {
+            androidx.compose.foundation.Image(bmp, contentDescription = null, modifier = Modifier.size(56.dp))
+        } else {
+            AppIconImage(info.provider.packageName, 36.dp)
         }
     }
 }
