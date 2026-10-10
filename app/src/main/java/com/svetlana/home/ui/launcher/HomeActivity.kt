@@ -90,7 +90,7 @@ class HomeActivity : ComponentActivity() {
 
     // Все runtime-разрешения одним системным диалогом, чтобы Светлана
     // сразу работала локально на телефоне. После ответа обновляем уведомление
-    // моста (на Android 13+ оно появляется только после POST_NOTIFICATIONS).
+    // моста (если он включён и POST_NOTIFICATIONS только что выдан).
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
@@ -104,18 +104,23 @@ class HomeActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         )
         setContent { SvetlanaSettingsTheme { HomeScreen() } }
-        if (savedInstanceState == null) requestAllPermissions()
     }
 
-    private fun requestAllPermissions() {
+    /**
+     * Один раз за всё время, после онбординга: все недостающие runtime-разрешения
+     * одним диалогом. После отказа не донимаем — дальше Permission Center.
+     */
+    private fun requestAllPermissionsOnce() {
         if (PermissionBootstrap.isUnderInstrumentation()) return
+        val prefs = getSharedPreferences(PermissionBootstrap.PREFS, MODE_PRIVATE)
+        if (prefs.getBoolean(PermissionBootstrap.KEY_PROMPTED, false)) return
         val missing = PermissionBootstrap.missing(this)
-        if (missing.isNotEmpty()) {
-            try {
-                permissionsLauncher.launch(missing.toTypedArray())
-            } catch (t: Throwable) {
-                // Нет системного диалога (редкие OEM) — остаётся мастер разрешений.
-            }
+        if (missing.isEmpty()) return
+        prefs.edit().putBoolean(PermissionBootstrap.KEY_PROMPTED, true).apply()
+        try {
+            permissionsLauncher.launch(missing.toTypedArray())
+        } catch (t: Throwable) {
+            // Нет системного диалога (редкие OEM) — остаётся мастер разрешений.
         }
     }
 
@@ -144,6 +149,10 @@ class HomeActivity : ComponentActivity() {
         val context = LocalContext.current
         val uiState by viewModel.state.collectAsState()
 
+        // Диалог разрешений — только когда онбординг уже позади и не перекрывает его.
+        LaunchedEffect(Unit) {
+            requestAllPermissionsOnce()
+        }
         LaunchedEffect(Unit) {
             while (true) {
                 viewModel.refreshClock(context)
@@ -414,6 +423,23 @@ class HomeActivity : ComponentActivity() {
                 text = if (uiState.isListening) "Слушаю…" else stringResource(R.string.home_input_hint),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.outlineVariant
+            )
+
+            // Мост к ПК — только по явному включению. Без него Светлана
+            // полностью работает локально на телефоне.
+            var bridgeOn by remember { mutableStateOf(BridgeController.isEnabled(context)) }
+            Text(
+                text = if (bridgeOn) "Подключение к ПК: включено · Выключить"
+                else "Подключение к ПК: выключено · Включить",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable {
+                        bridgeOn = !bridgeOn
+                        BridgeController.setEnabled(context, bridgeOn)
+                    }
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
             )
         }
     }

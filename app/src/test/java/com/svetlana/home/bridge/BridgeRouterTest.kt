@@ -6,7 +6,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -58,12 +57,55 @@ class BridgeRouterTest {
     private fun json(response: HttpResponse) = Json.parseToJsonElement(response.body).jsonObject
 
     @Test
-    fun healthIsPublicAndListsTools() {
+    fun healthIsPublicAndMinimal() {
         val response = router.handle(HttpRequest("GET", "/health", emptyMap(), ""))
         assertThat(response.status).isEqualTo(200)
         val body = json(response)
         assertThat(body["ok"]!!.jsonPrimitive.boolean).isTrue()
-        assertThat(body["tools"]!!.jsonArray.map { it.jsonPrimitive.content }).contains("contacts/list")
+        assertThat(body.keys).containsExactly("ok", "service")
+    }
+
+    @Test
+    fun foreignOriginIsRejectedWithoutCors() {
+        val response = router.handle(
+            HttpRequest("POST", "/api/device/info", mapOf("origin" to "https://evil.example", "authorization" to "Bearer $code"), "{}"),
+        )
+        assertThat(response.status).isEqualTo(403)
+        assertThat(response.headers).doesNotContainKey("Access-Control-Allow-Origin")
+        val preflight = router.handle(HttpRequest("OPTIONS", "/api/device/info", mapOf("origin" to "https://evil.example"), ""))
+        assertThat(preflight.status).isEqualTo(403)
+        assertThat(preflight.headers).isEmpty()
+    }
+
+    @Test
+    fun localhostAndTauriOriginsAreAllowed() {
+        assertThat(BridgeRouter.isAllowedOrigin("http://tauri.localhost")).isTrue()
+        assertThat(BridgeRouter.isAllowedOrigin("https://tauri.localhost")).isTrue()
+        assertThat(BridgeRouter.isAllowedOrigin("http://localhost:5173")).isTrue()
+        assertThat(BridgeRouter.isAllowedOrigin("http://127.0.0.1:1420")).isTrue()
+        assertThat(BridgeRouter.isAllowedOrigin("http://localhost.evil.com")).isFalse()
+        assertThat(BridgeRouter.isAllowedOrigin("null")).isFalse()
+    }
+
+    @Test
+    fun dnsRebindingHostIsRejected() {
+        val response = router.handle(HttpRequest("GET", "/health", mapOf("host" to "rebind.evil.example:8080"), ""))
+        assertThat(response.status).isEqualTo(421)
+        assertThat(BridgeRouter.isAllowedHost("192.168.1.20:8080")).isTrue()
+        assertThat(BridgeRouter.isAllowedHost("localhost:8080")).isTrue()
+        assertThat(BridgeRouter.isAllowedHost("[::1]:8080")).isTrue()
+    }
+
+    @Test
+    fun wrongCodesLockTheClient() {
+        repeat(5) {
+            val r = router.handle(HttpRequest("POST", "/api/device/info", mapOf("authorization" to "Bearer WRON-GCOD"), "{}", "10.0.0.9"))
+            assertThat(r.status).isEqualTo(401)
+        }
+        val locked = router.handle(HttpRequest("POST", "/api/device/info", mapOf("authorization" to "Bearer $code"), "{}", "10.0.0.9"))
+        assertThat(locked.status).isEqualTo(429)
+        val other = router.handle(HttpRequest("POST", "/api/device/info", mapOf("authorization" to "Bearer $code"), "{}", "10.0.0.10"))
+        assertThat(other.status).isEqualTo(200)
     }
 
     @Test
@@ -141,8 +183,8 @@ class BridgeRouterTest {
     fun handlerExceptionBecomes500() {
         val exploding = object : BridgeHandlers {
             override fun deviceInfo(): JsonObject = throw IllegalStateException("boom")
-            override fun listContacts(query: String?, limit: Int, offset: Int) = BridgeResult.Ok()
-            override fun launchApp(packageName: String) = BridgeResult.Ok()
+            override fun listContacts(query: String?, limit: Int, offset: Int): BridgeResult = BridgeResult.Ok()
+            override fun launchApp(packageName: String): BridgeResult = BridgeResult.Ok()
         }
         val r = BridgeRouter({ true }, exploding)
         val response = r.handle(HttpRequest("POST", "/api/device/info", emptyMap(), "{}"))
