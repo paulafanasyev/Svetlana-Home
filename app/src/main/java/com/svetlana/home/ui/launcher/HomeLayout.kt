@@ -102,9 +102,18 @@ object HomeLayoutOps {
 
     /** «В папку…» из меню: [folderId] = null — новая папка на месте приложения. */
     fun addToFolder(layout: HomeLayout, pkg: String, folderId: String?, newFolderId: String): HomeLayout {
-        val withoutPkg = unpinKeepingPlace(layout, pkg)
-        val base = withoutPkg.first
-        val place = withoutPkg.second
+        // Убираем приложение отовсюду (с рабочего стола и из других папок), но целевую
+        // папку не «схлопываем», даже если в ней пока одно приложение.
+        val place = layout.items.indexOfFirst { it is HomeItem.App && it.pkg == pkg }
+            .let { if (it >= 0) it else layout.items.size }
+        val base = layout.copy(items = layout.items.mapNotNull { item ->
+            when (item) {
+                is HomeItem.App -> if (item.pkg == pkg) null else item
+                is HomeItem.Folder ->
+                    if (item.id == folderId) item.copy(apps = item.apps - pkg)
+                    else normalizeFolder(item.copy(apps = item.apps - pkg))
+            }
+        })
         val items = base.items.toMutableList()
         if (folderId == null) {
             val folder = HomeItem.Folder(newFolderId, "Папка", listOf(pkg))
@@ -220,10 +229,5 @@ object HomeLayoutOps {
         0 -> null
         1 -> HomeItem.App(folder.apps.first())
         else -> folder
-    }
-
-    private fun unpinKeepingPlace(layout: HomeLayout, pkg: String): Pair<HomeLayout, Int> {
-        val idx = layout.items.indexOfFirst { it is HomeItem.App && it.pkg == pkg }
-        return unpin(layout, pkg) to (if (idx >= 0) idx else layout.items.size)
     }
 }
