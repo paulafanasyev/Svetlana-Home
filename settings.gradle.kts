@@ -24,11 +24,14 @@ dependencyResolutionManagement {
 rootProject.name = "SvetlanaHome"
 include(":app")
 
-// На GitHub Actions ошибки Kotlin, lint и упавшие unit-тесты показываются
-// аннотациями прямо в PR.
+// На GitHub Actions ошибки Kotlin, lint и упавшие тесты (unit и на эмуляторе)
+// показываются аннотациями прямо в PR.
 if (System.getenv("GITHUB_ACTIONS") == "true") {
     println("::add-matcher::" + rootDir.resolve("tools/kotlin-problem-matcher.json").absolutePath)
-    val testResults = rootDir.resolve("app/build/test-results/testDebugUnitTest")
+    val resultDirs = listOf(
+        rootDir.resolve("app/build/test-results/testDebugUnitTest"),
+        rootDir.resolve("app/build/outputs/androidTest-results/connected")
+    )
     @Suppress("DEPRECATION")
     gradle.buildFinished {
         var t: Throwable? = failure
@@ -40,15 +43,17 @@ if (System.getenv("GITHUB_ACTIONS") == "true") {
             n++
         }
         if (failure != null) {
-            val re = Regex("<testcase name=\"([^\"]+)\" classname=\"([^\"]+)\"[^>]*>\\s*<failure message=\"([^\"]*)\"")
+            val re = Regex("<testcase name=\"([^\"]+)\" classname=\"([^\"]+)\"[^>]*>\\s*<(?:failure|error)[^>]*?>([^<]{0,1800})", RegexOption.DOT_MATCHES_ALL)
             var shown = 0
-            testResults.listFiles()?.filter { it.name.endsWith(".xml") }?.forEach { f ->
-                re.findAll(f.readText()).forEach { m ->
-                    if (shown < 15) {
-                        val cls = m.groupValues[2].substringAfterLast('.')
-                        val text = m.groupValues[3].replace("&#10;", " | ").replace("\n", " | ").take(1500)
-                        println("::error title=Test $cls.${m.groupValues[1]}::$text")
-                        shown++
+            resultDirs.forEach { dir ->
+                dir.walkTopDown().filter { it.isFile && it.name.endsWith(".xml") }.forEach { f ->
+                    re.findAll(f.readText()).forEach { m ->
+                        if (shown < 15) {
+                            val cls = m.groupValues[2].substringAfterLast('.')
+                            val text = m.groupValues[3].replace("&#10;", " | ").replace("\n", " | ").replace("\t", " ").take(1800)
+                            println("::error title=Test $cls.${m.groupValues[1]}::$text")
+                            shown++
+                        }
                     }
                 }
             }
