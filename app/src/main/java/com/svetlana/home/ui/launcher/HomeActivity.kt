@@ -436,15 +436,31 @@ class HomeActivity : ComponentActivity() {
 
             // Мост к ПК — только по явному включению. Без него Светлана
             // полностью работает локально на телефоне. Код и адрес показываем прямо
-            // здесь, чтобы мост работал даже без разрешения на уведомления.
+            // здесь (работает и без разрешения на уведомления). Вся работа с диском
+            // и Keystore — на Dispatchers.IO.
             val scope = rememberCoroutineScope()
-            var bridgeOn by remember { mutableStateOf(BridgeController.isEnabled(context)) }
+            var bridgeOn by remember { mutableStateOf(false) }
             var bridgeInfo by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(Unit) {
+                bridgeOn = withContext(Dispatchers.IO) { BridgeController.isEnabled(context) }
+            }
+            // Адрес может смениться (другая Wi‑Fi сеть) — обновляем, пока мост включён.
             LaunchedEffect(bridgeOn) {
-                bridgeInfo = if (bridgeOn) withContext(Dispatchers.IO) {
-                    val where = BridgeController.address() ?: "нет Wi‑Fi"
-                    "$where · код ${BridgeController.pairingCode(context)}"
-                } else null
+                if (!bridgeOn) {
+                    bridgeInfo = null
+                    return@LaunchedEffect
+                }
+                while (true) {
+                    bridgeInfo = withContext(Dispatchers.IO) {
+                        try {
+                            val where = BridgeController.address() ?: "нет Wi‑Fi"
+                            "$where · код ${BridgeController.pairingCode(context)}"
+                        } catch (e: IllegalStateException) {
+                            e.message
+                        }
+                    }
+                    delay(30_000)
+                }
             }
             Text(
                 text = if (bridgeOn) "Подключение к ПК: включено · Выключить"
@@ -456,8 +472,19 @@ class HomeActivity : ComponentActivity() {
                     .clickable {
                         val target = !bridgeOn
                         scope.launch {
-                            withContext(Dispatchers.IO) { BridgeController.setEnabled(context, target) }
-                            bridgeOn = target
+                            val ok = withContext(Dispatchers.IO) {
+                                try {
+                                    BridgeController.setEnabled(context, target)
+                                    true
+                                } catch (e: IllegalStateException) {
+                                    false
+                                }
+                            }
+                            if (ok) {
+                                bridgeOn = target
+                            } else {
+                                bridgeInfo = "Мост недоступен: нет защищённого хранилища"
+                            }
                         }
                     }
                     .padding(horizontal = 10.dp, vertical = 6.dp)
