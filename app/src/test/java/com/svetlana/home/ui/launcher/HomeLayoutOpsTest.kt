@@ -131,4 +131,19 @@ class HomeLayoutOpsTest {
         assertThat(HomeLayoutOps.removeAt(l, 0).items).containsExactly(HomeItem.App("c"))
         assertThat(HomeLayoutOps.removeAt(l, 9)).isEqualTo(l)
     }
+
+    @Test
+    fun movingAppFromOneFolderToAnotherDoesNotDuplicate() {
+        val l = HomeLayout(
+            items = listOf(
+                HomeItem.Folder("a", "A", listOf("x", "y", "z")),
+                HomeItem.Folder("b", "B", listOf("p", "q"))
+            ),
+            initialized = true
+        )
+        val r = HomeLayoutOps.addToFolder(l, "x", folderId = "b", newFolderId = "n")
+        assertThat((r.items[0] as HomeItem.Folder).apps).containsExactly("y", "z").inOrder()
+        assertThat((r.items[1] as HomeItem.Folder).apps).containsExactly("p", "q", "x").inOrder()
+        assertThat(r.items.flatMap { if (it is HomeItem.Folder) it.apps else listOf((it as HomeItem.App).pkg) }.count { it == "x" }).isEqualTo(1)
+    }
 }
