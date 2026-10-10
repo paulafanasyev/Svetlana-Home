@@ -32,6 +32,14 @@ class BridgeRateLimiterTest {
     }
 
     @Test
+    fun pairedClientSurvivesGlobalLock() {
+        limiter.recordSuccess("owner-pc")
+        listOf("a", "b", "c", "d", "e").forEach { limiter.recordFailure(it) }
+        assertThat(limiter.isLocked("owner-pc")).isFalse()
+        assertThat(limiter.isLocked("attacker")).isTrue()
+    }
+
+    @Test
     fun successResetsClientCounter() {
         limiter.recordFailure("a")
         limiter.recordFailure("a")

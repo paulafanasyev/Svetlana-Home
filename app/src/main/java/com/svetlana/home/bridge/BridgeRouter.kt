@@ -55,7 +55,7 @@ class BridgeRouter(
         }
         if (!tokenCheck(extractToken(request.headers))) {
             limiter.recordFailure(client)
-            return error(401, "UNAUTHORIZED", "Нужен код подключения из уведомления Светланы", cors)
+            return error(401, "UNAUTHORIZED", "Нужен код подключения с главного экрана Светланы", cors)
         }
         limiter.recordSuccess(client)
         val params = parseParams(request.body) ?: return error(400, "BAD_JSON", "Body must be a JSON object", cors)
@@ -112,7 +112,7 @@ class BridgeRouter(
         const val MAX_LIMIT = 5000
         private val PACKAGE_RE = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
         private val LOCAL_ORIGIN_RE = Regex("^https?://(localhost|127\\.0\\.0\\.1)(:\\d{1,5})?$")
-        private val IPV4_HOST_RE = Regex("^(\\d{1,3}\\.){3}\\d{1,3}(:\\d{1,5})?$")
+        private val IPV4_HOST_RE = Regex("^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})(?::(\\d{1,5}))?$")
         private val LOCAL_HOST_RE = Regex("^(localhost|\\[[0-9a-fA-F:.]+])(:\\d{1,5})?$")
         private val TAURI_ORIGINS = setOf("http://tauri.localhost", "https://tauri.localhost", "tauri://localhost")
 
@@ -120,8 +120,14 @@ class BridgeRouter(
             origin in TAURI_ORIGINS || LOCAL_ORIGIN_RE.matches(origin)
 
         /** DNS-rebinding guard: a hostname other than localhost means the request came via someone's DNS. */
-        fun isAllowedHost(host: String?): Boolean =
-            host == null || IPV4_HOST_RE.matches(host) || LOCAL_HOST_RE.matches(host)
+        fun isAllowedHost(host: String?): Boolean {
+            if (host == null || LOCAL_HOST_RE.matches(host)) return true
+            val m = IPV4_HOST_RE.matchEntire(host) ?: return false
+            val octetsOk = (1..4).all { (m.groupValues[it].toIntOrNull() ?: 256) <= 255 }
+            val port = m.groupValues[5]
+            val portOk = port.isEmpty() || (port.toIntOrNull() ?: 0) in 1..65535
+            return octetsOk && portOk
+        }
 
         fun extractToken(headers: Map<String, String>): String? {
             val auth = headers["authorization"]

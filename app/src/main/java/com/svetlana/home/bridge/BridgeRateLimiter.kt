@@ -3,7 +3,8 @@ package com.svetlana.home.bridge
 /**
  * Brute-force protection for the pairing code.
  * - per client: [perClientLimit] wrong codes inside [windowMs] lock that client for [lockMs];
- * - globally: [globalLimit] wrong codes inside [windowMs] lock everyone (defeats IP rotation on the LAN).
+ * - globally: [globalLimit] wrong codes inside [windowMs] lock every client that has not
+ *   paired successfully yet (defeats IP rotation without letting an attacker lock out the owner's PC).
  */
 class BridgeRateLimiter(
     private val clock: () -> Long = System::currentTimeMillis,
@@ -16,11 +17,13 @@ class BridgeRateLimiter(
     private val globalFailures = ArrayList<Long>()
     private val lockedUntil = HashMap<String, Long>()
     private var globalLockedUntil = 0L
+    private val trusted = HashSet<String>()
 
     @Synchronized
     fun isLocked(client: String): Boolean {
         val now = clock()
-        return now < globalLockedUntil || now < (lockedUntil[client] ?: 0L)
+        if (now < (lockedUntil[client] ?: 0L)) return true
+        return now < globalLockedUntil && client !in trusted
     }
 
     @Synchronized
@@ -46,6 +49,7 @@ class BridgeRateLimiter(
     @Synchronized
     fun recordSuccess(client: String) {
         failures.remove(client)
+        if (trusted.size < MAX_TRACKED) trusted.add(client)
     }
 
     private companion object {

@@ -11,6 +11,7 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
@@ -18,7 +19,7 @@ import kotlin.concurrent.thread
 /**
  * Blocking-socket HTTP server for the bridge. One request per connection.
  * Hardening: bounded worker pool and queue (excess connections are dropped),
- * per-read timeout and a hard per-connection deadline (slowloris).
+ * per-read timeout and a hard per-connection deadline counted from accept() (slowloris).
  */
 class BridgeServer(
     private val port: Int,
@@ -75,20 +76,22 @@ class BridgeServer(
             } catch (ignored: IOException) {
                 break
             }
-            try {
-                executor.execute { serve(client, timer) }
+            // Deadline starts at accept(), so sockets waiting in the queue are covered too.
+            val deadline = try {
+                timer.schedule(Runnable { closeQuietly(client) }, CONNECTION_DEADLINE_MS, TimeUnit.MILLISECONDS)
             } catch (ignored: RejectedExecutionException) {
+                null
+            }
+            try {
+                executor.execute { serve(client, deadline) }
+            } catch (ignored: RejectedExecutionException) {
+                deadline?.cancel(false)
                 closeQuietly(client)
             }
         }
     }
 
-    private fun serve(client: Socket, timer: ScheduledExecutorService) {
-        val deadline = try {
-            timer.schedule(Runnable { closeQuietly(client) }, CONNECTION_DEADLINE_MS, TimeUnit.MILLISECONDS)
-        } catch (ignored: RejectedExecutionException) {
-            null
-        }
+    private fun serve(client: Socket, deadline: ScheduledFuture<*>?) {
         try {
             client.soTimeout = READ_TIMEOUT_MS
             val remote = client.inetAddress?.hostAddress.orEmpty()

@@ -5,10 +5,13 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.svetlana.home.BuildConfig
 import java.io.IOException
 import java.net.Inet4Address
@@ -17,8 +20,9 @@ import kotlin.concurrent.thread
 
 /**
  * Starts the bridge that lets the Svetlana 2.0 core (Windows app) use this
- * phone: http://<phone-ip>:8080, protected by a pairing code shown in a
- * notification. Opt-in: off until the user enables it on the home screen.
+ * phone: http://<phone-ip>:8080, protected by a pairing code shown on the home
+ * screen and in a notification. Opt-in: off until the user enables it; every
+ * enable generates a fresh code. Plain HTTP: use only on a trusted home Wi-Fi.
  */
 object BridgeController {
     const val PORT = 8080
@@ -26,20 +30,27 @@ object BridgeController {
     private const val PREFS = "svetlana_bridge"
     private const val KEY_CODE = "pairing_code"
     private const val KEY_ENABLED = "enabled"
+    private const val SECURE_PREFS = "svetlana_bridge_secure"
     private const val CHANNEL_ID = "svetlana_bridge"
     private const val NOTIFICATION_ID = 8080
 
     @Volatile
     private var server: BridgeServer? = null
 
+    @Volatile
+    private var currentCode: String? = null
+
     /** The bridge is opt-in: off until the user turns it on from the home screen. */
     fun isEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
 
+    /** Blocking (Keystore + disk): call from a background thread. */
     fun setEnabled(context: Context, enabled: Boolean) {
         val app = context.applicationContext
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, enabled).apply()
         if (enabled) {
+            // Каждое включение = новый код: старые подключения больше не работают.
+            rotatePairingCode(app)
             startAsync(app)
         } else {
             thread(name = "svetlana-bridge-stop", isDaemon = true) { stop() }
@@ -71,7 +82,7 @@ object BridgeController {
         }
         val code = pairingCode(context)
         val router = BridgeRouter(
-            tokenCheck = { BridgeToken.matches(code, it) },
+            tokenCheck = { BridgeToken.matches(currentCode ?: code, it) },
             handlers = AndroidBridgeHandlers(context),
             version = BuildConfig.VERSION_NAME,
         )
@@ -94,11 +105,37 @@ object BridgeController {
     }
 
     fun pairingCode(context: Context): String {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        prefs.getString(KEY_CODE, null)?.let { return it }
+        val prefs = securePrefs(context)
+        prefs.getString(KEY_CODE, null)?.let {
+            currentCode = it
+            return it
+        }
+        return rotatePairingCode(context)
+    }
+
+    /** New code; the running server picks it up on the next request. */
+    fun rotatePairingCode(context: Context): String {
         val code = BridgeToken.generate()
-        prefs.edit().putString(KEY_CODE, code).apply()
+        securePrefs(context).edit().putString(KEY_CODE, code).commit()
+        currentCode = code
         return code
+    }
+
+    /** Код хранится в EncryptedSharedPreferences (ключ в Android Keystore). */
+    private fun securePrefs(context: Context): SharedPreferences = try {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        EncryptedSharedPreferences.create(
+            context,
+            SECURE_PREFS,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+    } catch (e: Exception) {
+        Log.w(TAG, "Keystore unavailable, falling back to private prefs", e)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     }
 
     /** http://<LAN IPv4>:8080, or null when the phone has no LAN address. */

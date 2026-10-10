@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.ContactsContract
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import androidx.core.content.ContextCompat
 import kotlinx.serialization.json.JsonObject
@@ -41,29 +42,44 @@ class AndroidBridgeHandlers(private val context: Context) : BridgeHandlers {
         val projection = arrayOf(Phone.CONTACT_ID, Phone.DISPLAY_NAME, Phone.NUMBER)
         val selection = if (query == null) null else "${Phone.DISPLAY_NAME} LIKE ?"
         val selectionArgs = if (query == null) null else arrayOf("%$query%")
-        val contacts = LinkedHashMap<Long, ContactRow>()
+        // Rows of one contact are adjacent thanks to the secondary sort by CONTACT_ID,
+        // so we can stream: skip [offset] contacts, collect [limit], stop early.
+        val page = ArrayList<Pair<Long, ContactRow>>()
         val cursor = context.contentResolver.query(
             Phone.CONTENT_URI,
             projection,
             selection,
             selectionArgs,
-            "${Phone.DISPLAY_NAME} COLLATE LOCALIZED ASC",
+            "${Phone.DISPLAY_NAME} COLLATE LOCALIZED ASC, ${Phone.CONTACT_ID} ASC",
         ) ?: return BridgeResult.Error("INTERNAL", "Contacts provider unavailable")
         cursor.use { c ->
             val idIndex = c.getColumnIndexOrThrow(Phone.CONTACT_ID)
             val nameIndex = c.getColumnIndexOrThrow(Phone.DISPLAY_NAME)
             val numberIndex = c.getColumnIndexOrThrow(Phone.NUMBER)
+            var seen = 0
+            var currentId = Long.MIN_VALUE
+            var current: ContactRow? = null
             while (c.moveToNext()) {
                 val number = c.getString(numberIndex)
-                if (!number.isNullOrBlank()) {
-                    val row = contacts.getOrPut(c.getLong(idIndex)) { ContactRow(c.getString(nameIndex).orEmpty()) }
-                    if (number !in row.phones) row.phones.add(number)
+                if (number.isNullOrBlank()) continue
+                val id = c.getLong(idIndex)
+                if (id != currentId) {
+                    currentId = id
+                    seen++
+                    if (seen > offset + limit) break
+                    current = if (seen > offset) {
+                        ContactRow(c.getString(nameIndex).orEmpty()).also { page.add(id to it) }
+                    } else {
+                        null
+                    }
                 }
+                val row = current
+                if (row != null && number !in row.phones) row.phones.add(number)
             }
         }
-        val page = contacts.entries.drop(offset).take(limit)
+        val total = countContacts(query)
         val data = buildJsonObject {
-            put("total", contacts.size)
+            put("total", total)
             put("offset", offset)
             put("contacts", buildJsonArray {
                 for ((id, row) in page) {
@@ -91,6 +107,21 @@ class AndroidBridgeHandlers(private val context: Context) : BridgeHandlers {
             // Android 10+ may block activity starts from the background.
             BridgeResult.Error("PERMISSION_DENIED", "Android не дал открыть $packageName из фона")
         }
+    }
+
+    /** Number of contacts that have at least one phone number (cheap: one row per contact). */
+    private fun countContacts(query: String?): Int {
+        val base = "${ContactsContract.Contacts.HAS_PHONE_NUMBER} = 1"
+        val selection = if (query == null) base else "$base AND ${ContactsContract.Contacts.DISPLAY_NAME} LIKE ?"
+        val args = if (query == null) null else arrayOf("%$query%")
+        val cursor = context.contentResolver.query(
+            ContactsContract.Contacts.CONTENT_URI,
+            arrayOf(ContactsContract.Contacts._ID),
+            selection,
+            args,
+            null,
+        ) ?: return 0
+        return cursor.use { it.count }
     }
 
     private class ContactRow(val name: String) {
