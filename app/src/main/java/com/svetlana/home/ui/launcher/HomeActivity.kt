@@ -40,6 +40,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,8 +76,11 @@ import com.svetlana.home.ui.theme.TextPrimary
 import com.svetlana.home.ui.theme.TextSecondary
 import com.svetlana.home.ui.theme.TextTertiary
 import com.svetlana.home.voice.VoiceAssistantService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Главный экран SVETLANA HOME.
@@ -128,18 +132,23 @@ class HomeActivity : ComponentActivity() {
     private fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
         // P0: первый запуск — показываем onboarding (Owner + разрешения),
         // иначе пользователь никогда не проходит настройку (ТЗ §65).
-        var showOnboarding by remember { mutableStateOf(false) }
+        // null = ещё читаем состояние: HomeContent (и его диалог разрешений) не
+        // создаём, пока точно не знаем, что онбординг пройден.
+        var onboardingDone by remember { mutableStateOf<Boolean?>(null) }
         LaunchedEffect(Unit) {
-            val done = ServiceLocator.settings.onboardingDone.first()
-            if (!done) showOnboarding = true
+            onboardingDone = ServiceLocator.settings.onboardingDone.first()
         }
-        if (showOnboarding) {
-            OnboardingFlowContent(
-                launchHome = { /* Home уже на экране — ничего не делаем */ },
-                onFinished = { showOnboarding = false }
+        when (onboardingDone) {
+            null -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
             )
-        } else {
-            HomeContent(viewModel)
+            false -> OnboardingFlowContent(
+                launchHome = { /* Home уже на экране — ничего не делаем */ },
+                onFinished = { onboardingDone = true }
+            )
+            else -> HomeContent(viewModel)
         }
     }
 
@@ -426,8 +435,17 @@ class HomeActivity : ComponentActivity() {
             )
 
             // Мост к ПК — только по явному включению. Без него Светлана
-            // полностью работает локально на телефоне.
+            // полностью работает локально на телефоне. Код и адрес показываем прямо
+            // здесь, чтобы мост работал даже без разрешения на уведомления.
+            val scope = rememberCoroutineScope()
             var bridgeOn by remember { mutableStateOf(BridgeController.isEnabled(context)) }
+            var bridgeInfo by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(bridgeOn) {
+                bridgeInfo = if (bridgeOn) withContext(Dispatchers.IO) {
+                    val where = BridgeController.address() ?: "нет Wi‑Fi"
+                    "$where · код ${BridgeController.pairingCode(context)}"
+                } else null
+            }
             Text(
                 text = if (bridgeOn) "Подключение к ПК: включено · Выключить"
                 else "Подключение к ПК: выключено · Включить",
@@ -436,11 +454,22 @@ class HomeActivity : ComponentActivity() {
                 modifier = Modifier
                     .clip(RoundedCornerShape(10.dp))
                     .clickable {
-                        bridgeOn = !bridgeOn
-                        BridgeController.setEnabled(context, bridgeOn)
+                        val target = !bridgeOn
+                        scope.launch {
+                            withContext(Dispatchers.IO) { BridgeController.setEnabled(context, target) }
+                            bridgeOn = target
+                        }
                     }
                     .padding(horizontal = 10.dp, vertical = 6.dp)
             )
+            bridgeInfo?.let { info ->
+                Text(
+                    text = info,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
