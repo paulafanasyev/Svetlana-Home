@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -39,6 +40,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,7 +60,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.svetlana.home.R
+import com.svetlana.home.bridge.BridgeController
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.permissions.PermissionBootstrap
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.components.LivingOrb
 import com.svetlana.home.ui.onboarding.OnboardingFlowContent
@@ -72,8 +76,11 @@ import com.svetlana.home.ui.theme.TextPrimary
 import com.svetlana.home.ui.theme.TextSecondary
 import com.svetlana.home.ui.theme.TextTertiary
 import com.svetlana.home.voice.VoiceAssistantService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Главный экран SVETLANA HOME.
@@ -85,6 +92,15 @@ import kotlinx.coroutines.flow.first
  */
 class HomeActivity : ComponentActivity() {
 
+    // Все runtime-разрешения одним системным диалогом, чтобы Светлана
+    // сразу работала локально на телефоне. После ответа обновляем уведомление
+    // моста (если он включён и POST_NOTIFICATIONS только что выдан).
+    private val permissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        BridgeController.startAsync(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(
@@ -94,22 +110,45 @@ class HomeActivity : ComponentActivity() {
         setContent { SvetlanaSettingsTheme { HomeScreen() } }
     }
 
+    /**
+     * Один раз за всё время, после онбординга: все недостающие runtime-разрешения
+     * одним диалогом. После отказа не донимаем — дальше Permission Center.
+     */
+    private fun requestAllPermissionsOnce() {
+        if (PermissionBootstrap.isUnderInstrumentation()) return
+        val prefs = getSharedPreferences(PermissionBootstrap.PREFS, MODE_PRIVATE)
+        if (prefs.getBoolean(PermissionBootstrap.KEY_PROMPTED, false)) return
+        val missing = PermissionBootstrap.missing(this)
+        if (missing.isEmpty()) return
+        prefs.edit().putBoolean(PermissionBootstrap.KEY_PROMPTED, true).apply()
+        try {
+            permissionsLauncher.launch(missing.toTypedArray())
+        } catch (t: Throwable) {
+            // Нет системного диалога (редкие OEM) — остаётся мастер разрешений.
+        }
+    }
+
     @Composable
     private fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
         // P0: первый запуск — показываем onboarding (Owner + разрешения),
         // иначе пользователь никогда не проходит настройку (ТЗ §65).
-        var showOnboarding by remember { mutableStateOf(false) }
+        // null = ещё читаем состояние: HomeContent (и его диалог разрешений) не
+        // создаём, пока точно не знаем, что онбординг пройден.
+        var onboardingDone by remember { mutableStateOf<Boolean?>(null) }
         LaunchedEffect(Unit) {
-            val done = ServiceLocator.settings.onboardingDone.first()
-            if (!done) showOnboarding = true
+            onboardingDone = ServiceLocator.settings.onboardingDone.first()
         }
-        if (showOnboarding) {
-            OnboardingFlowContent(
-                launchHome = { /* Home уже на экране — ничего не делаем */ },
-                onFinished = { showOnboarding = false }
+        when (onboardingDone) {
+            null -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
             )
-        } else {
-            HomeContent(viewModel)
+            false -> OnboardingFlowContent(
+                launchHome = { /* Home уже на экране — ничего не делаем */ },
+                onFinished = { onboardingDone = true }
+            )
+            else -> HomeContent(viewModel)
         }
     }
 
@@ -119,6 +158,10 @@ class HomeActivity : ComponentActivity() {
         val context = LocalContext.current
         val uiState by viewModel.state.collectAsState()
 
+        // Диалог разрешений — только когда онбординг уже позади и не перекрывает его.
+        LaunchedEffect(Unit) {
+            requestAllPermissionsOnce()
+        }
         LaunchedEffect(Unit) {
             while (true) {
                 viewModel.refreshClock(context)
@@ -390,6 +433,70 @@ class HomeActivity : ComponentActivity() {
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.outlineVariant
             )
+
+            // Мост к ПК — только по явному включению. Без него Светлана
+            // полностью работает локально на телефоне. Код и адрес показываем прямо
+            // здесь (работает и без разрешения на уведомления). Вся работа с диском
+            // и Keystore — на Dispatchers.IO.
+            val scope = rememberCoroutineScope()
+            var bridgeOn by remember { mutableStateOf(false) }
+            var bridgeInfo by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(Unit) {
+                bridgeOn = withContext(Dispatchers.IO) { BridgeController.isEnabled(context) }
+            }
+            // Адрес может смениться (другая Wi‑Fi сеть) — обновляем, пока мост включён.
+            LaunchedEffect(bridgeOn) {
+                if (!bridgeOn) {
+                    bridgeInfo = null
+                    return@LaunchedEffect
+                }
+                while (true) {
+                    bridgeInfo = withContext(Dispatchers.IO) {
+                        try {
+                            val where = BridgeController.address() ?: "нет Wi‑Fi"
+                            "$where · код ${BridgeController.pairingCode(context)}"
+                        } catch (e: IllegalStateException) {
+                            e.message
+                        }
+                    }
+                    delay(30_000)
+                }
+            }
+            Text(
+                text = if (bridgeOn) "Подключение к ПК: включено · Выключить"
+                else "Подключение к ПК: выключено · Включить",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable {
+                        val target = !bridgeOn
+                        scope.launch {
+                            val ok = withContext(Dispatchers.IO) {
+                                try {
+                                    BridgeController.setEnabled(context, target)
+                                    true
+                                } catch (e: IllegalStateException) {
+                                    false
+                                }
+                            }
+                            if (ok) {
+                                bridgeOn = target
+                            } else {
+                                bridgeInfo = "Мост недоступен: нет защищённого хранилища"
+                            }
+                        }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+            bridgeInfo?.let { info ->
+                Text(
+                    text = info,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
