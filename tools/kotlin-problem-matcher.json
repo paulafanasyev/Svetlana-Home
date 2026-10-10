@@ -4,7 +4,7 @@
       "owner": "kotlin-error",
       "pattern": [
         {
-          "regexp": "^e: (?:file://)?(.+?):(\\d+):(\\d+) (.+)$",
+          "regexp": "^\\s*e: (?:file://)?(.+?):(\\d+):(\\d+) (.+)$",
           "file": 1,
           "line": 2,
           "column": 3,
@@ -16,7 +16,7 @@
       "owner": "android-lint-error",
       "pattern": [
         {
-          "regexp": "^(.+?\\.(?:kt|xml|kts)):(\\d+): Error: (.+)$",
+          "regexp": "^\\s*(.+?\\.(?:kt|xml|kts|java)):(\\d+): Error: (.+)$",
           "file": 1,
           "line": 2,
           "message": 3
