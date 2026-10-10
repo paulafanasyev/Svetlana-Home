@@ -14,6 +14,7 @@ WORKSPACE="${GITHUB_WORKSPACE:-$PWD}"
 RESULT_FILE="$WORKSPACE/instrumentation-result-${ATTEMPT}.env"
 LOG_FILE="$WORKSPACE/instrumentation-gradle-${ATTEMPT}.log"
 DIAG_FILE="$WORKSPACE/instrumentation-diagnostics-${ATTEMPT}.txt"
+SHOTS_DEVICE_DIR="/data/local/tmp/svetlana-shots"
 
 write_result() {
   local infra="$1"
@@ -46,6 +47,43 @@ collect_diagnostics() {
     echo "=== recent logcat ==="
     adb logcat -d -t 300 2>&1 || true
   } > "$DIAG_FILE"
+}
+
+# Скриншоты launcher (LauncherScreenshotDeviceTest): забираем с эмулятора,
+# распознаём текст (OCR) для проверки и публикуем ссылки в аннотациях CI,
+# чтобы их можно было посмотреть без скачивания артефактов.
+publish_screenshots() {
+  local dir="$WORKSPACE/svetlana-shots"
+  local index="$WORKSPACE/instrumentation-diagnostics-screenshots.txt"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  : > "$index"
+  local names
+  names="$(adb shell ls "$SHOTS_DEVICE_DIR" 2>/dev/null | tr -d '\r' | grep '\.png$' || true)"
+  if [ -z "$names" ]; then
+    echo "::warning::Скриншоты launcher не найдены на эмуляторе"
+    return 0
+  fi
+  if ! command -v tesseract >/dev/null 2>&1; then
+    sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-rus >/dev/null 2>&1 || true
+  fi
+  local n url ocr size
+  for n in $names; do
+    adb exec-out cat "$SHOTS_DEVICE_DIR/$n" > "$dir/$n" || continue
+    size="$(wc -c < "$dir/$n" | tr -d ' ')"
+    url="$(curl -sS --max-time 90 -F reqtype=fileupload -F "fileToUpload=@$dir/$n" https://catbox.moe/user/api.php 2>/dev/null || true)"
+    case "$url" in
+      https://*) ;;
+      *) url="$(curl -sS --max-time 90 -A 'svetlana-ci' -F "file=@$dir/$n" https://0x0.st 2>/dev/null || true)" ;;
+    esac
+    case "$url" in https://*) ;; *) url="upload-failed" ;; esac
+    ocr=""
+    if command -v tesseract >/dev/null 2>&1; then
+      ocr="$(tesseract "$dir/$n" - -l rus+eng 2>/dev/null | tr '\r\n\t' '   ' | tr -s ' ' | cut -c1-700 || true)"
+    fi
+    echo "$n bytes=$size url=$url ocr=$ocr" >> "$index"
+    echo "::notice title=SCREENSHOT ${n%.png}::$url | bytes=$size | OCR: $ocr"
+  done
 }
 
 fail_infra() {
@@ -101,6 +139,8 @@ set +e
 ./gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee "$LOG_FILE"
 TEST_RC="${PIPESTATUS[0]}"
 set -e
+
+publish_screenshots || echo "::warning::Не удалось опубликовать скриншоты launcher"
 
 if [ "$TEST_RC" -eq 0 ]; then
   write_result false passed "tests_passed"
