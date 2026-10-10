@@ -14,6 +14,7 @@ WORKSPACE="${GITHUB_WORKSPACE:-$PWD}"
 RESULT_FILE="$WORKSPACE/instrumentation-result-${ATTEMPT}.env"
 LOG_FILE="$WORKSPACE/instrumentation-gradle-${ATTEMPT}.log"
 DIAG_FILE="$WORKSPACE/instrumentation-diagnostics-${ATTEMPT}.txt"
+SHOTS_DEVICE_DIR="/data/local/tmp/svetlana-shots"
 
 write_result() {
   local infra="$1"
@@ -46,6 +47,59 @@ collect_diagnostics() {
     echo "=== recent logcat ==="
     adb logcat -d -t 300 2>&1 || true
   } > "$DIAG_FILE"
+}
+
+# Загрузка PNG на публичный файлообменник: несколько сервисов по очереди,
+# ответ каждого пишем в лог, чтобы было видно причину отказа.
+upload_png() {
+  local f="$1" r u
+  r="$(curl -sS --max-time 60 -F "file=@$f" https://tmpfiles.org/api/v1/upload 2>&1 || true)"
+  u="$(echo "$r" | grep -o '"url":"[^"]*"' | head -1 | cut -d'"' -f4 | sed 's#tmpfiles.org/#tmpfiles.org/dl/#; s#^http:#https:#')"
+  case "$u" in https://*) echo "$u"; return 0 ;; esac
+  echo "tmpfiles: ${r:0:200}" >&2
+  r="$(curl -sS --max-time 60 -F reqtype=fileupload -F time=72h -F "fileToUpload=@$f" https://litterbox.catbox.moe/resources/internals/api.php 2>&1 || true)"
+  case "$r" in https://*) echo "$r"; return 0 ;; esac
+  echo "litterbox: ${r:0:200}" >&2
+  r="$(curl -sS --max-time 60 -F "files[]=@$f" https://uguu.se/upload 2>&1 || true)"
+  u="$(echo "$r" | grep -o '"url":"[^"]*"' | head -1 | cut -d'"' -f4 | sed 's#\\/#/#g')"
+  case "$u" in https://*) echo "$u"; return 0 ;; esac
+  echo "uguu: ${r:0:200}" >&2
+  r="$(curl -sS --max-time 60 -F reqtype=fileupload -F "fileToUpload=@$f" https://catbox.moe/user/api.php 2>&1 || true)"
+  case "$r" in https://*) echo "$r"; return 0 ;; esac
+  echo "catbox: ${r:0:200}" >&2
+  echo "upload-failed"
+}
+
+# Скриншоты launcher (LauncherScreenshotDeviceTest): забираем с эмулятора,
+# распознаём текст (OCR) для проверки и публикуем ссылки в аннотациях CI,
+# чтобы их можно было посмотреть без скачивания артефактов.
+publish_screenshots() {
+  local dir="$WORKSPACE/svetlana-shots"
+  local index="$WORKSPACE/instrumentation-diagnostics-screenshots.txt"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  : > "$index"
+  local names
+  names="$(adb shell ls "$SHOTS_DEVICE_DIR" 2>/dev/null | tr -d '\r' | grep '\.png$' || true)"
+  if [ -z "$names" ]; then
+    echo "::warning::Скриншоты launcher не найдены на эмуляторе"
+    return 0
+  fi
+  if ! command -v tesseract >/dev/null 2>&1; then
+    sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-rus >/dev/null 2>&1 || true
+  fi
+  local n url ocr size
+  for n in $names; do
+    adb exec-out cat "$SHOTS_DEVICE_DIR/$n" > "$dir/$n" || continue
+    size="$(wc -c < "$dir/$n" | tr -d ' ')"
+    url="$(upload_png "$dir/$n")"
+    ocr=""
+    if command -v tesseract >/dev/null 2>&1; then
+      ocr="$(tesseract "$dir/$n" - -l rus+eng 2>/dev/null | tr '\r\n\t' '   ' | tr -s ' ' | cut -c1-700 || true)"
+    fi
+    echo "$n bytes=$size url=$url ocr=$ocr" >> "$index"
+    echo "::notice title=SCREENSHOT ${n%.png}::$url | bytes=$size | OCR: $ocr"
+  done
 }
 
 fail_infra() {
@@ -101,6 +155,8 @@ set +e
 ./gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee "$LOG_FILE"
 TEST_RC="${PIPESTATUS[0]}"
 set -e
+
+publish_screenshots || echo "::warning::Не удалось опубликовать скриншоты launcher"
 
 if [ "$TEST_RC" -eq 0 ]; then
   write_result false passed "tests_passed"
