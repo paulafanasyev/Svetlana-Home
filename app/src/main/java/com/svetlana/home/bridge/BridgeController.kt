@@ -45,7 +45,12 @@ object BridgeController {
 
     @Synchronized
     fun start(context: Context) {
-        if (server?.isRunning == true) return
+        if (server?.isRunning == true) {
+            // Already running: re-post the notification (e.g. after the user
+            // has just granted POST_NOTIFICATIONS).
+            showNotification(context, pairingCode(context))
+            return
+        }
         val code = pairingCode(context)
         val router = BridgeRouter(
             tokenCheck = { BridgeToken.matches(code, it) },
