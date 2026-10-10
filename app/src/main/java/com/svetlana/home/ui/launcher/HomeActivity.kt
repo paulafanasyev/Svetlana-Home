@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -58,7 +59,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.svetlana.home.R
+import com.svetlana.home.bridge.BridgeController
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.permissions.PermissionBootstrap
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.components.LivingOrb
 import com.svetlana.home.ui.onboarding.OnboardingFlowContent
@@ -85,6 +88,15 @@ import kotlinx.coroutines.flow.first
  */
 class HomeActivity : ComponentActivity() {
 
+    // Все runtime-разрешения одним системным диалогом, чтобы Светлана
+    // сразу работала локально на телефоне. После ответа обновляем уведомление
+    // моста (на Android 13+ оно появляется только после POST_NOTIFICATIONS).
+    private val permissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        BridgeController.startAsync(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(
@@ -92,6 +104,19 @@ class HomeActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         )
         setContent { SvetlanaSettingsTheme { HomeScreen() } }
+        if (savedInstanceState == null) requestAllPermissions()
+    }
+
+    private fun requestAllPermissions() {
+        if (PermissionBootstrap.isUnderInstrumentation()) return
+        val missing = PermissionBootstrap.missing(this)
+        if (missing.isNotEmpty()) {
+            try {
+                permissionsLauncher.launch(missing.toTypedArray())
+            } catch (t: Throwable) {
+                // Нет системного диалога (редкие OEM) — остаётся мастер разрешений.
+            }
+        }
     }
 
     @Composable
