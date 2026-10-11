@@ -40,10 +40,13 @@ data class UiTree(
  * Делегирует реальные действия SvetlanaAccessibilityService и всегда
  * проверяет наличие системного доступа перед выполнением.
  *
- * Безопасность: нажатие/ввод/очистка выполняются ТОЛЬКО на том живом элементе, который
- * точно совпадает со снимком ([findExactNode]: класс, границы, id, текст, описание — в том
- * же виде, что и в снимке, с вычищенными секретами). Если элемент сдвинули или подменили
- * похожим (другая строка списка с тем же id, кнопка с тем же текстом) — действие не выполняется.
+ * Безопасность: нажатие/ввод/очистка выполняются ТОЛЬКО на том живом элементе, который точно
+ * совпадает со снимком ([findExactNode]: класс, границы, id, текст, описание — в том
+ * же виде, что и в снимке, с вычищенными секретами) и принадлежит ожидаемому приложению
+ * (пакет проверяется на самом живом элементе прямо перед действием: оверлей, выскочивший
+ * между проверкой экрана и нажатием, не получит действие). Если элемент сдвинули или
+ * подменили похожим — действие не выполняется. Ввод идёт прямо в этот элемент
+ * (ACTION_SET_TEXT), а не «куда сейчас фокус», поэтому смена фокуса не перенаправляет текст.
  */
 class HandsController(private val context: Context) {
 
@@ -83,11 +86,17 @@ class HandsController(private val context: Context) {
         return findByClassAndBounds(root, node)
     }
 
-    /** Живой элемент, совпадающий со снимком во всём: класс, границы, id, текст, описание, пароль. */
-    private fun findExactNode(node: UiNode): AccessibilityNodeInfo? {
+    /**
+     * Живой элемент, совпадающий со снимком во всём: класс, границы, id, текст, описание, пароль.
+     * Если задан [inPackage] — и окно, и сам элемент должны принадлежать этому приложению.
+     */
+    private fun findExactNode(node: UiNode, inPackage: String?): AccessibilityNodeInfo? {
         val svc = service() ?: return null
         val root = svc.rootInActiveWindow ?: return null
-        return findExact(root, node, 0)
+        if (inPackage != null && !root.packageName?.toString().equals(inPackage, ignoreCase = true)) return null
+        val live = findExact(root, node, 0) ?: return null
+        if (inPackage != null && !live.packageName?.toString().equals(inPackage, ignoreCase = true)) return null
+        return live
     }
 
     /** Сравнение в том же виде, что и в снимке (текст паролей/кодов вычищен одинаково). */
@@ -137,27 +146,27 @@ class HandsController(private val context: Context) {
         return null
     }
 
-    fun clickNode(node: UiNode): Boolean {
+    fun clickNode(node: UiNode, inPackage: String? = null): Boolean {
         val svc = service() ?: return false
-        val live = findExactNode(node) ?: return false
+        val live = findExactNode(node, inPackage) ?: return false
         return svc.click(live)
     }
 
-    fun longClick(node: UiNode): Boolean {
+    fun longClick(node: UiNode, inPackage: String? = null): Boolean {
         val svc = service() ?: return false
-        val live = findExactNode(node) ?: return false
+        val live = findExactNode(node, inPackage) ?: return false
         return svc.longClick(live)
     }
 
-    fun inputText(node: UiNode, text: String): Boolean {
+    fun inputText(node: UiNode, text: String, inPackage: String? = null): Boolean {
         val svc = service() ?: return false
-        val live = findExactNode(node) ?: return false
+        val live = findExactNode(node, inPackage) ?: return false
         return svc.inputText(live, text)
     }
 
-    fun clearText(node: UiNode): Boolean {
+    fun clearText(node: UiNode, inPackage: String? = null): Boolean {
         val svc = service() ?: return false
-        val live = findExactNode(node) ?: return false
+        val live = findExactNode(node, inPackage) ?: return false
         return svc.clearText(live)
     }
 
