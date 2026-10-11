@@ -60,6 +60,11 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         else mainHandler.post { action() }
     }
 
+    init {
+        // Шаблон голоса читаем заранее в фоне: на main thread только кэш.
+        OwnerVoiceStore.prewarm(context)
+    }
+
     /** Аудит §18: явное состояние сессии. */
     val session = VoiceSessionStateMachine()
 
@@ -155,8 +160,10 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 }
                 dropTap(countAsFailure = false)
+                // Только кэш: Keystore/диск на main thread не трогаем. Если кэш ещё не готов,
+                // владелец будет проверен контрольной фразой (безопасно, просто дольше).
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    tapFailures < MAX_TAP_FAILURES && OwnerVoiceStore.isEnrolled(context)
+                    tapFailures < MAX_TAP_FAILURES && OwnerVoiceStore.isEnrolledCached()
                 ) {
                     tap = OwnerAudioTap.attach(context, intent)
                 }
