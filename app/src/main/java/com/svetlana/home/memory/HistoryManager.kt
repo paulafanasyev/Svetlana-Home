@@ -10,22 +10,56 @@ import java.util.UUID
 /**
  * HistoryManager — история Светланы.
  * Пользователь может удалить историю целиком.
+ *
+ * Приватность: история (команды, контакты, результаты) на диске только зашифрована
+ * ключом из Android Keystore ([HistoryCipher]). Старый незашифрованный history.json читается
+ * один раз, пересохраняется зашифрованно и удаляется. Если шифрование недоступно —
+ * история живёт только в памяти, в открытом виде на диск не пишется никогда.
  */
 class HistoryManager(context: Context) {
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
-    private val file: File = File(context.filesDir, "history.json").apply { parentFile?.mkdirs() }
+    private val dir: File = context.filesDir.apply { mkdirs() }
+    private val file: File = File(dir, "history.bin")
+    private val legacy: File = File(dir, "history.json")
 
     @Volatile
     private var entries: List<HistoryEntry> = load()
 
-    private fun load(): List<HistoryEntry> = try {
-        if (file.exists() && file.length() > 0) json.decodeFromString(ListSerializer(HistoryEntry.serializer()), file.readText()) else emptyList()
-    } catch (t: Throwable) { emptyList() }
+    init {
+        if (legacy.exists()) {
+            save()
+            if (!legacy.delete()) Log.w(TAG, "Не удалось удалить старую незашифрованную историю")
+        }
+    }
+
+    private fun decode(text: String): List<HistoryEntry> =
+        json.decodeFromString(ListSerializer(HistoryEntry.serializer()), text)
+
+    private fun load(): List<HistoryEntry> {
+        val encrypted = try {
+            if (file.exists() && file.length() > 0) decode(String(HistoryCipher.decrypt(file.readBytes()), Charsets.UTF_8)) else null
+        } catch (t: Throwable) {
+            Log.w(TAG, "История не расшифрована — начинаю заново")
+            null
+        }
+        if (encrypted != null) return encrypted
+        return try {
+            if (legacy.exists() && legacy.length() > 0) decode(legacy.readText()) else emptyList()
+        } catch (t: Throwable) { emptyList() }
+    }
 
     private fun save() {
-        try { file.writeText(json.encodeToString(ListSerializer(HistoryEntry.serializer()), entries)) } catch (t: Throwable) {
-            Log.w(TAG, "Не удалось сохранить историю", t)
+        try {
+            val plain = json.encodeToString(ListSerializer(HistoryEntry.serializer()), entries).toByteArray(Charsets.UTF_8)
+            val tmp = File(dir, "history.bin.tmp")
+            tmp.writeBytes(HistoryCipher.encrypt(plain))
+            if (!tmp.renameTo(file)) {
+                file.delete()
+                if (!tmp.renameTo(file)) tmp.delete()
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Не удалось сохранить историю (в открытом виде не пишу)", t)
         }
     }
 
@@ -43,6 +77,7 @@ class HistoryManager(context: Context) {
     fun clear() {
         entries = emptyList()
         save()
+        legacy.delete()
     }
 
     fun clearCategory(category: HistoryCategory) {
