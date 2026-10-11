@@ -27,8 +27,8 @@ class ActionGrantTest {
     }
 
     @Test
-    fun grantIsSealedAndCannotBeImplementedOutside() {
+    fun grantIsAnInterfaceWithoutPublicFactory() {
         assertWithMessage("ActionGrant — интерфейс").that(ActionGrant::class.java.isInterface).isTrue()
-        assertWithMessage("ActionGrant — sealed").that(ActionGrant::class.isSealed).isTrue()
+        assertWithMessage("у ActionGrant нет методов-фабрик").that(ActionGrant::class.java.declaredMethods.toList()).isEmpty()
     }
 }

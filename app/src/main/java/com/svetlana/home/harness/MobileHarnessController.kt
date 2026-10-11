@@ -30,8 +30,8 @@ import kotlinx.coroutines.delay
  *
  * Безопасность: действия выполняются только когда на экране ДЕЙСТВИТЕЛЬНО
  * Mobile Harness (иначе — отказ), и даже там не нажимаются необратимые кнопки
- * и не заполняются поля паролей/карт. Каждое нажатие, ввод и скриншот
- * проходит ту же проверку, что и команды Светланы
+ * и не заполняются поля паролей/карт. Каждое действие — нажатие, ввод, прокрутка,
+ * «назад», чтение экрана и скриншот — проходит ту же проверку, что и команды Светланы
  * ([com.svetlana.home.control.ActionRouter.authorizeUnattended]); опасное подтверждается
  * только пользователем в обычном диалоге.
  */
@@ -148,7 +148,8 @@ class MobileHarnessController(
     // ---------- Управление UI Mobile Harness ----------
 
     suspend fun findElement(text: String): UiNode? {
-        ensureHarnessInForeground() ?: return null
+        val pkg = ensureHarnessInForeground() ?: return null
+        if (!authorized(SvetlanaAction.FindElement(pkg, text))) return null
         return hands.findElement(text)
     }
 
@@ -190,17 +191,20 @@ class MobileHarnessController(
     }
 
     suspend fun scrollDown(): Boolean {
-        ensureHarnessInForeground() ?: return false
+        val pkg = ensureHarnessInForeground() ?: return false
+        if (!authorized(SvetlanaAction.Scroll(pkg, "down"))) return false
         return hands.scrollForward()
     }
 
     suspend fun scrollUp(): Boolean {
-        ensureHarnessInForeground() ?: return false
+        val pkg = ensureHarnessInForeground() ?: return false
+        if (!authorized(SvetlanaAction.Scroll(pkg, "up"))) return false
         return hands.scrollBackward()
     }
 
     suspend fun goBack(): Boolean {
         ensureHarnessInForeground() ?: return false
+        if (!authorized(SvetlanaAction.PressBack)) return false
         return hands.pressBack()
     }
 
@@ -211,12 +215,14 @@ class MobileHarnessController(
     }
 
     suspend fun verifyResult(text: String): Boolean {
-        ensureHarnessInForeground() ?: return false
+        val pkg = ensureHarnessInForeground() ?: return false
+        if (!authorized(SvetlanaAction.ReadScreen(pkg))) return false
         return hands.verifyTextVisible(text)
     }
 
     suspend fun uiTree(): String {
-        ensureHarnessInForeground() ?: return "empty"
+        val pkg = ensureHarnessInForeground() ?: return "empty"
+        if (!authorized(SvetlanaAction.ReadScreen(pkg))) return "empty"
         val tree = hands.uiTree() ?: return "empty"
         return tree.nodes.joinToString("\n") {
             "[${it.depth}] ${it.className} text=${it.visibleText} id=${it.id} " +
