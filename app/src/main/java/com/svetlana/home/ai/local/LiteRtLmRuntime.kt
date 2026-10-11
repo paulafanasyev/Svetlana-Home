@@ -14,24 +14,13 @@ import com.svetlana.home.ai.providers.InferenceRuntime
 import java.io.File
 
 /**
- * LiteRtLmRuntime — локальный multimodal inference через Google AI Edge
- * LiteRT-LM (аудит §10-12, P0-1).
+ * LiteRtLmRuntime — локальный multimodal inference через Google AI Edge LiteRT-LM.
  *
  * Reference: https://github.com/google-ai-edge/LiteRT-LM (Apache-2.0)
- * API: https://github.com/google-ai-edge/LiteRT-LM/blob/main/docs/api/kotlin/getting_started.md
  *
- * Отличия от [LlamaCppRuntime]:
- *  - multimodal: изображение РЕАЛЬНО передаётся в модель (Content.ImageBytes),
- *    а не игнорируется;
- *  - vision-поддержка определяется самой моделью через
- *    [Capabilities.inputModalities], а не декларируется нами;
- *  - текущая реализация использует CPU backend; GPU/NPU не включаются
- *    до появления фактического backend implementation и device proof.
- *
- * Безопасность: перед загрузкой в Engine файл сверяется с доверенным SHA-256
- * ([LocalModelManager.verifyIntegrity]); изменённый файл не загружается.
- *
- * Принцип ТЗ §33: библиотека не скачивает модели.
+ * Безопасность: модель считается готовой только если её файл проходит проверку SHA-256 по реестру,
+ * а перед загрузкой в Engine файл хешируется заново ([LocalModelManager.verifyIntegrity]).
+ * Библиотека не скачивает модели (ТЗ §33).
  */
 class LiteRtLmRuntime(
     private val context: Context,
@@ -55,7 +44,7 @@ class LiteRtLmRuntime(
 
     override fun isReady(): Boolean {
         val installed = activeInstalled() ?: return false
-        return File(installed.filePath).exists()
+        return File(installed.filePath).exists() && modelManager.verifyIntegrity(installed.modelId, fresh = false)
     }
 
     override fun isReadyFor(modelId: String): Boolean {
@@ -63,7 +52,8 @@ class LiteRtLmRuntime(
         val model = registry.byId(modelId) ?: return false
         if (!isLitertlmModel(model)) return false
         return File(installed.filePath).exists() &&
-            installed.filePath.endsWith(".litertlm", ignoreCase = true)
+            installed.filePath.endsWith(".litertlm", ignoreCase = true) &&
+            modelManager.verifyIntegrity(modelId, fresh = false)
     }
 
     override fun supportedModelIds(): List<String> = try {
