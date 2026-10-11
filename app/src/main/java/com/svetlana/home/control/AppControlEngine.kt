@@ -11,6 +11,7 @@ import com.svetlana.home.core.ProofStep
 import com.svetlana.home.core.StepStatus
 import com.svetlana.home.hands.HandsController
 import com.svetlana.home.hands.SensitiveApps
+import com.svetlana.home.hands.UiNode
 import com.svetlana.home.permissions.PermissionManager
 
 /**
@@ -23,6 +24,8 @@ import com.svetlana.home.permissions.PermissionManager
  *   «прикалывается» к пакету целевого приложения ([guard]): неизвестное приложение = отказ,
  *   а пакет проверяется ещё раз НЕПОСРЕДСТВЕННО перед действием — оверлей или переключение
  *   приложения отменяет действие;
+ * - нажатие/ввод выполняются только на том элементе, который роутер оценил и пользователь подтвердил
+ *   ([targetLabel]); другая кнопка на его месте или сдвиг = отказ;
  * - звонок только через набор номера, SMS — только черновик.
  *
  * Запрещено: произвольные shell-команды, root, Termux, скрытое управление, автонабор звонка.
@@ -69,6 +72,14 @@ class AppControlEngine(
     private fun wrongAppResult(action: SvetlanaAction, proof: ProofBuilder, current: String, expected: String): ActionResult =
         ActionResult(action, false, "На экране другое приложение — действие отменено для безопасности",
             proof.failed("foreground=$current expected=$expected"), "hands")
+
+    /** Элемент на экране не тот, что был оценён/подтверждён. */
+    private fun changedTarget(action: SvetlanaAction, proof: ProofBuilder): ActionResult =
+        ActionResult(action, false, "Элемент на экране изменился после проверки — действие отменено для безопасности",
+            proof.failed("target changed after check"), "hands")
+
+    private fun differs(expected: String?, pkg: String, node: UiNode): Boolean =
+        expected != null && targetLabel(pkg, node) != expected
 
     suspend fun openApp(target: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=OPEN_APP target=$target")
@@ -121,7 +132,7 @@ class AppControlEngine(
         }
     }
 
-    suspend fun click(grant: ActionGrant, target: String, element: String): ActionResult {
+    suspend fun click(grant: ActionGrant, target: String, element: String, expected: String? = null): ActionResult {
         val action = SvetlanaAction.Click(target, element)
         val proof = proofBuilder.start("PLAN0_TARGET=CLICK app=$target element=$element")
         if (!hands.isActive) return handsOff(action, proof)
@@ -132,6 +143,7 @@ class AppControlEngine(
         proof.ok(ProofStage.ACTION_ATTEMPTED, "find element: $element")
         val node = hands.findElement(element)
             ?: return ActionResult(action, false, "Элемент не найден на экране", proof.failed("element not found"))
+        if (differs(expected, hands.currentPackage(), node)) return changedTarget(action, proof)
         val before = hands.treeFingerprint()
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
         val ok = hands.clickNode(node)
@@ -148,7 +160,7 @@ class AppControlEngine(
             proof.build(), "hands")
     }
 
-    suspend fun longClick(grant: ActionGrant, target: String, element: String): ActionResult {
+    suspend fun longClick(grant: ActionGrant, target: String, element: String, expected: String? = null): ActionResult {
         val action = SvetlanaAction.LongClick(target, element)
         val proof = proofBuilder.start("PLAN0_TARGET=LONG_CLICK app=$target element=$element")
         if (!hands.isActive) return handsOff(action, proof)
@@ -159,6 +171,7 @@ class AppControlEngine(
         proof.ok(ProofStage.ACTION_ATTEMPTED, "find element: $element")
         val node = hands.findElement(element)
             ?: return ActionResult(action, false, "Элемент не найден", proof.failed("element not found"))
+        if (differs(expected, hands.currentPackage(), node)) return changedTarget(action, proof)
         val before = hands.treeFingerprint()
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
         val ok = hands.longClick(node)
@@ -175,7 +188,7 @@ class AppControlEngine(
             proof.build(), "hands")
     }
 
-    suspend fun typeText(grant: ActionGrant, target: String, element: String, text: String): ActionResult {
+    suspend fun typeText(grant: ActionGrant, target: String, element: String, text: String, expected: String? = null): ActionResult {
         val action = SvetlanaAction.TypeText(target, element, text)
         val proof = proofBuilder.start("PLAN0_TARGET=TYPE_TEXT app=$target element=$element")
         if (!hands.isActive) return handsOff(action, proof)
@@ -186,6 +199,7 @@ class AppControlEngine(
         proof.ok(ProofStage.ACTION_ATTEMPTED, "find element: $element")
         val node = hands.findElement(element)
             ?: return ActionResult(action, false, "Поле ввода не найдено", proof.failed("input field not found"))
+        if (differs(expected, hands.currentPackage(), node)) return changedTarget(action, proof)
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
         val ok = hands.inputText(node, text)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
@@ -573,6 +587,10 @@ class AppControlEngine(
         private const val DEFAULT_MESSENGER = "whatsapp"
         private val GENERIC_TARGETS = setOf("экран", "текущее", "текущий", "этот", "здесь", "current", "screen", "this")
         private val PACKAGE_RE = Regex("^[a-zA-Z][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+$")
+
+        /** Метка элемента на экране: та же, по которой роутер оценивает риск и спрашивает согласие. */
+        fun targetLabel(pkg: String, node: UiNode): String =
+            "$pkg ${node.text} ${node.contentDescription} ${node.id} ${node.bounds}"
     }
 
     suspend fun makeCall(grant: ActionGrant, contact: String): ActionResult {
