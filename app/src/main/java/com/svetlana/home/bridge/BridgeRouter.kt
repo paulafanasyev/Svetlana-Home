@@ -6,18 +6,18 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import java.net.Inet6Address
 import java.net.InetAddress
 
 /**
  * HTTP routes of the Svetlana bridge (protocol v2). Matches the HTTPHands transport
- * of the Svetlana 2.0 core: GET /health, POST /api/<route>.
+ * of the Svetlana 2.0 core: GET /health (publishes the PBKDF2 salt), POST /api/<route>.
  *
  * /api requests are end-to-end encrypted and authenticated with a key derived from
  * the pairing code ([BridgeCrypto]); the code itself is never transmitted:
- *   headers X-Svetlana-Ts (ms) and X-Svetlana-Nonce (base64url, one-time),
- *   body {"v":2,"iv","ct"} whose plaintext is {"params": {...}}.
+ *   body {"v":2,"ts","nonce","iv","ct"} whose plaintext is {"params": {...}}.
  * Authenticated replies are encrypted too; the plaintext is
  * {"success": true, "data": ..., "timestamp": ...} or {"success": false, "error", "message"}.
  *
@@ -30,7 +30,7 @@ import java.net.InetAddress
  * - timestamps outside the skew window and reused nonces are rejected (no replay).
  */
 class BridgeRouter(
-    private val keyProvider: () -> ByteArray?,
+    private val keyring: BridgeKeyring,
     private val handlers: BridgeHandlers,
     private val version: String = "2",
     private val clock: () -> Long = System::currentTimeMillis,
@@ -60,7 +60,8 @@ class BridgeRouter(
             val body = buildJsonObject {
                 put("ok", true)
                 put("service", "svetlana-home")
-                put("protocol", BridgeCrypto.VERSION)
+                put("v", BridgeCrypto.VERSION)
+                keyring.current()?.let { put("salt", it.salt) }
             }
             return HttpResponse(200, body.toString(), cors)
         }
@@ -72,25 +73,28 @@ class BridgeRouter(
         if (limiter.isLocked(client)) {
             return error(429, "TOO_MANY_ATTEMPTS", "Слишком много неверных кодов, подождите 10 минут", cors)
         }
-        val key = keyProvider() ?: return error(503, "NOT_READY", "Мост ещё не готов", cors)
-
-        val ts = request.headers["x-svetlana-ts"]?.takeIf { TS_RE.matches(it) }?.toLongOrNull()
-        val nonce = request.headers["x-svetlana-nonce"]?.takeIf { NONCE_RE.matches(it) }
+        val route = path.removePrefix("/api/")
         val envelope = parseEnvelope(request.body)
-        if (ts == null || nonce == null || envelope == null) {
-            // Not a v2 request at all (e.g. an old Svetlana 2.0 sending the code as Bearer).
+            // Not a v2 request (e.g. an old Svetlana 2.0 sending the code as Bearer).
             // Nothing was checked, so it is not counted as a guess.
-            return error(401, "UPGRADE_REQUIRED", "Обновите Светлану 2.0: нужен защищённый протокол v2", cors)
+            ?: return error(426, "UPGRADE_REQUIRED", "Обновите Светлану на ПК: нужен защищённый протокол v2", cors)
+        if (envelope.ts == null || envelope.nonce == null || envelope.iv == null || envelope.ct == null ||
+            BridgeCrypto.decode(envelope.nonce)?.size != BridgeCrypto.NONCE_BYTES
+        ) {
+            return error(400, "BAD_REQUEST", "Malformed secure request", cors)
         }
-        val plaintext = BridgeCrypto.open(key, envelope.first, envelope.second, BridgeCrypto.requestAad("POST", path, ts, nonce))
+        val session = keyring.current() ?: return error(503, "NOT_READY", "Мост ещё не готов", cors)
+        val nonce = envelope.nonce
+        val ts = envelope.ts
+        val plaintext = BridgeCrypto.open(session.key, envelope.iv, envelope.ct, BridgeCrypto.requestAad(route, ts, nonce))
         if (plaintext == null) {
             limiter.recordFailure(client)
-            return error(401, "UNAUTHORIZED", "Неверный код подключения с главного экрана Светланы", cors)
+            return error(401, "UNAUTHORIZED", "Неверный код подключения", cors)
         }
         when (replay.check(nonce, ts)) {
             BridgeReplayGuard.Verdict.OK -> Unit
             BridgeReplayGuard.Verdict.STALE ->
-                return error(401, "STALE_REQUEST", "Часы телефона и компьютера расходятся больше чем на минуту", cors)
+                return error(401, "STALE", "Часы ПК и телефона расходятся больше чем на 2 минуты", cors)
             BridgeReplayGuard.Verdict.REPLAY -> return error(409, "REPLAY", "Повтор запроса отклонён", cors)
             BridgeReplayGuard.Verdict.BUSY -> return error(503, "BUSY", "Слишком много запросов, повторите позже", cors)
         }
@@ -101,7 +105,7 @@ class BridgeRouter(
             BridgeResult.Error("BAD_JSON", "Body must be a JSON object")
         } else {
             try {
-                dispatch(path.removePrefix("/api/"), params)
+                dispatch(route, params)
             } catch (e: Exception) {
                 BridgeResult.Error("INTERNAL", e.javaClass.simpleName)
             }
@@ -114,7 +118,7 @@ class BridgeRouter(
             }.toString()
             is BridgeResult.Error -> statusFor(result.code) to errorBody(result.code, result.message)
         }
-        val sealed = BridgeCrypto.seal(key, body, BridgeCrypto.responseAad(nonce, status))
+        val sealed = BridgeCrypto.seal(session.key, body, BridgeCrypto.responseAad(route, nonce))
         val envelopeOut = buildJsonObject {
             put("v", BridgeCrypto.VERSION)
             put("iv", sealed.iv)
@@ -160,8 +164,6 @@ class BridgeRouter(
         private val IPV4_HOST_RE = Regex("^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})(?::(\\d{1,5}))?$")
         private val LOCAL_HOST_RE = Regex("^(localhost|\\[(?:::1|0:0:0:0:0:0:0:1)])(?::(\\d{1,5}))?$")
         private val TAURI_ORIGINS = setOf("http://tauri.localhost", "https://tauri.localhost", "tauri://localhost")
-        private val TS_RE = Regex("^\\d{1,15}$")
-        private val NONCE_RE = Regex("^[A-Za-z0-9_-]{16,64}$")
         private val IPV4_LITERAL_RE = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
         private val IPV6_LITERAL_RE = Regex("^[0-9A-Fa-f:.]+$")
 
@@ -205,17 +207,18 @@ class BridgeRouter(
 
         private fun portOk(port: String): Boolean = port.isEmpty() || (port.toIntOrNull() ?: 0) in 1..65535
 
-        /** {"v":2,"iv":"...","ct":"..."} → (iv, ct), or null for anything else. */
-        fun parseEnvelope(body: String): Pair<String, String>? {
+        class Envelope(val ts: Long?, val nonce: String?, val iv: String?, val ct: String?)
+
+        /** {"v":2,"ts","nonce","iv","ct"}; null when the body is not a v2 envelope at all. */
+        fun parseEnvelope(body: String): Envelope? {
             val root = try {
                 Json.parseToJsonElement(body) as? JsonObject
             } catch (e: Exception) {
                 null
             } ?: return null
             if ((root["v"] as? JsonPrimitive)?.intOrNull != BridgeCrypto.VERSION) return null
-            val iv = (root["iv"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
-            val ct = (root["ct"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
-            return iv to ct
+            fun str(k: String) = (root[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            return Envelope((root["ts"] as? JsonPrimitive)?.longOrNull, str("nonce"), str("iv"), str("ct"))
         }
 
         fun parseParams(body: String): JsonObject? {
@@ -240,7 +243,7 @@ class BridgeRouter(
             "Access-Control-Allow-Origin" to origin,
             "Vary" to "Origin",
             "Access-Control-Allow-Methods" to "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers" to "Content-Type, X-Svetlana-Ts, X-Svetlana-Nonce",
+            "Access-Control-Allow-Headers" to "Content-Type",
             // Chrome Private Network Access: only for allow-listed origins.
             "Access-Control-Allow-Private-Network" to "true",
             "Access-Control-Max-Age" to "600",

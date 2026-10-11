@@ -1,6 +1,7 @@
 package com.svetlana.home.bridge
 
 import com.google.common.truth.Truth.assertThat
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -21,8 +22,8 @@ class BridgeServerTest {
             BridgeResult.Ok(buildJsonObject { put("total", 0) })
         override fun launchApp(packageName: String): BridgeResult = BridgeResult.Ok()
     }
-    private val key = BridgeCrypto.deriveKey(code)
-    private val server = BridgeServer(0, BridgeRouter({ key }, handlers), InetAddress.getLoopbackAddress())
+    private val keyring = BridgeKeyring({ code }, iterations = BridgeV2TestClient.TEST_ITERATIONS)
+    private val server = BridgeServer(0, BridgeRouter(keyring, handlers), InetAddress.getLoopbackAddress())
 
     @After
     fun tearDown() {
@@ -42,7 +43,9 @@ class BridgeServerTest {
 
         val health = open("/health")
         assertThat(health.responseCode).isEqualTo(200)
-        assertThat(health.inputStream.bufferedReader().readText()).contains("svetlana-home")
+        val healthBody = Json.parseToJsonElement(health.inputStream.bufferedReader().readText()).jsonObject
+        assertThat(healthBody["service"]!!.jsonPrimitive.content).isEqualTo("svetlana-home")
+        val salt = healthBody["salt"]!!.jsonPrimitive.content
 
         val legacy = open("/api/device/info").apply {
             requestMethod = "POST"
@@ -50,9 +53,9 @@ class BridgeServerTest {
             setRequestProperty("Authorization", "Bearer $code")
             outputStream.use { it.write("{}".toByteArray()) }
         }
-        assertThat(legacy.responseCode).isEqualTo(401)
+        assertThat(legacy.responseCode).isEqualTo(426)
 
-        val client = BridgeV2TestClient(code) { System.currentTimeMillis() }
+        val client = BridgeV2TestClient(code, salt, { System.currentTimeMillis() })
         val sent = client.request("device/info", origin = null)
         val ok = open("/api/device/info").apply {
             requestMethod = "POST"
@@ -63,13 +66,13 @@ class BridgeServerTest {
         assertThat(ok.responseCode).isEqualTo(200)
         val raw = ok.inputStream.bufferedReader().readText()
         assertThat(raw).doesNotContain("Loopback")
-        val plain = client.open(HttpResponse(200, raw), sent.nonce)
+        val plain = client.open(HttpResponse(200, raw), sent)
         assertThat(plain["data"]!!.jsonObject["model"]!!.jsonPrimitive.content).isEqualTo("Loopback")
     }
 
     @Test
     fun refusesToListenOnAllInterfaces() {
-        val any = BridgeServer(0, BridgeRouter({ key }, handlers), InetAddress.getByName("0.0.0.0"))
+        val any = BridgeServer(0, BridgeRouter(keyring, handlers), InetAddress.getByName("0.0.0.0"))
         assertThrows(IllegalArgumentException::class.java) { any.start() }
         assertThat(any.isRunning).isFalse()
     }

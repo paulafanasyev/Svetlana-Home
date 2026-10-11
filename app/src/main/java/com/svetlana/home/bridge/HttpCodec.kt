@@ -9,10 +9,7 @@ object HttpRequestParser {
     const val MAX_HEADER_BYTES = 16 * 1024
     const val MAX_BODY_BYTES = 256 * 1024
 
-    private val SINGLE_HEADERS = setOf(
-        "content-length", "host", "authorization", "x-svetlana-token", "origin",
-        "x-svetlana-ts", "x-svetlana-nonce",
-    )
+    private val SINGLE_HEADERS = setOf("content-length", "host", "authorization", "x-svetlana-token", "origin")
 
     class ParseException(val status: Int, message: String) : Exception(message)
 
@@ -107,6 +104,7 @@ object HttpResponseWriter {
         409 -> "Conflict"
         413 -> "Payload Too Large"
         421 -> "Misdirected Request"
+        426 -> "Upgrade Required"
         429 -> "Too Many Requests"
         431 -> "Request Header Fields Too Large"
         500 -> "Internal Server Error"

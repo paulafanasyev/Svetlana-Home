@@ -9,7 +9,7 @@ package com.svetlana.home.bridge
  */
 class BridgeReplayGuard(
     private val clock: () -> Long = System::currentTimeMillis,
-    val maxSkewMs: Long = 90_000L,
+    val maxSkewMs: Long = 120_000L,
     private val capacity: Int = 4096,
 ) {
     enum class Verdict { OK, STALE, REPLAY, BUSY }

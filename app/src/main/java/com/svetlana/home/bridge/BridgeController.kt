@@ -24,11 +24,11 @@ import kotlin.concurrent.thread
  * phone: http://<phone-ip>:8080. Opt-in: off until the user enables it.
  *
  * Security (protocol v2): every request and reply is AES-256-GCM encrypted with a
- * key derived from the 16-symbol pairing code shown on the home screen, so the code
- * never travels over Wi-Fi; nonces + timestamps block replay. The socket is bound
- * to the phone's Wi-Fi (site-local IPv4) address only, never to mobile data or
- * VPN interfaces. Every enable generates a fresh code, and codes expire after
- * [CODE_TTL_MS].
+ * key derived (PBKDF2, per-code random salt) from the 16-symbol pairing code shown on
+ * the home screen, so the code never travels over Wi-Fi; nonces + timestamps block replay.
+ * The socket is bound to the phone's Wi-Fi (site-local IPv4) address only, never to
+ * mobile data or VPN interfaces. Every enable generates a fresh code, and codes expire
+ * after [CODE_TTL_MS].
  */
 object BridgeController {
     const val PORT = 8080
@@ -48,18 +48,6 @@ object BridgeController {
 
     @Volatile
     private var currentCode: String? = null
-
-    @Volatile
-    private var currentKey: Pair<String, ByteArray>? = null
-
-    /** AES key for [code], cached per code. */
-    private fun keyFor(code: String?): ByteArray? {
-        code ?: return null
-        currentKey?.let { (c, k) -> if (c == code) return k }
-        val key = BridgeCrypto.deriveKey(code) ?: return null
-        currentKey = code to key
-        return key
-    }
 
     /** The bridge is opt-in: off until the user turns it on from the home screen. */
     fun isEnabled(context: Context): Boolean =
@@ -115,7 +103,7 @@ object BridgeController {
         }
         val code = pairingCode(context)
         val router = BridgeRouter(
-            keyProvider = { keyFor(currentCode ?: code) },
+            keyring = BridgeKeyring(code = { currentCode ?: code }),
             handlers = AndroidBridgeHandlers(context),
             version = BuildConfig.VERSION_NAME,
         )

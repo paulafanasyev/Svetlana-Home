@@ -41,14 +41,15 @@ class BridgeRouterTest {
     }
 
     private val handlers = FakeHandlers()
-    private val key = BridgeCrypto.deriveKey(code)
-    private val router = BridgeRouter({ key }, handlers, version = "test", clock = { now })
-    private val client = BridgeV2TestClient(code) { now }
+    private val keyring = BridgeKeyring({ code }, iterations = BridgeV2TestClient.TEST_ITERATIONS)
+    private val router = BridgeRouter(keyring, handlers, version = "test", clock = { now })
+    private val salt = keyring.current()!!.salt
+    private val client = BridgeV2TestClient(code, salt, { now })
 
     private fun call(route: String, params: String = "{\"params\":{}}"): Pair<HttpResponse, JsonObject> {
         val sent = client.request(route, params)
         val response = router.handle(sent.request)
-        return response to client.open(response, sent.nonce)
+        return response to client.open(response, sent)
     }
 
     private fun json(response: HttpResponse) = Json.parseToJsonElement(response.body).jsonObject
@@ -59,8 +60,9 @@ class BridgeRouterTest {
         assertThat(response.status).isEqualTo(200)
         val body = json(response)
         assertThat(body["ok"]!!.jsonPrimitive.boolean).isTrue()
-        assertThat(body.keys).containsExactly("ok", "service", "protocol")
-        assertThat(body["protocol"]!!.jsonPrimitive.int).isEqualTo(2)
+        assertThat(body.keys).containsExactly("ok", "service", "v", "salt")
+        assertThat(body["v"]!!.jsonPrimitive.int).isEqualTo(2)
+        assertThat(body["salt"]!!.jsonPrimitive.content).isEqualTo(salt)
     }
 
     @Test
@@ -73,13 +75,13 @@ class BridgeRouterTest {
         assertThat(sent.request.body).doesNotContain("ABCDEFGHJKLMNPQR")
         assertThat(sent.request.headers.values.joinToString()).doesNotContain("ABCDEFGHJKLMNPQR")
         assertThat(json(response).keys).containsExactly("v", "iv", "ct")
-        val plain = client.open(response, sent.nonce)
+        val plain = client.open(response, sent)
         assertThat(plain["data"]!!.jsonObject["model"]!!.jsonPrimitive.content).isEqualTo("Test Phone")
     }
 
     @Test
     fun wrongCodeIsUnauthorizedAndCounted() {
-        val attacker = BridgeV2TestClient("WRON-GCOD-EWRO-NGCD") { now }
+        val attacker = BridgeV2TestClient("WRON-GCOD-EWRO-NGCD", salt, { now })
         repeat(5) {
             val r = router.handle(attacker.request("device/info", remote = "10.0.0.9").request)
             assertThat(r.status).isEqualTo(401)
@@ -96,9 +98,16 @@ class BridgeRouterTest {
         val response = router.handle(
             HttpRequest("POST", "/api/device/info", mapOf("authorization" to "Bearer $code"), "{}", "192.168.1.30"),
         )
-        assertThat(response.status).isEqualTo(401)
+        assertThat(response.status).isEqualTo(426)
         assertThat(json(response)["error"]!!.jsonPrimitive.content).isEqualTo("UPGRADE_REQUIRED")
         assertThat(handlers.lastLimit).isEqualTo(-1)
+    }
+
+    @Test
+    fun malformedEnvelopeIsRejectedWithoutCountingAGuess() {
+        val bad = HttpRequest("POST", "/api/device/info", emptyMap(), "{\"v\":2,\"ts\":1,\"nonce\":\"short\",\"iv\":\"a\",\"ct\":\"b\"}", "10.0.0.7")
+        repeat(10) { assertThat(router.handle(bad).status).isEqualTo(400) }
+        assertThat(router.handle(client.request("device/info", remote = "10.0.0.7").request).status).isEqualTo(200)
     }
 
     @Test
@@ -117,11 +126,14 @@ class BridgeRouterTest {
     }
 
     @Test
-    fun ciphertextBoundToRouteTimestampAndNonce() {
-        val spliced = client.request("app/launch", aadPath = "/api/device/info")
+    fun ciphertextBoundToRouteAndTimestamp() {
+        // Encrypted for device/info, sent to app/launch: AAD mismatch, rejected.
+        val spliced = client.request("app/launch", aadRoute = "device/info")
         assertThat(router.handle(spliced.request).status).isEqualTo(401)
+        // Changing the timestamp after encryption breaks the tag.
         val sent = client.request("device/info")
-        val tampered = sent.request.copy(headers = sent.request.headers + ("x-svetlana-ts" to (now + 1).toString()))
+        val tampered = sent.request.copy(body = sent.request.body.replace("\"ts\":$now", "\"ts\":${now + 1}"))
+        assertThat(tampered.body).isNotEqualTo(sent.request.body)
         assertThat(router.handle(tampered).status).isEqualTo(401)
         assertThat(handlers.launched).isNull()
     }
@@ -188,8 +200,7 @@ class BridgeRouterTest {
         assertThat(response.status).isEqualTo(204)
         assertThat(response.headers["Access-Control-Allow-Origin"]).isEqualTo("http://tauri.localhost")
         assertThat(response.headers["Access-Control-Allow-Private-Network"]).isEqualTo("true")
-        assertThat(response.headers["Access-Control-Allow-Headers"]).contains("X-Svetlana-Nonce")
-        assertThat(response.headers["Access-Control-Allow-Headers"]).doesNotContain("Authorization")
+        assertThat(response.headers["Access-Control-Allow-Headers"]).isEqualTo("Content-Type")
     }
 
     @Test
@@ -246,10 +257,10 @@ class BridgeRouterTest {
             override fun listContacts(query: String?, limit: Int, offset: Int): BridgeResult = BridgeResult.Ok()
             override fun launchApp(packageName: String): BridgeResult = BridgeResult.Ok()
         }
-        val r = BridgeRouter({ key }, exploding, clock = { now })
+        val r = BridgeRouter(keyring, exploding, clock = { now })
         val sent = client.request("device/info")
         val response = r.handle(sent.request)
         assertThat(response.status).isEqualTo(500)
-        assertThat(client.open(response, sent.nonce).toString()).doesNotContain("/data/x")
+        assertThat(client.open(response, sent).toString()).doesNotContain("/data/x")
     }
 }

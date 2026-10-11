@@ -4,31 +4,29 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
 class BridgeCryptoTest {
-    private fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
+    private val salt = BridgeCrypto.decode("AAECAwQFBgcICQoLDA0ODw==")!!
 
     @Test
-    fun keyDerivationMatchesWebCryptoVector() {
-        // Same vector is asserted in Svetlana-2.0 (WebCrypto HKDF).
-        val key = BridgeCrypto.deriveKey("abcd-efgh-jklm-npqr")!!
-        assertThat(hex(key)).isEqualTo("b020632a7e01826f00f340319aafc7c6e31dcb8a1956da6a85b71ad89eda1266")
-    }
-
-    @Test
-    fun opensCiphertextProducedByWebCrypto() {
-        val key = BridgeCrypto.deriveKey("ABCD-EFGH-JKLM-NPQR")!!
-        val aad = BridgeCrypto.requestAad("POST", "/api/device/info", 1_700_000_000_000L, "nonce-nonce-nonce1")
-        val plain = BridgeCrypto.open(key, "AAAAAAAAAAAAAAAA", "j5nn3cVa8zbeCneUVkaeJ0S7N6SQKOJdvKT14iM=", aad)
-        assertThat(plain).isEqualTo("{\"params\":{}}")
+    fun matchesTheSvetlana20WebCryptoVectorByteForByte() {
+        // Same vector as Svetlana-2.0 src/__tests__/bridge.test.ts ("matches the Kotlin test vector").
+        val key = BridgeCrypto.deriveKey("abcd-efgh", salt)!!
+        val nonce = BridgeCrypto.encode(ByteArray(16) { 7 })
+        assertThat(nonce).isEqualTo("BwcHBwcHBwcHBwcHBwcHBw==")
+        val sealed = BridgeCrypto.seal(
+            key, "{\"params\":{}}", BridgeCrypto.requestAad("device/info", 1_760_000_000_000L, nonce), ByteArray(12) { 9 },
+        )
+        assertThat(sealed.iv).isEqualTo("CQkJCQkJCQkJCQkJ")
+        assertThat(sealed.ct).isEqualTo("w/IG3LsfvEi6pZsEIe/f2V9TnyBoZPuJl/Tm8DY=")
     }
 
     @Test
     fun sealOpenRoundTripAndTamperDetection() {
-        val key = BridgeCrypto.deriveKey("ABCD-EFGH-JKLM-NPQR")!!
-        val aad = BridgeCrypto.responseAad("n", 200)
+        val key = BridgeCrypto.deriveKey("ABCD-EFGH-JKLM-NPQR", salt, 1_000)!!
+        val aad = BridgeCrypto.responseAad("device/info", "n")
         val sealed = BridgeCrypto.seal(key, "привет", aad)
         assertThat(BridgeCrypto.open(key, sealed.iv, sealed.ct, aad)).isEqualTo("привет")
-        assertThat(BridgeCrypto.open(key, sealed.iv, sealed.ct, BridgeCrypto.responseAad("n", 500))).isNull()
-        val other = BridgeCrypto.deriveKey("ZZZZ-EFGH-JKLM-NPQR")!!
+        assertThat(BridgeCrypto.open(key, sealed.iv, sealed.ct, BridgeCrypto.responseAad("contacts/list", "n"))).isNull()
+        val other = BridgeCrypto.deriveKey("ZZZZ-EFGH-JKLM-NPQR", salt, 1_000)!!
         assertThat(BridgeCrypto.open(other, sealed.iv, sealed.ct, aad)).isNull()
         assertThat(BridgeCrypto.open(key, "bad", sealed.ct, aad)).isNull()
         assertThat(BridgeCrypto.open(key, sealed.iv, "%%%", aad)).isNull()
@@ -36,13 +34,16 @@ class BridgeCryptoTest {
     }
 
     @Test
-    fun hkdfMatchesRfc5869TestCase1() {
-        val ikm = ByteArray(22) { 0x0b }
-        val salt = ByteArray(13) { it.toByte() }
-        val info = ByteArray(10) { (0xf0 + it).toByte() }
-        val okm = BridgeCrypto.hkdfSha256(ikm, salt, info, 42)
-        assertThat(hex(okm)).isEqualTo(
-            "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865",
-        )
+    fun keyringRotatesSaltWithTheCode() {
+        var code = "ABCD-EFGH-JKLM-NPQR"
+        val keyring = BridgeKeyring({ code }, iterations = 1_000)
+        val first = keyring.current()!!
+        assertThat(keyring.current()!!.salt).isEqualTo(first.salt)
+        code = "ZZZZ-EFGH-JKLM-NPQR"
+        val second = keyring.current()!!
+        assertThat(second.salt).isNotEqualTo(first.salt)
+        assertThat(second.key).isNotEqualTo(first.key)
+        assertThat(BridgeCrypto.decode(second.salt)!!.size).isEqualTo(16)
+        assertThat(BridgeKeyring({ null }).current()).isNull()
     }
 }
