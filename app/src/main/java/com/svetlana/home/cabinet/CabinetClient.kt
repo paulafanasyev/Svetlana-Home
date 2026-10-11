@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.svetlana.home.ai.LocalModelManager
 import com.svetlana.home.bridge.BridgeController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -100,6 +101,13 @@ object CabinetClient {
         pairedWithWindows = false,
     )
 
+    /** Установленные модели из согласованного каталога (остальные не передаются). */
+    fun installedCatalogModels(context: Context): List<CabinetProtocol.Model> = runCatching {
+        LocalModelManager(context).list()
+            .filter { it.modelId in CabinetProtocol.CATALOG_IDS }
+            .map { CabinetProtocol.Model(it.modelId, (it.sizeBytes / 1_000_000L).toInt()) }
+    }.getOrDefault(emptyList())
+
     /** Пульс не чаще раза в 10 минут (force — кнопка «Обновить»). */
     suspend fun heartbeat(context: Context, force: Boolean = false): Beat = withContext(Dispatchers.IO) {
         val p = runCatching { prefs(context) }.getOrNull() ?: return@withContext Beat.NOT_LINKED
@@ -110,7 +118,7 @@ object CabinetClient {
         if (!force && now - p.getLong(K_LAST_TRY, 0L) < HEARTBEAT_MS) return@withContext Beat.SKIPPED
         p.edit().putLong(K_LAST_TRY, now).apply()
         try {
-            val body = CabinetProtocol.heartbeatBody(collectStatus(context), emptyList())
+            val body = CabinetProtocol.heartbeatBody(collectStatus(context), installedCatalogModels(context))
             val request = Request.Builder()
                 .url("$origin${CabinetProtocol.API}/heartbeat")
                 .header("Authorization", "Device $token")
