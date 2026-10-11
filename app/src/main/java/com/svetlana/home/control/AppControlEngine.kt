@@ -19,9 +19,10 @@ import com.svetlana.home.permissions.PermissionManager
  * Безопасность:
  * - все действия с экраном, звонки, сообщения и «поделиться» требуют [ActionGrant] (выдаёт только
  *   ActionRouter после проверки политики и подтверждений);
- * - каждое действие на экране «прикалывается» к пакету целевого приложения ([guard]):
- *   неизвестное приложение = отказ, а пакет проверяется ещё раз НЕПОСРЕДСТВЕННО перед нажатием,
- *   вводом или чтением — оверлей или переключение приложения отменяет действие;
+ * - каждое действие на экране (нажатие, ввод, очистка, прокрутка, свайп, чтение)
+ *   «прикалывается» к пакету целевого приложения ([guard]): неизвестное приложение = отказ,
+ *   а пакет проверяется ещё раз НЕПОСРЕДСТВЕННО перед действием — оверлей или переключение
+ *   приложения отменяет действие;
  * - звонок только через набор номера, SMS — только черновик.
  *
  * Запрещено: произвольные shell-команды, root, Termux, скрытое управление, автонабор звонка.
@@ -43,10 +44,6 @@ class AppControlEngine(
 
     private class Guard(val pkg: String?, val failure: ActionResult?)
 
-    /**
-     * Пакет, в котором разрешено действовать: явный пакет, найденное по имени приложение
-     * или (для «на этом экране») то, что сейчас на экране. Неизвестное приложение — отказ.
-     */
     private suspend fun pin(target: String): Pin {
         val t = target.trim()
         if (t.isEmpty() || t.lowercase() in GENERIC_TARGETS) {
@@ -230,13 +227,17 @@ class AppControlEngine(
     }
 
     suspend fun scroll(grant: ActionGrant, target: String, direction: String): ActionResult {
+        val action = SvetlanaAction.Scroll(target, direction)
         val proof = proofBuilder.start("PLAN0_TARGET=SCROLL app=$target dir=$direction")
-        if (!hands.isActive) return handsOff(SvetlanaAction.Scroll(target, direction), proof)
-        proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
+        if (!hands.isActive) return handsOff(action, proof)
+        val g = guard(action, proof, target); g.failure?.let { return it }
+        val pkg = g.pkg!!
+        proof.ok(ProofStage.TARGET_APP_IDENTIFIED, pkg)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "scroll $direction")
         val before = hands.treeFingerprint()
         val down = direction.equals("down", ignoreCase = true) || direction == "вниз"
+        if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
         val ok = if (down) hands.scrollForward() else hands.scrollBackward()
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "scroll performed" else "scroll failed")
@@ -244,33 +245,38 @@ class AppControlEngine(
         proof.add(ProofStage.RESULT_VERIFIED,
             if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.Scroll(target, direction), changed,
+        return ActionResult(action, changed,
             if (changed) "Прокрутка подтверждена"
             else if (ok) "Команда отправлена, но экран не изменился — возможно, конец списка"
             else "Не удалось прокрутить", proof.build(), "hands")
     }
 
     suspend fun swipe(grant: ActionGrant, target: String, direction: String): ActionResult {
+        val action = SvetlanaAction.Swipe(target, direction)
         val proof = proofBuilder.start("PLAN0_TARGET=SWIPE app=$target dir=$direction")
-        if (!hands.isActive) return handsOff(SvetlanaAction.Swipe(target, direction), proof)
-        proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
+        if (!hands.isActive) return handsOff(action, proof)
+        val g = guard(action, proof, target); g.failure?.let { return it }
+        val pkg = g.pkg!!
+        proof.ok(ProofStage.TARGET_APP_IDENTIFIED, pkg)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "swipe $direction")
         val before = hands.treeFingerprint()
-        val ok = when (direction.lowercase()) {
-            "up", "вверх" -> hands.swipe(540f, 1400f, 540f, 400f)
-            "down", "вниз" -> hands.swipe(540f, 400f, 540f, 1400f)
-            "left", "влево" -> hands.swipe(900f, 900f, 200f, 900f)
-            "right", "вправо" -> hands.swipe(200f, 900f, 900f, 900f)
-            else -> false
+        val coords = when (direction.lowercase()) {
+            "up", "вверх" -> floatArrayOf(540f, 1400f, 540f, 400f)
+            "down", "вниз" -> floatArrayOf(540f, 400f, 540f, 1400f)
+            "left", "влево" -> floatArrayOf(900f, 900f, 200f, 900f)
+            "right", "вправо" -> floatArrayOf(200f, 900f, 900f, 900f)
+            else -> null
         }
+        if (coords != null && !onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
+        val ok = coords != null && hands.swipe(coords[0], coords[1], coords[2], coords[3])
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "swipe performed" else "swipe failed")
         val changed = ok && verifyScreenChanged(before, 600)
         proof.add(ProofStage.RESULT_VERIFIED,
             if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.Swipe(target, direction), changed,
+        return ActionResult(action, changed,
             if (changed) "Свайп подтверждён"
             else if (ok) "Команда отправлена, но экран не изменился"
             else "Не удалось сделать свайп", proof.build(), "hands")
@@ -285,11 +291,6 @@ class AppControlEngine(
         ActionResult(action, false,
             "Для этого действия нужен Hands, но он не включён", proof.failed("hands not active"))
 
-    /**
-     * Чтение текста с экрана ТОГО приложения, на которое дано согласие (ActionRouter передаёт
-     * пакет из вопроса). Пакет проверяется до и после чтения; банки, платёжки и пароли не
-     * читаются никогда, поля паролей пропускаются.
-     */
     suspend fun readScreen(grant: ActionGrant, target: String): ActionResult {
         val action = SvetlanaAction.ReadScreen(target)
         val proof = proofBuilder.start("PLAN0_TARGET=READ_SCREEN app=$target")
@@ -436,15 +437,6 @@ class AppControlEngine(
         }
     }
 
-    // ------------------------------------------------------------------
-    // Длинные многошаговые Hands-цепочки
-    // ------------------------------------------------------------------
-
-    /**
-     * «открой Whatsapp и напиши контакту Серый привет как дела»: открыть → найти чат → напечатать →
-     * отправить → проверить. Перед КАЖДЫМ нажатием и вводом проверяется, что на экране
-     * всё ещё этот мессенджер.
-     */
     suspend fun composeMessage(grant: ActionGrant, appTarget: String, contact: String, text: String): ActionResult {
         val action = SvetlanaAction.ComposeMessage(appTarget, contact, text)
         if (!hands.isActive) {
@@ -579,15 +571,10 @@ class AppControlEngine(
     companion object {
         private const val UI_SETTLE_MS = 600L
         private const val DEFAULT_MESSENGER = "whatsapp"
-        /** «На этом экране»: цель — приложение, которое сейчас открыто. */
         private val GENERIC_TARGETS = setOf("экран", "текущее", "текущий", "этот", "здесь", "current", "screen", "this")
         private val PACKAGE_RE = Regex("^[a-zA-Z][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+$")
     }
 
-    /**
-     * Звонок (после подтверждения в ActionRouter). ВСЕГДА через набор номера (ACTION_DIAL):
-     * вызов нажимает сам пользователь. Успех = «открылся набор номера».
-     */
     suspend fun makeCall(grant: ActionGrant, contact: String): ActionResult {
         val action = SvetlanaAction.MakeCall(contact)
         val callPermission = permissionManager.isGranted(android.Manifest.permission.CALL_PHONE)
