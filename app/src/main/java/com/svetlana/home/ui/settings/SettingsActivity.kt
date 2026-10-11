@@ -28,6 +28,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,9 +36,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.svetlana.home.R
+import com.svetlana.home.cabinet.CabinetClient
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
@@ -63,6 +66,7 @@ enum class SettingsSection(val titleRes: Int) {
     LOCAL_AI(R.string.title_local_ai),
     MODELS(R.string.title_model_registry),
     SERVER(R.string.title_server),
+    CABINET(R.string.title_cabinet),
     VOICE(R.string.voice_settings),
     HANDS(R.string.hands_settings),
     LAUNCHER(R.string.title_launcher),
@@ -81,6 +85,9 @@ enum class SettingsSection(val titleRes: Int) {
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
     var section by remember { mutableStateOf(SettingsSection.HOME) }
+    val context = LocalContext.current
+    // Пульс в личный кабинет (только если телефон привязан; не чаще раза в 10 минут).
+    LaunchedEffect(Unit) { CabinetClient.heartbeat(context) }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
@@ -109,6 +116,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 SettingsSection.LOCAL_AI -> LocalAiScreen()
                 SettingsSection.MODELS -> ModelRegistryScreen()
                 SettingsSection.SERVER -> ServerScreen()
+                SettingsSection.CABINET -> CabinetScreen()
                 SettingsSection.VOICE -> VoiceSettingsScreen()
                 SettingsSection.HANDS -> HandsSettingsScreen()
                 SettingsSection.LAUNCHER -> LauncherSettingsScreen()
@@ -138,6 +146,7 @@ private fun SectionsList(onOpen: (SettingsSection) -> Unit) {
         SettingsSection.LOCAL_AI,
         SettingsSection.MODELS,
         SettingsSection.SERVER,
+        SettingsSection.CABINET,
         SettingsSection.VOICE,
         SettingsSection.HANDS,
         SettingsSection.LAUNCHER,
