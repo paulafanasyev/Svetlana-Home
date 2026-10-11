@@ -68,10 +68,38 @@ val id: String,
 /**
  * AIModelRegistry — каталог известных моделей.
  * Реестр содержит только метаданные — сами модели НЕ скачиваются.
+ *
+ * Лицензии (согласовано критиками 2026-10-11, см. каталог сайта backend/src/lib/modelCatalog.js):
+ * продукт коммерческий, поэтому модели с некоммерческой или неясной лицензией остаются в реестре
+ * только для справки и НЕ скачиваются (runtimeImplemented = false): Qwen2.5-3B (Qwen Research License),
+ * Aya 8B (CC BY-NC 4.0), Piper «irina» (лицензия датасета неизвестна).
  */
 class AIModelRegistry {
 
     private val models: List<AIModel> = listOf(
+        // Согласованная модель по умолчанию для телефона (id совпадает с каталогом сайта).
+        // Ревизия и SHA-256 взяты из API Hugging Face (litert-community/Qwen3-0.6B, lfs.sha256).
+        AIModel(
+            id = "qwen3-0.6b-litert",
+            name = "Qwen3 0.6B (LiteRT)",
+            architecture = "litertlm",
+            parameters = "0.6B",
+            parameterCountB = 0.6,
+            quantization = "litertlm",
+            sizeMb = 586,
+            ramRequirementMb = 1536,
+            storageRequirementMb = 650,
+            backend = "litertlm",
+            cpuSupport = true, gpuSupport = false, npuSupport = false,
+            context = 4096,
+            license = "Apache 2.0",
+            source = "Qwen (litert-community)",
+            downloadUrl = "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/4c0f158768e8ed6b3cebc54e617732e9b1d819ae/Qwen3-0.6B.litertlm",
+            description = "Модель по умолчанию: короткие ответы и команды офлайн, телефоны от 4 ГБ",
+            runtimeImplemented = true,
+            expectedSha256 = "555579ff2f4fd13379abe69c1c3ab5200f7338bc92471557f1d6614a6e5ab0b4",
+            capabilities = listOf(ModelCapability.TEXT)
+        ),
         AIModel(
             id = "qwen2.5-1.5b-instruct-q4",
             name = "Qwen2.5 1.5B Instruct (Q4_K_M)",
@@ -105,11 +133,11 @@ id = "qwen2.5-3b-instruct-q4",
             backend = "llama.cpp",
             cpuSupport = true, gpuSupport = false, npuSupport = false,
             context = 4096,
-            license = "Apache 2.0",
+            license = "Qwen Research License (только некоммерческое использование)",
             source = "Qwen (Alibaba)",
             downloadUrl = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/cc1e68eea5f05f88f41a6de1fc73110178f23715/qwen2.5-3b-instruct-q4_k_m.gguf",
-            description = "Сбалансированная модель: качество выше, требует больше памяти",
-            runtimeImplemented = true,
+            description = "Исключена: лицензия Qwen Research запрещает коммерческое использование. Вместо неё — Qwen3.",
+            runtimeImplemented = false,
             expectedSha256 = "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d"
         ),
         AIModel(
@@ -204,10 +232,10 @@ id = "gemma2-2b-instruct-q4",
             backend = "onnxruntime",
             cpuSupport = true, gpuSupport = false, npuSupport = false,
             context = 0,
-            license = "MIT",
+            license = "Код MIT, лицензия датасета голоса неизвестна",
             source = "vits-piper-ru_RU-irina-medium",
             downloadUrl = "https://huggingface.co/csukuangfj/vits-piper-ru_RU-irina-medium/resolve/main/ru_RU-irina-medium.onnx",
-            description = "Каталог offline-TTS; встроенного ONNX runtime пока нет",
+            description = "Исключена: лицензия датасета неизвестна. Согласованная замена — Silero v5_cis_base (MIT).",
             runtimeImplemented = false
         ),
         AIModel(
@@ -242,10 +270,10 @@ id = "gemma2-2b-instruct-q4",
             backend = "llama.cpp",
             cpuSupport = false, gpuSupport = false, npuSupport = false,
             context = 8192,
-            license = "CC BY-NC 4.0",
+            license = "CC BY-NC 4.0 (только некоммерческое использование)",
             source = "Cohere For AI",
             downloadUrl = "https://huggingface.co/mradermacher/aya-8B-GGUF/resolve/main/AYA-8B.Q4_K_M.gguf",
-            description = "Мультиязычная модель с сильной поддержкой русского языка; установка отключена до фиксации upstream revision и SHA-256",
+            description = "Исключена: некоммерческая лицензия CC BY-NC 4.0 несовместима с платным продуктом.",
         ),
         // Аудит §10-12 (P0-1): мультимодальные LiteRT-модели —
         // единственный путь on-device vision в LOCAL_ONLY.
@@ -305,7 +333,8 @@ id = "gemma-4-e2b-it-litertlm",
 
     fun byId(id: String): AIModel? = models.firstOrNull { it.id == id }
 
-    fun llmModels(): List<AIModel> = models.filter { it.context > 0 && it.parameterCountB >= 1.0 }
+    /** Текстовые модели от 0.5B (включая согласованную Qwen3-0.6B); эмбеддинги, STT и TTS не считаются. */
+    fun llmModels(): List<AIModel> = models.filter { it.context > 0 && it.parameterCountB >= 0.5 }
 
     fun sttModels(): List<AIModel> = models.filter { it.id.contains("stt") }
     fun ttsModels(): List<AIModel> = models.filter { it.id.contains("tts") }

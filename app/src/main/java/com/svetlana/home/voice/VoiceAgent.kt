@@ -6,8 +6,12 @@ import com.svetlana.home.ai.AIMode
 import com.svetlana.home.ai.AIRouter
 import com.svetlana.home.ai.AIModelCompatibilityEngine
 import com.svetlana.home.ai.AIModelRegistry
+import com.svetlana.home.apps.launcher.AppResolver
+import com.svetlana.home.control.ActionRiskPolicy
 import com.svetlana.home.control.ActionRouter
+import com.svetlana.home.control.CommandParser
 import com.svetlana.home.control.SvetlanaAction
+import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.device.DeviceCapabilityManager
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.memory.HistoryManager
@@ -18,11 +22,17 @@ import com.svetlana.home.store.SettingsRepository
  * VoiceAgent — единое ядро диалога для экрана и фонового сервиса.
  *
  * Цепочка (ТЗ §18, §56):
- *   ввод → Action Router (управление устройством) → AI-команды → AI-чат → голос.
+ *   ввод → [голос: проверка владельца + защита от записи] → Action Router → AI-команды → AI-чат → голос.
  *
  * Используется и HomeViewModel (UI), и VoiceAssistantService (фон), поэтому
- * поведение диалога одинаково в обоих режимах: те же команды, тот же
- * privacy-роутинг, тот же голосовой отклик.
+ * поведение диалога одинаково в обоих режимах.
+ *
+ * Голос должен быть один: любая СКАЗАННАЯ команда ([voice] != null) сначала проходит
+ * OwnerVoiceGate. Если защита от записи на этом телефоне невозможна (live = false), любое
+ * действие с телефоном (даже «открой приложение» и «прочитай экран») идёт на
+ * подтверждение на экране, а системные команды (камера, Wi-Fi, набор номера)
+ * голосом не выполняются. Текст с экрана голосом не проверяется (защищает
+ * блокировка телефона). Голосом нельзя перевести ИИ на внешний сервер.
  */
 class VoiceAgent(
     private val context: Context,
@@ -43,12 +53,12 @@ class VoiceAgent(
         data class Confirmation(val action: SvetlanaAction, val message: String) : Outcome()
     }
 
+    /** Команда пришла голосом. [ownerAudio]: аудио этой фразы (Android 13+) или null. */
+    class VoiceInput(val ownerAudio: FloatArray?)
+
     /**
-     * Последний ответ/событие диалога.
-     *
-     * Фоновый сервис — единственный обработчик wake word, чтобы команда не
-     * выполнялась дважды. Главный экран наблюдает этот поток, чтобы
-     * показывать ответы Светланы на экране, когда приложение открыто.
+     * Последний ответ/событие диалога. Главный экран наблюдает этот поток, чтобы
+     * показывать ответы Светланы, когда команду исполняет фоновый сервис.
      */
     sealed class DialogueEvent {
         data class Reply(val text: String) : DialogueEvent()
@@ -58,41 +68,89 @@ class VoiceAgent(
     private val _events = kotlinx.coroutines.flow.MutableSharedFlow<DialogueEvent>(extraBufferCapacity = 8)
     val events: kotlinx.coroutines.flow.SharedFlow<DialogueEvent> = _events
 
-    /**
-     * Filler-фразу говорим СРАЗУ при обращении к ИИ, чтобы пользователь
-     * слышал отклик до того, как придёт полный ответ.
-     * Требование: «сразу начинало говорить, чтобы пользователь понимал,
-     * что ответ от ИИ есть».
-     */
     private val fillers = listOf("Дай подумать…", "Сейчас…", "Минуточку…", "Так…")
     private var fillerIndex = 0
 
     /**
      * Обработать команду: текстом или голосом.
      *
-     * @param speak озвучивать ли результат через TTS.
-     * @param tts синтезатор речи (null — тишина, только текст).
-     * @param onPartial колбэк с накопленным текстом ответа (для UI/стриминга).
+     * @param voice не null, если команда сказана голосом: тогда сначала проверяем владельца.
      */
     suspend fun handle(
         text: String,
         speak: Boolean = true,
         tts: SvetlanaTts? = null,
-        onPartial: ((String) -> Unit)? = null
+        onPartial: ((String) -> Unit)? = null,
+        voice: VoiceInput? = null
+    ): Outcome {
+        // Аудио команды стирается при любом исходе, включая ошибки и отмену.
+        try {
+            return handleInner(text, speak, tts, onPartial, voice)
+        } finally {
+            voice?.ownerAudio?.fill(0f)
+        }
+    }
+
+    private fun confirm(action: SvetlanaAction, message: String, speak: Boolean, tts: SvetlanaTts?): Outcome {
+        historyManager.record(HistoryCategory.CONFIRMATIONS, "Запрошено подтверждение: ${action.name}")
+        if (speak) tts?.speak(message)
+        _events.tryEmit(DialogueEvent.ConfirmationRequired(action, message))
+        return Outcome.Confirmation(action, message)
+    }
+
+    private fun reply(message: String, speak: Boolean, tts: SvetlanaTts?): Outcome {
+        if (speak) tts?.speak(message)
+        _events.tryEmit(DialogueEvent.Reply(message))
+        return Outcome.Replied(message)
+    }
+
+    /** Подходит ли фраза под системную команду. При ошибке считаем, что да (безопасная сторона). */
+    private fun isSystemIntent(text: String): Boolean = runCatching {
+        ServiceLocator.appResolver.resolveSystem(text) is AppResolver.ResolveResult.SystemAction
+    }.getOrDefault(true)
+
+    private suspend fun handleInner(
+        text: String,
+        speak: Boolean,
+        tts: SvetlanaTts?,
+        onPartial: ((String) -> Unit)?,
+        voice: VoiceInput?
     ): Outcome {
         if (text.isBlank()) return Outcome.Replied("")
+
+        // 0. Голос должен быть один: только живой верифицированный владелец.
+        var live = true
+        if (voice != null) {
+            val decision = OwnerVoiceGate.authorize(context, voice.ownerAudio, if (speak) tts else null)
+            voice.ownerAudio?.fill(0f)
+            when (decision) {
+                is OwnerVoiceGate.Decision.Denied -> {
+                    historyManager.record(HistoryCategory.CONFIRMATIONS, "Голосовая команда не выполнена: владелец не подтверждён")
+                    return reply(decision.message, speak, tts)
+                }
+                is OwnerVoiceGate.Decision.Allowed -> live = decision.live
+            }
+        }
+
         historyManager.record(HistoryCategory.COMMANDS, "Ввод: ${text.take(120)}")
 
-        // 1. Команды управления устройством, включая длинные Hands-цепочки
-        // (открой приложение → найди контакт → напиши → отправь).
+        // Защита от записи недоступна: безопасные действия только после нажатия на экране,
+        // системные команды голосом не выполняются. Опасные и так потребуют подтверждения.
+        if (voice != null && !live) {
+            val parsed = CommandParser.parse(text)
+            if (parsed != null && !ActionRiskPolicy.requiresConfirmation(parsed)) {
+                return confirm(parsed, WEAK_CONFIRM, speak, tts)
+            }
+            if (parsed == null && isSystemIntent(text)) {
+                return reply(WEAK_SYSTEM, speak, tts)
+            }
+        }
+
+        // 1. Команды управления устройством, включая длинные Hands-цепочки.
         val actionResult = actionRouter.route(text)
         if (actionResult != null) {
             return if (actionResult.requiresUserConfirmation) {
-                historyManager.record(HistoryCategory.CONFIRMATIONS,
-                    "Запрошено подтверждение: ${actionResult.action.name}")
-                if (speak) tts?.speak(actionResult.message)
-                _events.tryEmit(DialogueEvent.ConfirmationRequired(actionResult.action, actionResult.message))
-                Outcome.Confirmation(actionResult.action, actionResult.message)
+                confirm(actionResult.action, actionResult.message, speak, tts)
             } else {
                 if (speak) tts?.speak(actionResult.message)
                 _events.tryEmit(DialogueEvent.Reply(actionResult.message))
@@ -101,12 +159,8 @@ class VoiceAgent(
         }
 
         // 2. Команды выбора ИИ (ТЗ §48)
-        val aiCommand = handleAiCommand(text)
-        if (aiCommand != null) {
-            if (speak) tts?.speak(aiCommand)
-            _events.tryEmit(DialogueEvent.Reply(aiCommand))
-            return Outcome.Replied(aiCommand)
-        }
+        val aiCommand = handleAiCommand(text, fromVoice = voice != null)
+        if (aiCommand != null) return reply(aiCommand, speak, tts)
 
         // 3. Запрос к моделям. Filler говорим СРАЗУ — до получения ответа.
         if (speak) speakFiller(tts)
@@ -127,7 +181,6 @@ class VoiceAgent(
         val finalText = reply.toString()
             .ifBlank { if (success) context.getString(R.string.reply_empty) else context.getString(R.string.reply_provider_failed) }
 
-        // Говорим ответ: flush=true прерывает filler, и сразу идёт суть.
         if (speak) tts?.speak(finalText)
         if (success) _events.tryEmit(DialogueEvent.Reply(finalText))
         return Outcome.Replied(finalText)
@@ -136,29 +189,33 @@ class VoiceAgent(
     private fun speakFiller(tts: SvetlanaTts?) {
         val phrase = fillers[fillerIndex % fillers.size]
         fillerIndex++
-        // flush = false: filler ставится в очередь, а затем перебивается
-        // реальным ответом (flush=true), как только он готов.
         tts?.speak(phrase, flush = false)
     }
 
-    private suspend fun handleAiCommand(text: String): String? {
+    private suspend fun handleAiCommand(text: String, fromVoice: Boolean): String? {
         val low = text.lowercase().trim().replace("ё", "е")
+        val cloudByVoice = "Голосом нельзя перевести ИИ на внешний сервер: данные ушли бы за пределы телефона. " +
+            "Сделайте это в настройках, раздел «ИИ»."
         return when {
             low.contains("только локальный") || low.contains("только устройство") -> {
                 settings.setAiMode(AIMode.LOCAL_ONLY)
                 "Хорошо, теперь используется только локальный ИИ. Ничего не отправляется в облако."
             }
             low.contains("мой сервер") -> {
-                settings.setAiMode(AIMode.MY_SERVER)
-                "Хорошо, теперь используется ваш сервер."
+                if (fromVoice) cloudByVoice else {
+                    settings.setAiMode(AIMode.MY_SERVER)
+                    "Хорошо, теперь используется ваш сервер."
+                }
             }
             low.contains("локальный в приоритете") -> {
                 settings.setAiMode(AIMode.LOCAL_FIRST)
                 "Хорошо, локальный ИИ в приоритете."
             }
             low.contains("внешнего провайдера") || low.contains("openai-compatible") -> {
-                settings.setAiMode(AIMode.EXTERNAL)
-                "Хорошо, используется внешний провайдер."
+                if (fromVoice) cloudByVoice else {
+                    settings.setAiMode(AIMode.EXTERNAL)
+                    "Хорошо, используется внешний провайдер."
+                }
             }
             low.contains("не отправляй") && low.contains("облако") -> {
                 settings.setAiMode(AIMode.LOCAL_ONLY)
@@ -190,5 +247,12 @@ class VoiceAgent(
             append("Ожидаемая производительность: ${report.expectedPerf}\n\n")
             append("Скачать можно в разделе «Локальный ИИ». Я ничего не скачиваю без вашего решения.")
         }
+    }
+
+    companion object {
+        const val WEAK_CONFIRM = "На этом телефоне я не могу отличить живой голос от записи. " +
+            "Подтвердите действие на экране."
+        const val WEAK_SYSTEM = "На этом телефоне я не могу отличить живой голос от записи, " +
+            "поэтому системные команды голосом не выполняю. Откройте вручную или напишите текстом."
     }
 }

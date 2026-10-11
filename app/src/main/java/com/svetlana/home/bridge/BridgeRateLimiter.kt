@@ -5,20 +5,31 @@ package com.svetlana.home.bridge
  * [perClientLimit] wrong codes inside [windowMs] lock that client for [lockMs].
  *
  * No global lock on purpose: it would let anyone on the LAN block the owner's
- * first pairing. With 32^8 possible codes and 5 tries per IP per 10 minutes,
- * even a whole /24 of rotated addresses needs millions of years.
+ * first pairing. Memory is bounded: at most [maxTracked] clients are remembered
+ * (least recently seen are evicted), so a flood of spoofed addresses can't exhaust RAM.
+ * With 32^12 possible codes (protocol v2) online guessing is hopeless even across many IPs.
  */
 class BridgeRateLimiter(
     private val clock: () -> Long = System::currentTimeMillis,
     private val perClientLimit: Int = 5,
     private val windowMs: Long = 10 * 60_000L,
     private val lockMs: Long = 10 * 60_000L,
+    private val maxTracked: Int = MAX_TRACKED,
 ) {
-    private val failures = HashMap<String, MutableList<Long>>()
-    private val lockedUntil = HashMap<String, Long>()
+    private val failures = lru<MutableList<Long>>()
+    private val lockedUntil = lru<Long>()
+
+    private fun <V> lru(): LinkedHashMap<String, V> = object : LinkedHashMap<String, V>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, V>?): Boolean = size > maxTracked
+    }
 
     @Synchronized
-    fun isLocked(client: String): Boolean = clock() < (lockedUntil[client] ?: 0L)
+    fun isLocked(client: String): Boolean {
+        val until = lockedUntil[client] ?: return false
+        if (clock() < until) return true
+        lockedUntil.remove(client)
+        return false
+    }
 
     @Synchronized
     fun recordFailure(client: String) {
@@ -30,14 +41,15 @@ class BridgeRateLimiter(
             lockedUntil[client] = now + lockMs
             list.clear()
         }
-        if (failures.size > MAX_TRACKED) failures.entries.removeAll { it.value.isEmpty() }
-        if (lockedUntil.size > MAX_TRACKED) lockedUntil.entries.removeAll { it.value <= now }
     }
 
     @Synchronized
     fun recordSuccess(client: String) {
         failures.remove(client)
     }
+
+    @Synchronized
+    fun trackedClients(): Int = failures.size
 
     private companion object {
         const val MAX_TRACKED = 1024

@@ -40,4 +40,11 @@ class BridgeRateLimiterTest {
         limiter.recordFailure("a")
         assertThat(limiter.isLocked("a")).isFalse()
     }
+
+    @Test
+    fun memoryStaysBoundedUnderAddressFlood() {
+        val small = BridgeRateLimiter(clock = { now }, perClientLimit = 3, windowMs = 1_000, lockMs = 10_000, maxTracked = 100)
+        repeat(10_000) { small.recordFailure("10.0.${it / 256}.${it % 256}") }
+        assertThat(small.trackedClients()).isAtMost(100)
+    }
 }

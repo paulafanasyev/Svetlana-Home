@@ -6,13 +6,11 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /**
- * Опасные действия: доказываем, что классификация DANGEROUS действительно
- * БЛОКИРУЕТ выполнение, а не только маркирует его (аудит п.27, ТЗ §58).
+ * Опасные действия: доказываем, что классификация действительно
+ * БЛОКИРУЕТ выполнение без подтверждения, а не только маркирует его (аудит п.27, ТЗ §58).
  *
- * «Света, отправь SMS Ивану» не должна превратиться в реальную отправку
- * только потому, что riskOf() вернул DANGEROUS. ActionRouter.execute()
- * содержит условие `riskOf(action) == DANGEROUS && !confirmed` — действие
- * возвращается с requiresUserConfirmation=true и НЕ выполняется.
+ * ActionRouter.execute() содержит условие `requiresConfirmation(action) && !confirmed` —
+ * действие возвращается с requiresUserConfirmation=true и НЕ выполняется.
  *
  * Тест чистой JVM: ActionRiskPolicy не зависит от Context.
  */
@@ -46,17 +44,14 @@ class DangerousActionBlockTest {
     }
 
     @Test
-    fun handsActions_areSafe() {
-        // Управление UI (клики, свайпы, ввод) — безопасно, выполняется в
-        // рамках Accessibility-разрешения и не имеет необратимых последствий.
+    fun navigation_isSafe() {
+        // Навигация видна и обратима: без подтверждения.
         val actions = listOf(
-            SvetlanaAction.Click("Telegram", "кнопка"),
             SvetlanaAction.Swipe("Telegram", "вверх"),
             SvetlanaAction.Scroll("Telegram", "вниз"),
-            SvetlanaAction.TypeText("Telegram", "поле", "текст"),
-            SvetlanaAction.TakeScreenshot("Telegram"),
             SvetlanaAction.PressBack,
-            SvetlanaAction.PressHome
+            SvetlanaAction.PressHome,
+            SvetlanaAction.OpenRecents
         )
         actions.forEach { a ->
             assertWithMessage("Действие ${a::class.simpleName} должно быть SAFE")
@@ -65,9 +60,24 @@ class DangerousActionBlockTest {
     }
 
     @Test
+    fun clicksTypingAndScreenshots_requireConfirmation() {
+        // Принцип владельца: чужой голос не должен нажимать «Оплатить», вводить текст в банк
+        // или снимать экран с перепиской. Пока нет проверки голоса — только с подтверждением.
+        val actions = listOf(
+            SvetlanaAction.Click("Telegram", "кнопка"),
+            SvetlanaAction.LongClick("Telegram", "сообщение"),
+            SvetlanaAction.TypeText("Telegram", "поле", "текст"),
+            SvetlanaAction.ClearText("Telegram", "поле"),
+            SvetlanaAction.TakeScreenshot("Telegram")
+        )
+        actions.forEach { a ->
+            assertWithMessage("Действие ${a::class.simpleName} должно требовать подтверждения")
+                .that(ActionRiskPolicy.requiresConfirmation(a)).isTrue()
+        }
+    }
+
+    @Test
     fun composeMessage_isDangerous_andRequiresConfirmation() {
-        // Отправка сообщения в мессенджере через Hands — необратимое
-        // действие, поэтому требует явного подтверждения (ТЗ §58).
         val action = SvetlanaAction.ComposeMessage("whatsapp", "серый", "привет")
         assertWithMessage("ComposeMessage должна быть DANGEROUS")
             .that(ActionRiskPolicy.riskOf(action)).isEqualTo(ActionRisk.DANGEROUS)
@@ -76,13 +86,17 @@ class DangerousActionBlockTest {
 
     @Test
     fun compound_riskEqualsMostDangerousStep() {
-        // Цепочка «открой Whatsapp и напиши контакту» — внутри есть отправка
-        // сообщения, значит вся цепочка требует подтверждения.
         val safe = SvetlanaAction.Compound(listOf(
+            SvetlanaAction.OpenApp("whatsapp"),
+            SvetlanaAction.Scroll("whatsapp", "вниз")
+        ))
+        assertThat(ActionRiskPolicy.riskOf(safe)).isEqualTo(ActionRisk.SAFE)
+
+        val withClick = SvetlanaAction.Compound(listOf(
             SvetlanaAction.OpenApp("whatsapp"),
             SvetlanaAction.Click("whatsapp", "поиск")
         ))
-        assertThat(ActionRiskPolicy.riskOf(safe)).isEqualTo(ActionRisk.SAFE)
+        assertThat(ActionRiskPolicy.requiresConfirmation(withClick)).isTrue()
 
         val dangerous = SvetlanaAction.Compound(listOf(
             SvetlanaAction.OpenApp("whatsapp"),
@@ -98,5 +112,4 @@ class DangerousActionBlockTest {
             SvetlanaAction.Compound(emptyList())
         }
     }
-
 }

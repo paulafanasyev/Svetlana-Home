@@ -32,6 +32,11 @@ import java.util.Locale
  * WakeWordEngine не может стартовать слушание, пока сессия пользователя
  * не вернулась в IDLE — это убирает гонку «новая сессия убила старую».
  *
+ * Голос владельца: на Android 13+ (и если голос записан) микрофон открывает Светлана
+ * (OwnerAudioTap) и отдаёт звук распознавателю, а саму фразу прикладывает к результату
+ * для проверки в OwnerVoiceGate. Если распознаватель так не умеет, через 3 неудачи
+ * возвращаемся к обычному режиму, а владелец проверяется контрольной фразой.
+ *
  * Если на устройстве нет распознавателя (например, без GMS), голосовой ввод
  * честно сообщается как недоступный — приложение не падает.
  */
@@ -42,6 +47,10 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
     private var startGeneration: Long = 0L
     @Volatile
     private var activeSessionGeneration: Long? = null
+    // Аудио текущей команды для проверки владельца (только main thread).
+    private var tap: OwnerAudioSource? = null
+    @Volatile
+    private var tapFailures = 0
     // SpeechRenderer требует main-thread Looper. WakeWordEngine и другие
     // фоновые корутины могут вызывать startListening() не из main thread —
     // поэтому все операции с recogniser'ом выполняем через главный Handler.
@@ -49,6 +58,11 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
     private fun onMain(action: () -> Unit) {
         if (Looper.myLooper() === Looper.getMainLooper()) action()
         else mainHandler.post { action() }
+    }
+
+    init {
+        // Шаблон голоса читаем заранее в фоне: на main thread только кэш.
+        OwnerVoiceStore.prewarm(context)
     }
 
     /** Аудит §18: явное состояние сессии. */
@@ -79,6 +93,10 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
             SpeechRecognizer.isRecognitionAvailable(context)
         } catch (t: Throwable) { false }
 
+    /** Проверяется ли сама фраза команды (без контрольной фразы). */
+    val passiveOwnerCheck: Boolean
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && tapFailures < MAX_TAP_FAILURES
+
     /**
      * Активна ли ПРИОРИТЕТНАЯ сессия пользователя (тап по микрофону).
      *
@@ -99,6 +117,13 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
     fun clearResult() {
         _result.value = null
         _partial.value = ""
+    }
+
+    private fun dropTap(countAsFailure: Boolean) {
+        val t = tap ?: return
+        tap = null
+        t.discard()
+        if (countAsFailure) tapFailures++
     }
 
     fun startListening(locale: Locale = Locale.forLanguageTag("ru-RU")) {
@@ -134,12 +159,21 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 }
+                dropTap(countAsFailure = false)
+                // Только кэш: Keystore/диск на main thread не трогаем. Если кэш ещё не готов,
+                // владелец будет проверен контрольной фразой (безопасно, просто дольше).
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    tapFailures < MAX_TAP_FAILURES && OwnerVoiceStore.isEnrolledCached()
+                ) {
+                    tap = OwnerAudioTap.attach(context, intent)
+                }
                 recognizer?.startListening(intent)
                 session.transitionTo(VoiceSessionState.LISTENING)
                 _listening.value = true
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Не удалось начать распознавание", t)
+            onMain { dropTap(countAsFailure = false) }
             session.transitionTo(VoiceSessionState.STOPPED)
             _result.value = SttResult.Error(t.message ?: "Ошибка распознавания")
         }
@@ -159,14 +193,6 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         }
 
     /**
-     * Мягкий стоп: завершаем слушание, но НЕ уничтожаем распознаватель.
-     *
-     * Аудит п.11: немедленный cancel()+destroy() после stopListening() мог
-     * отменить выдачу финального результата — onResults() не вызывался,
-     * и wake word получал пустой ответ. Сначала даём системе
-     * отдать результат, уничтожаем только в release().
-     */
-    /**
      * Завершает текущую STT-сессию после обработки результата.
      *
      * Без явного завершения VoiceSessionStateMachine могла навсегда остаться
@@ -179,10 +205,13 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         startGeneration += 1L
         activeSessionGeneration = null
         onMain {
+            // Сессия закончилась без финального ответа при нашем микрофоне:
+            // возможно, распознаватель не поддерживает внешний источник звука.
+            dropTap(countAsFailure = _result.value == null)
             try {
                 recognizer?.cancel()
                 recognizer?.destroy()
-            } catch (_: Throwable) { }
+            } catch (t: Throwable) { }
             recognizer = null
         }
         session.finish()
@@ -206,7 +235,11 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         // be delivered after stopListening().
         startGeneration += 1L
         try {
-            onMain { recognizer?.stopListening() }
+            onMain {
+                recognizer?.stopListening()
+                // Конец аудио для распознавателя; записанная фраза остаётся до onResults.
+                tap?.stop()
+            }
         } catch (t: Throwable) { /* ignore */ }
         _listening.value = false
         _foregroundSession.value = false
@@ -221,6 +254,7 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         activeSessionGeneration = null
         try {
             onMain {
+                dropTap(countAsFailure = false)
                 recognizer?.cancel()
                 recognizer?.destroy()
                 recognizer = null
@@ -258,11 +292,15 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
             override fun onEndOfSpeech() {
                 if (!current()) return
                 _listening.value = false
+                tap?.stop()
             }
 
             override fun onError(error: Int) {
                 if (!current()) return
                 _listening.value = false
+                val unsupported = error != SpeechRecognizer.ERROR_NO_MATCH &&
+                    error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                dropTap(countAsFailure = unsupported)
                 session.transitionTo(VoiceSessionState.STOPPED)
                 _result.value = SttResult.Error(errorText(error))
             }
@@ -273,7 +311,11 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
                 // Аудит §18: только финальный результат завершает этап распознавания.
                 session.transitionTo(VoiceSessionState.RESULT_RECEIVED)
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                _result.value = SttResult.Success(matches?.firstOrNull().orEmpty())
+                val t = tap
+                tap = null
+                val audio = t?.takeAudio()
+                if (audio != null) tapFailures = 0
+                _result.value = SttResult.Success(matches?.firstOrNull().orEmpty(), audio)
                 session.transitionTo(VoiceSessionState.PROCESSING)
             }
 
@@ -297,9 +339,13 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
     }
 
     sealed class SttResult {
-        data class Success(val text: String) : SttResult()
+        /** [ownerAudio]: фраза команды для проверки владельца (только в памяти), null на старом Android. */
+        data class Success(val text: String, val ownerAudio: FloatArray? = null) : SttResult()
         data class Error(val message: String) : SttResult()
     }
 
-    companion object { private const val TAG = "SvetlanaSTT" }
+    companion object {
+        private const val TAG = "SvetlanaSTT"
+        private const val MAX_TAP_FAILURES = 3
+    }
 }

@@ -7,7 +7,7 @@ class BridgeTokenTest {
     @Test
     fun generatedCodeHasReadableFormat() {
         val code = BridgeToken.generate()
-        assertThat(code).matches("^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$")
+        assertThat(code).matches("^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$")
     }
 
     @Test
@@ -20,6 +20,7 @@ class BridgeTokenTest {
     fun matchingIgnoresCaseAndDashes() {
         assertThat(BridgeToken.matches("ABCD-EFGH", "abcd-efgh")).isTrue()
         assertThat(BridgeToken.matches("ABCD-EFGH", "ABCDEFGH")).isTrue()
+        assertThat(BridgeToken.matches("ABCD-EFGH-JKLM", "abcdefghjklm")).isTrue()
         assertThat(BridgeToken.matches("ABCD-EFGH", "ABCD-EFGX")).isFalse()
         assertThat(BridgeToken.matches("ABCD-EFGH", null)).isFalse()
         assertThat(BridgeToken.matches("ABCD-EFGH", "")).isFalse()

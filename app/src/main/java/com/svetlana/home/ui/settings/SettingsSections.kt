@@ -5,6 +5,8 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -175,7 +177,10 @@ fun OwnerScreen() {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val context = LocalContext.current
 
-    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column {
                 Text("Профиль владельца", style = MaterialTheme.typography.titleLarge)
@@ -262,6 +267,8 @@ fun OwnerScreen() {
                     ) { Text("Проверить владельца", color = MaterialTheme.colorScheme.onPrimary) }
                 }
             }
+            // Голос должен быть один: запись и удаление голоса только после BiometricPrompt.
+            OwnerVoiceCard()
             Text(
                 text = "Статус владельца не даёт root, скрытого доступа к Accessibility, " +
                         "микрофону или камере и не обходит Android permission model.",

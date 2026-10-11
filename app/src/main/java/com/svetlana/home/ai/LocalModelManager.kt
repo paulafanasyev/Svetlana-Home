@@ -17,6 +17,9 @@ import java.io.File
  *
  * Только после явного решения пользователя:
  *   Предложить → Показать размер → Показать требования → Решение → Скачать
+ *
+ * Источники: только Hugging Face по HTTPS (ModelSourcePolicy), проверка каждого редиректа,
+ * запрет перехода https→http, ограничение размера файла.
  */
 @Serializable
 data class InstalledModel(
@@ -88,6 +91,10 @@ open class LocalModelManager(
                 return Result.failure(IllegalStateException(
                     "Для модели ${model.name} встроенный runtime ещё не реализован; скачивание отключено."))
             }
+            if (!ModelSourcePolicy.isAllowedUrl(model.downloadUrl)) {
+                return Result.failure(IllegalStateException(
+                    "Источник модели не разрешён: скачивание только с Hugging Face по HTTPS."))
+            }
             if (!isSpaceEnough(model)) {
                 return Result.failure(IllegalStateException("Недостаточно свободного места"))
             }
@@ -98,7 +105,18 @@ open class LocalModelManager(
             // расширение не принципиально, но оставляем осмысленное.
             temp.delete()
             backup.delete()
-            val client = okhttp3.OkHttpClient.Builder().build()
+            val maxBytes = ModelSourcePolicy.maxBytes(model.sizeMb.toLong(), model.storageRequirementMb.toLong())
+            val client = okhttp3.OkHttpClient.Builder()
+                // https → http запрещён; каждый шаг редиректа проверяется по белому списку хостов.
+                .followSslRedirects(false)
+                .addNetworkInterceptor { chain ->
+                    val url = chain.request().url.toString()
+                    if (!ModelSourcePolicy.isAllowedUrl(url)) {
+                        throw java.io.IOException("Перенаправление на неразрешённый адрес отклонено")
+                    }
+                    chain.proceed(chain.request())
+                }
+                .build()
             val request = okhttp3.Request.Builder().url(model.downloadUrl).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
@@ -106,6 +124,9 @@ open class LocalModelManager(
                 }
                 val body = response.body ?: return Result.failure(IllegalStateException("Пустой ответ"))
                 val total = body.contentLength()
+                if (total > maxBytes) {
+                    return Result.failure(IllegalStateException("Файл больше ожидаемого размера модели"))
+                }
                 var copied = 0L
                 body.byteStream().use { input ->
                     temp.outputStream().use { output ->
@@ -115,6 +136,7 @@ open class LocalModelManager(
                             if (n <= 0) break
                             output.write(buffer, 0, n)
                             copied += n
+                            if (copied > maxBytes) throw IllegalStateException("Файл больше ожидаемого размера модели")
                             if (total > 0) progress(((copied * 100) / total).toInt())
                         }
                     }

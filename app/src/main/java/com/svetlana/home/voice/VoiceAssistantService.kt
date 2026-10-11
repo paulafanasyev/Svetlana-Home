@@ -30,9 +30,10 @@ import kotlinx.coroutines.cancel
  *
  * Foreground-сервис с типом MICROPHONE: слушает слово пробуждения, даже
  * когда приложение свёрнуто или экран выключен, и исполняет команды через
- * VoiceAgent — тот же самый движок диалога, что и на главном экране.
+ * VoiceAgent — тот же самый движок диалога, что на главном экране.
  *
  * Требование: «ИИ-агент должен уметь работать по голосу и в бэкграунде».
+ * Каждая команда сначала проходит проверку голоса владельца (OwnerVoiceGate).
  *
  * В этом сервисе нет скрытого доступа к микрофону: foreground-сервис с
  * типом microphone виден пользователю через постоянное уведомление, и
@@ -89,10 +90,8 @@ class VoiceAssistantService : Service() {
             try {
                 ServiceLocator.wakeWord.detection.collect { command ->
                     if (command.isNullOrBlank()) return@collect
-                    ServiceLocator.historyManager.record(
-                        HistoryCategory.COMMANDS, "Голосовая команда: ${command.take(120)}")
                     try {
-                        handleCommand(command)
+                        handleCommand(command, ServiceLocator.wakeWord.takeDetectionAudio())
                     } finally {
                         // WakeWordEngine ждёт завершения текущей команды перед новым окном.
                         ServiceLocator.wakeWord.consumeDetection()
@@ -109,17 +108,19 @@ class VoiceAssistantService : Service() {
 
     /**
      * Исполнить команду через единое ядро диалога.
-     * Работает одинаково на экране и в фоне.
+     * Работает одинаково на экране и в фоне. Команда голосовая, поэтому
+     * VoiceAgent сначала проверит голос владельца.
      */
-    private suspend fun handleCommand(command: String) {
+    private suspend fun handleCommand(command: String, ownerAudio: FloatArray?) {
         val outcome = ServiceLocator.voiceAgent.handle(
             text = command,
             speak = true,
-            tts = ServiceLocator.tts
+            tts = ServiceLocator.tts,
+            voice = VoiceAgent.VoiceInput(ownerAudio)
         )
         when (outcome) {
             is VoiceAgent.Outcome.Replied ->
-                Log.i(TAG, "Команда выполнена: ${outcome.text.take(80)}")
+                Log.i(TAG, "Команда обработана")
             is VoiceAgent.Outcome.Confirmation -> {
                 // ТЗ §58: опасное действие нельзя выполнить в фоне
                 // автоматически. Светлана сообщает, что нужно подтверждение,
@@ -189,11 +190,6 @@ class VoiceAssistantService : Service() {
 
         private val startScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-        /**
-         * Запустить фоновый ассистент, если он включён в настройках
-         * и есть разрешение на микрофон. Ничего не делает молча: если
-         * условий нет — сервис не стартует.
-         */
         /**
          * Запускает microphone foreground service только из видимой Activity.
          * Android 12+ запрещает обычный background-start, а Android 14+ отдельно
