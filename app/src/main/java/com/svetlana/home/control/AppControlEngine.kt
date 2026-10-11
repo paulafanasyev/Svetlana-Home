@@ -1,3 +1,5 @@
+@file:Suppress("UNUSED_PARAMETER")
+
 package com.svetlana.home.control
 
 import android.content.Context
@@ -18,6 +20,11 @@ import com.svetlana.home.permissions.PermissionManager
  * - разрешения проверены;
  * - действие выполнено;
  * - результат верифицирован.
+ *
+ * Безопасность: все действия с экраном, звонки, сообщения и «поделиться» требуют
+ * [ActionGrant], который выдаёт только ActionRouter после проверки политики и подтверждений.
+ * Без него вызвать эти методы нельзя (код не скомпилируется). Открытие приложений и
+ * системных экранов безопасно и разрешения не требует.
  *
  * Запрещено: произвольные shell-команды, root, Termux, скрытое управление.
  */
@@ -94,7 +101,7 @@ class AppControlEngine(
         }
     }
 
-    suspend fun click(target: String, element: String): ActionResult {
+    suspend fun click(grant: ActionGrant, target: String, element: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=CLICK app=$target element=$element")
         if (!hands.isActive) {
             return ActionResult(SvetlanaAction.Click(target, element), false,
@@ -129,7 +136,7 @@ class AppControlEngine(
             proof.build(), "hands")
     }
 
-    suspend fun longClick(target: String, element: String): ActionResult {
+    suspend fun longClick(grant: ActionGrant, target: String, element: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=LONG_CLICK app=$target element=$element")
         if (!hands.isActive) return handsOff(SvetlanaAction.LongClick(target, element), proof)
         proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
@@ -156,7 +163,7 @@ class AppControlEngine(
             proof.build(), "hands")
     }
 
-    suspend fun typeText(target: String, element: String, text: String): ActionResult {
+    suspend fun typeText(grant: ActionGrant, target: String, element: String, text: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=TYPE_TEXT app=$target element=$element")
         if (!hands.isActive) return handsOff(SvetlanaAction.TypeText(target, element, text), proof)
         proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
@@ -181,7 +188,7 @@ class AppControlEngine(
             else "Не удалось ввести текст", proof.build(), "hands")
     }
 
-    suspend fun clearText(target: String, element: String): ActionResult {
+    suspend fun clearText(grant: ActionGrant, target: String, element: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=CLEAR_TEXT app=$target element=$element")
         if (!hands.isActive) return handsOff(SvetlanaAction.ClearText(target, element), proof)
         proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
@@ -203,7 +210,7 @@ class AppControlEngine(
             else "Не удалось очистить текст", proof.build(), "hands")
     }
 
-    suspend fun scroll(target: String, direction: String): ActionResult {
+    suspend fun scroll(grant: ActionGrant, target: String, direction: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=SCROLL app=$target dir=$direction")
         if (!hands.isActive) return handsOff(SvetlanaAction.Scroll(target, direction), proof)
         proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
@@ -225,7 +232,7 @@ class AppControlEngine(
             else "Не удалось прокрутить", proof.build(), "hands")
     }
 
-    suspend fun swipe(target: String, direction: String): ActionResult {
+    suspend fun swipe(grant: ActionGrant, target: String, direction: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=SWIPE app=$target dir=$direction")
         if (!hands.isActive) return handsOff(SvetlanaAction.Swipe(target, direction), proof)
         proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
@@ -267,7 +274,7 @@ class AppControlEngine(
         ActionResult(action, false,
             "Для этого действия нужен Hands, но он не включён", proof.failed("hands not active"))
 
-    suspend fun readScreen(target: String): ActionResult {
+    suspend fun readScreen(grant: ActionGrant, target: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=READ_SCREEN app=$target")
         if (!hands.isActive) return handsOff(SvetlanaAction.ReadScreen(target), proof)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
@@ -284,12 +291,12 @@ class AppControlEngine(
             if (text.isBlank()) "На экране нет текста" else text, proof.build(), "hands")
     }
 
-    suspend fun takeScreenshot(target: String): Bitmap? {
+    suspend fun takeScreenshot(grant: ActionGrant, target: String): Bitmap? {
         if (!hands.isActive) return null
         return hands.takeScreenshot()
     }
 
-    suspend fun takeScreenshotAction(target: String): ActionResult {
+    suspend fun takeScreenshotAction(grant: ActionGrant, target: String): ActionResult {
         val action = SvetlanaAction.TakeScreenshot(target)
         val proof = proofBuilder.start("PLAN0_TARGET=TAKE_SCREENSHOT app=$target")
         if (!hands.isActive) {
@@ -335,7 +342,7 @@ class AppControlEngine(
         }
     }
 
-    suspend fun pressBack(): ActionResult {
+    suspend fun pressBack(grant: ActionGrant): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=PRESS_BACK")
         if (!hands.isActive) return handsOff(SvetlanaAction.PressBack, proof)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
@@ -355,7 +362,7 @@ class AppControlEngine(
             else "Не удалось", proof.build(), "hands")
     }
 
-    suspend fun pressHome(): ActionResult {
+    suspend fun pressHome(grant: ActionGrant): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=PRESS_HOME")
         if (!hands.isActive) return handsOff(SvetlanaAction.PressHome, proof)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
@@ -375,7 +382,7 @@ class AppControlEngine(
             else "Не удалось", proof.build(), "hands")
     }
 
-    suspend fun openRecents(): ActionResult {
+    suspend fun openRecents(grant: ActionGrant): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=OPEN_RECENTS")
         if (!hands.isActive) return handsOff(SvetlanaAction.OpenRecents, proof)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
@@ -443,7 +450,7 @@ class AppControlEngine(
      * Каждый шаг имеет собственную proof-цепочку. Провал любого шага
      * останавливает цепочку: нельзя отправить то, что не введено.
      */
-    suspend fun composeMessage(appTarget: String, contact: String, text: String): ActionResult {
+    suspend fun composeMessage(grant: ActionGrant, appTarget: String, contact: String, text: String): ActionResult {
         val action = SvetlanaAction.ComposeMessage(appTarget, contact, text)
         if (!hands.isActive) {
             return ActionResult(action, false,
@@ -577,9 +584,9 @@ class AppControlEngine(
     }
 
     /**
-     * Звонок. Опасное действие — требует подтверждения пользователя.
+     * Звонок. Опасное действие — требует подтверждения пользователя (через ActionRouter).
      */
-    fun makeCall(contact: String): ActionResult {
+    fun makeCall(grant: ActionGrant, contact: String): ActionResult {
         val intent = intentResolver.call(contact).let {
             if (permissionManager.isGranted(android.Manifest.permission.CALL_PHONE)) it
             else intentResolver.dial(contact)
@@ -595,10 +602,9 @@ class AppControlEngine(
     }
 
     /**
-     * Отправка сообщения — опасное действие, требующее подтверждения.
+     * Отправка сообщения — опасное действие, требующее подтверждения (через ActionRouter).
      */
-    fun sendMessage(contact: String, text: String): ActionResult {
-        val contactUri = intentResolver.openContactByName(contact)
+    fun sendMessage(grant: ActionGrant, contact: String, text: String): ActionResult {
         return try {
             val intent = intentResolver.sms(contact, text)
             context.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -610,7 +616,7 @@ class AppControlEngine(
         }
     }
 
-    fun share(text: String): ActionResult = try {
+    fun share(grant: ActionGrant, text: String): ActionResult = try {
         context.startActivity(intentResolver.shareText(text))
         ActionResult(SvetlanaAction.Share(text), true, "Поделиться", emptyList(), "intent")
     } catch (t: Throwable) {
