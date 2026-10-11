@@ -2,6 +2,9 @@ package com.svetlana.home.hands
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
 import com.svetlana.home.permissions.PermissionManager
@@ -152,10 +155,14 @@ class HandsController(private val context: Context) {
     /**
      * Скриншот имеет bounded timeout: Accessibility API обязан ответить
      * callback-ом, иначе action не должен оставлять корутину навсегда.
+     *
+     * Приватность: поля паролей/PIN/кодов/карт и текст с одноразовыми кодами
+     * закрашиваются до того, как картинка уйдёт дальше (модель, история).
+     * Если закрасить не удалось — скриншот не возвращается (fail closed).
      */
-    suspend fun takeScreenshot(timeoutMs: Long = 8000L): Bitmap? =
-        withTimeoutOrNull(timeoutMs) {
-            suspendCancellableCoroutine { cont ->
+    suspend fun takeScreenshot(timeoutMs: Long = 8000L): Bitmap? {
+        val raw: Bitmap = withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine<Bitmap?> { cont ->
                 val svc = service()
                 if (svc == null) {
                     cont.resume(null)
@@ -165,7 +172,28 @@ class HandsController(private val context: Context) {
                     if (cont.isActive) cont.resume(bitmap)
                 }
             }
+        } ?: return null
+        return redactSecrets(raw)
+    }
+
+    private fun redactSecrets(raw: Bitmap): Bitmap? {
+        val secrets = uiTree()?.nodes.orEmpty()
+            .filter {
+                it.isPassword || it.text.contains(SensitiveText.MASK) ||
+                    it.contentDescription.contains(SensitiveText.MASK)
+            }
+            .map { it.bounds }
+            .filter { !it.isEmpty }
+        if (secrets.isEmpty()) return raw
+        val copy = raw.copy(Bitmap.Config.ARGB_8888, true) ?: return null
+        val canvas = Canvas(copy)
+        val paint = Paint().apply {
+            color = Color.BLACK
+            style = Paint.Style.FILL
         }
+        secrets.forEach { canvas.drawRect(it, paint) }
+        return copy
+    }
 
     /**
      * Поиск элемента в текущем UI tree.
@@ -189,10 +217,11 @@ class HandsController(private val context: Context) {
      * Поиск поля ввода на текущем экране. Используется в длинных
      * Hands-цепочках (написать сообщение в мессенджере): поле ввода
      * определяется по классу EditText и доступности для правки.
+     * Поля паролей/PIN/карт сюда не попадают: сообщение туда не печатаем.
      */
     fun findEditableField(): UiNode? {
         val tree = uiTree() ?: return null
-        return tree.nodes.firstOrNull { isEditable(it) }
+        return tree.nodes.firstOrNull { isEditable(it) && !it.isPassword }
     }
 
     private fun isEditable(node: UiNode): Boolean {
@@ -291,10 +320,6 @@ class HandsController(private val context: Context) {
         return live.text?.toString().isNullOrBlank()
     }
 
-    /**
-     * Проверка, что элемент всё ещё присутствует на экране (для swipe/scroll —
-     * содержимое могло измениться, но дерево осталось валидным).
-     */
     /**
      * Стабильный отпечаток текущего UI tree.
      *

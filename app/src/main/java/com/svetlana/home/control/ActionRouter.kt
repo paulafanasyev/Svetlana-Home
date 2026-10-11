@@ -39,8 +39,8 @@ class ActionRouter(
     /**
      * Выполнить разобранное действие с проверкой разрешений.
      *
-     * Клик/ввод без [confirmed] дополнительно проверяются по реальному
-     * элементу на экране (кнопка «Удалить», поле пароля/карты).
+     * Клик/ввод дополнительно проверяются по реальному элементу на экране
+     * (кнопка «Удалить», поле пароля/карты), а подтверждение привязано к этому элементу.
      */
     suspend fun execute(action: SvetlanaAction, confirmed: Boolean = false): ActionResult {
         // ТЗ §58: опасные действия (звонки, SMS) и публикации/шеринг
@@ -54,12 +54,22 @@ class ActionRouter(
 
         // Клик/ввод: проверяем РЕАЛЬНЫЙ элемент на экране. «Кнопка» может
         // оказаться «Удалить», а «поле» — полем пароля (prompt injection).
-        if (!confirmed && screenTargetNeedsConfirmation(action)) {
-            historyManager.record(HistoryCategory.CONFIRMATIONS,
-                "Запрошено подтверждение: ${action.name} (опасный элемент на экране)")
-            return ActionResult(action, false, context.getString(R.string.reply_confirm_dangerous),
-                way = "hands", requiresUserConfirmation = true)
+        // Подтверждение привязано к элементу: если после вопроса экран
+        // подменили и под тем же именем теперь другой элемент — спрашиваем снова.
+        val target = screenTarget(action)
+        if (target != null && target.dangerous) {
+            val pending = pendingTarget
+            val stale = confirmed && pending != null && pending.first == action && pending.second != target.label
+            if (!confirmed || stale) {
+                pendingTarget = action to target.label
+                historyManager.record(HistoryCategory.CONFIRMATIONS,
+                    "Запрошено подтверждение: ${action.name} «${target.shown}»")
+                return ActionResult(action, false,
+                    "Подтвердите: ${if (target.typing) "ввести текст в поле" else "нажать"} «${target.shown}»?",
+                    way = "hands", requiresUserConfirmation = true)
+            }
         }
+        if (confirmed) pendingTarget = null
 
         val result = when (action) {
             is SvetlanaAction.OpenApp -> engine.openApp(action.target)
@@ -97,24 +107,32 @@ class ActionRouter(
         return result
     }
 
+    private class ScreenTarget(val label: String, val shown: String, val typing: Boolean, val dangerous: Boolean)
+
+    /** Элемент, на который подтверждали опасное действие (защита от подмены экрана). */
+    @Volatile
+    private var pendingTarget: Pair<SvetlanaAction, String>? = null
+
     /**
-     * Нашёлся ли на экране элемент, который делает безобидный по названию
-     * Click/LongClick/TypeText опасным: подпись «Удалить/Оплатить/…» или
-     * поле пароля/PIN/карты.
+     * Реальный элемент на экране для Click/LongClick/TypeText и его опасность:
+     * подпись «Удалить/Оплатить/…» или поле пароля/PIN/карты.
      */
-    private fun screenTargetNeedsConfirmation(action: SvetlanaAction): Boolean {
+    private fun screenTarget(action: SvetlanaAction): ScreenTarget? {
         val (element, typing) = when (action) {
             is SvetlanaAction.Click -> action.element to false
             is SvetlanaAction.LongClick -> action.element to false
             is SvetlanaAction.TypeText -> action.element to true
-            else -> return false
+            else -> return null
         }
         val hands = ServiceLocator.hands
-        if (!hands.isActive) return false
-        val node = hands.findElement(element) ?: return false
-        val label = "${node.text} ${node.contentDescription} ${node.id}"
-        return if (typing) node.isPassword || ActionRiskPolicy.isSensitiveFieldLabel(label)
-        else ActionRiskPolicy.isDangerousLabel(label)
+        if (!hands.isActive) return null
+        val node = hands.findElement(element) ?: return null
+        val label = "${node.text} ${node.contentDescription} ${node.id} ${node.bounds}"
+        val semantic = "${node.text} ${node.contentDescription} ${node.id}"
+        val dangerous = if (typing) node.isPassword || ActionRiskPolicy.isSensitiveFieldLabel(semantic)
+        else ActionRiskPolicy.isDangerousLabel(semantic)
+        val shown = node.visibleText.ifBlank { element }.take(40)
+        return ScreenTarget(label, shown, typing, dangerous)
     }
 
     /**
