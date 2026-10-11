@@ -57,8 +57,9 @@ data class ServerCapabilities(
  * Безопасность: адрес проверяется [ServerUrlPolicy] при сохранении и перед КАЖДЫМ запросом,
  * DNS не может увести на сам телефон/metadata, перенаправления запрещены (токен не уйдёт
  * на чужой адрес), ответ ограничен [MAX_RESPONSE] байтами.
- * Токен отправляется ТОЛЬКО по https: незащищённый http допустим лишь для сервера в домашней
- * сети без токена, чтобы сосед по Wi‑Fi не мог перехватить секрет.
+ * Токен и данные пользователя (запросы к модели, снимки экрана) отправляются ТОЛЬКО по https:
+ * по незащищённому http допустимы лишь проверка доступности и список возможностей сервера,
+ * чтобы сосед по Wi‑Fi не мог ни перехватить секрет, ни прочитать переписку и экран.
  */
 class PersonalServerManager(
     private val context: Context,
@@ -116,6 +117,13 @@ class PersonalServerManager(
         return token()
     }
 
+    /** Запросы с данными пользователя (текст запроса, снимок экрана) — только по https. */
+    private fun carriesUserData(base: String): Boolean {
+        if (base.startsWith("https://", ignoreCase = true)) return true
+        Log.w(TAG, "Сервер по http: запросы с данными не отправляются (нужен https)")
+        return false
+    }
+
     /** Адрес сервера, если он задан и проходит политику (старые сохранённые адреса тоже проверяются). */
     private fun safeBase(): String? {
         val base = config.baseUrl
@@ -169,7 +177,7 @@ class PersonalServerManager(
     }
 
     suspend fun inference(prompt: String, model: String? = null): String? = withContext(Dispatchers.IO) {
-        val base = safeBase() ?: return@withContext null
+        val base = safeBase()?.takeIf { carriesUserData(it) } ?: return@withContext null
         try {
             val payload = buildString {
                 append("{")
@@ -185,7 +193,7 @@ class PersonalServerManager(
     }
 
     suspend fun visionInference(prompt: String, imageBytes: ByteArray): String? = withContext(Dispatchers.IO) {
-        val base = safeBase() ?: return@withContext null
+        val base = safeBase()?.takeIf { carriesUserData(it) } ?: return@withContext null
         try {
             val body = okhttp3.MultipartBody.Builder()
                 .setType(okhttp3.MultipartBody.FORM)

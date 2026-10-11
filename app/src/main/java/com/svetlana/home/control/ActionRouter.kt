@@ -35,8 +35,8 @@ private object RouterGrant : ActionGrant
  * тексту из чата (опасное всё равно требует нажатия). Фоновый голос (слово пробуждения)
  * может произнести кто угодно рядом — он только ПРЕДЛАГАЕТ действие.
  *
- * Нажатие/ввод выполняются только на том элементе, который был оценён и подтверждён: движок
- * получает его метку (пакет, текст, id, границы) и отказывает, если на экране уже другой элемент.
+ * Нажатие/ввод/очистка выполняются только на том элементе, который был оценён и подтверждён:
+ * движок получает его метку (пакет, текст, id, границы) и отказывает, если на экране уже другой элемент.
  *
  * Здесь нет доступа к shell, root или скрытым командам.
  */
@@ -96,7 +96,7 @@ class ActionRouter(
             is SvetlanaAction.Swipe -> engine.swipe(RouterGrant, action.target, action.direction)
             is SvetlanaAction.Scroll -> engine.scroll(RouterGrant, action.target, action.direction)
             is SvetlanaAction.TypeText -> engine.typeText(RouterGrant, action.target, action.element, action.text, expected)
-            is SvetlanaAction.ClearText -> engine.clearText(RouterGrant, action.target, action.element)
+            is SvetlanaAction.ClearText -> engine.clearText(RouterGrant, action.target, action.element, expected)
             is SvetlanaAction.ReadScreen -> engine.readScreen(RouterGrant, readTarget ?: action.target)
             is SvetlanaAction.FindElement -> engine.readScreen(RouterGrant, readTarget ?: action.target)
             is SvetlanaAction.TakeScreenshot -> engine.takeScreenshotAction(RouterGrant, action.target)
@@ -169,6 +169,8 @@ class ActionRouter(
             is SvetlanaAction.Click -> action.element to false
             is SvetlanaAction.LongClick -> action.element to false
             is SvetlanaAction.TypeText -> action.element to true
+            // Очистка: согласие привязывается к конкретному полю, движок очищает только его.
+            is SvetlanaAction.ClearText -> action.element to true
             else -> return null
         }
         val hands = ServiceLocator.hands
@@ -184,7 +186,7 @@ class ActionRouter(
 
     /** Действия, привязанные к экрану: их цель вычисляется в момент подтверждения, а не из фона. */
     private fun isScreenBound(action: SvetlanaAction): Boolean = when (action) {
-        is SvetlanaAction.Click, is SvetlanaAction.LongClick, is SvetlanaAction.TypeText,
+        is SvetlanaAction.Click, is SvetlanaAction.LongClick, is SvetlanaAction.TypeText, is SvetlanaAction.ClearText,
         is SvetlanaAction.ReadScreen, is SvetlanaAction.FindElement, is SvetlanaAction.TakeScreenshot -> true
         else -> false
     }
@@ -213,9 +215,9 @@ class ActionRouter(
     /**
      * Действие из фонового голоса: НИЧЕГО не выполняем, только спрашиваем в приложении.
      * Одно нажатие «Подтвердить» в разблокированном приложении = согласие (одноразовое, 60 с).
-     * Экранные действия (нажать/ввести/прочитать/скриншот) не получают заранее выданного
-     * согласия: при подтверждении цель пересчитывается по живому экрану и, если она опасная,
-     * пользователь увидит её и подтвердит отдельно.
+     * Экранные действия (нажать/ввести/очистить/прочитать/скриншот) не получают заранее
+     * выданного согласия: при подтверждении цель пересчитывается по живому экрану и, если она
+     * опасная, пользователь увидит её и подтвердит отдельно.
      */
     private fun proposeFromVoice(action: SvetlanaAction): ActionResult {
         historyManager.record(HistoryCategory.CONFIRMATIONS, "Голос из фона: ${action.name} ждёт подтверждения в приложении")
