@@ -39,37 +39,37 @@ class ActionRouter(
     /**
      * Выполнить разобранное действие с проверкой разрешений.
      *
-     * Клик/ввод дополнительно проверяются по реальному элементу на экране
-     * (кнопка «Удалить», поле пароля/карты), а подтверждение привязано к этому элементу.
+     * Подтверждение привязано к КОНКРЕТНОМУ действию со всеми параметрами и к
+     * реальному элементу на экране: `confirmed = true` срабатывает, только если
+     * именно этот вопрос был задан пользователю. Если экран подменили между
+     * вопросом и ответом (под тем же именем теперь другой элемент) — спрашиваем
+     * снова. Вопрос всегда показывает точные параметры ([ConfirmationText]).
      */
-    suspend fun execute(action: SvetlanaAction, confirmed: Boolean = false): ActionResult {
-        // ТЗ §58: опасные действия (звонки, SMS) и публикации/шеринг
-        // требуют явного подтверждения пользователя.
-        if (ActionRiskPolicy.requiresConfirmation(action) && !confirmed) {
-            historyManager.record(HistoryCategory.CONFIRMATIONS,
-                "Запрошено подтверждение: ${action.name}")
-            return ActionResult(action, false, context.getString(R.string.reply_confirm_dangerous),
-                requiresUserConfirmation = true)
-        }
+    suspend fun execute(action: SvetlanaAction, confirmed: Boolean = false): ActionResult =
+        executeInternal(action, confirmed, chainApproved = false)
 
+    private suspend fun executeInternal(action: SvetlanaAction, confirmed: Boolean, chainApproved: Boolean): ActionResult {
+        // ТЗ §58: опасные действия (звонки, SMS, публикации) — явное подтверждение.
+        // Внутри уже подтверждённой цепочки шаги были показаны пользователю
+        // поимённо, поэтому повторно по политике не спрашиваем; но элемент на
+        // экране проверяется всегда — его при подтверждении цепочки ещё не было видно.
+        val policyRisk = ActionRiskPolicy.requiresConfirmation(action) && !chainApproved
         // Клик/ввод: проверяем РЕАЛЬНЫЙ элемент на экране. «Кнопка» может
         // оказаться «Удалить», а «поле» — полем пароля (prompt injection).
-        // Подтверждение привязано к элементу: если после вопроса экран
-        // подменили и под тем же именем теперь другой элемент — спрашиваем снова.
         val target = screenTarget(action)
-        if (target != null && target.dangerous) {
-            val pending = pendingTarget
-            val stale = confirmed && pending != null && pending.first == action && pending.second != target.label
-            if (!confirmed || stale) {
-                pendingTarget = action to target.label
-                historyManager.record(HistoryCategory.CONFIRMATIONS,
-                    "Запрошено подтверждение: ${action.name} «${target.shown}»")
+        val targetRisk = target != null && target.dangerous
+        if (policyRisk || targetRisk) {
+            val key = Approval(action, target?.label)
+            if (!(confirmed && consumeApproval(key))) {
+                rememberApproval(key)
+                historyManager.record(HistoryCategory.CONFIRMATIONS, "Запрошено подтверждение: ${action.name}")
+                val question = ConfirmationText.question(
+                    action, target?.shown, secretField = target != null && target.typing && target.dangerous)
                 return ActionResult(action, false,
-                    "Подтвердите: ${if (target.typing) "ввести текст в поле" else "нажать"} «${target.shown}»?",
-                    way = "hands", requiresUserConfirmation = true)
+                    "${context.getString(R.string.reply_confirm_dangerous)}\n$question",
+                    way = if (target != null) "hands" else "unknown", requiresUserConfirmation = true)
             }
         }
-        if (confirmed) pendingTarget = null
 
         val result = when (action) {
             is SvetlanaAction.OpenApp -> engine.openApp(action.target)
@@ -109,9 +109,26 @@ class ActionRouter(
 
     private class ScreenTarget(val label: String, val shown: String, val typing: Boolean, val dangerous: Boolean)
 
-    /** Элемент, на который подтверждали опасное действие (защита от подмены экрана). */
+    /** Заданный пользователю вопрос: действие со всеми параметрами + элемент на экране. */
+    private data class Approval(val action: SvetlanaAction, val targetLabel: String?)
+
+    /** Вопросы, на которые ждём ответа (несколько окон чата/главного экрана). */
+    private val pendingApprovals = LinkedHashSet<Approval>()
+
+    @Synchronized
+    private fun rememberApproval(key: Approval) {
+        pendingApprovals.remove(key)
+        pendingApprovals.add(key)
+        while (pendingApprovals.size > MAX_PENDING) pendingApprovals.remove(pendingApprovals.first())
+    }
+
+    /** Одноразово: подтверждение нельзя использовать повторно. */
+    @Synchronized
+    private fun consumeApproval(key: Approval): Boolean = pendingApprovals.remove(key)
+
+    /** Цепочка, остановленная на шаге, который потребовал подтверждения: продолжаем с него, не повторяя выполненные шаги. */
     @Volatile
-    private var pendingTarget: Pair<SvetlanaAction, String>? = null
+    private var resumeChain: Pair<SvetlanaAction.Compound, Int>? = null
 
     /**
      * Реальный элемент на экране для Click/LongClick/TypeText и его опасность:
@@ -127,7 +144,7 @@ class ActionRouter(
         val hands = ServiceLocator.hands
         if (!hands.isActive) return null
         val node = hands.findElement(element) ?: return null
-        val label = "${node.text} ${node.contentDescription} ${node.id} ${node.bounds}"
+        val label = "${hands.currentPackage()} ${node.text} ${node.contentDescription} ${node.id} ${node.bounds}"
         val semantic = "${node.text} ${node.contentDescription} ${node.id}"
         val dangerous = if (typing) node.isPassword || ActionRiskPolicy.isSensitiveFieldLabel(semantic)
         else ActionRiskPolicy.isDangerousLabel(semantic)
@@ -199,22 +216,34 @@ class ActionRouter(
      * Каждый шаг выполняется только после успеха предыдущего — это
      * ключевое правило для длинных запросов: нельзя нажимать «Отправить»,
      * если текст не введён. Доказательная цепочка объединяет все шаги.
+     *
+     * Если шаг потребовал подтверждения (опасный элемент появился на экране),
+     * после ответа пользователя цепочка продолжается С ЭТОГО шага: уже
+     * выполненные шаги не повторяются (иначе «Удалить» нажали бы дважды).
      */
     private suspend fun executeCompound(action: SvetlanaAction.Compound, confirmed: Boolean): ActionResult {
+        val resume = resumeChain
+        val start = if (confirmed && resume != null && resume.first == action) resume.second else 0
+        resumeChain = null
+
         val allProof = mutableListOf<com.svetlana.home.core.ProofStep>()
         allProof += com.svetlana.home.core.ProofStep(
             com.svetlana.home.core.ProofStage.PLAN, com.svetlana.home.core.StepStatus.OK,
-            "PLAN_TARGET=COMPOUND steps=${action.steps.size} (${action.steps.joinToString { it.name }})")
+            "PLAN_TARGET=COMPOUND steps=${action.steps.size} (${action.steps.joinToString { it.name }})" +
+                if (start > 0) " resume_from=${start + 1}" else "")
 
         val messages = mutableListOf<String>()
-        action.steps.forEachIndexed { index, step ->
-            // Опасные шаги внутри цепочки (например, отправка сообщения)
-            // требуют подтверждения — вся цепочка уже была подтверждена
-            // целиком на уровне execute(), поэтому передаём confirmed дальше.
-            val stepResult = execute(step, confirmed)
+        for (index in start until action.steps.size) {
+            val step = action.steps[index]
+            // Цепочка целиком уже показана и подтверждена (или в ней нет опасных
+            // по политике шагов), но элемент на экране проверяется в каждом шаге.
+            val stepResult = executeInternal(step, confirmed, chainApproved = true)
             allProof += stepResult.proof
             if (stepResult.requiresUserConfirmation) {
-                // Опасный элемент обнаружился только на экране: спрашиваем пользователя.
+                // Опасный элемент обнаружился только на экране: спрашиваем пользователя
+                // и запоминаем место, с которого продолжить после ответа.
+                resumeChain = action to index
+                if (ActionRiskPolicy.requiresConfirmation(action)) rememberApproval(Approval(action, null))
                 return ActionResult(action, false, stepResult.message, allProof, stepResult.way,
                     requiresUserConfirmation = true)
             }
@@ -240,4 +269,8 @@ class ActionRouter(
     }
 
     enum class Availability { AVAILABLE, NEEDS_HANDS, UNAVAILABLE }
+
+    private companion object {
+        const val MAX_PENDING = 8
+    }
 }
