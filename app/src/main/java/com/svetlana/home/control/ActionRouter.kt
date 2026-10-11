@@ -30,6 +30,11 @@ private object RouterGrant : ActionGrant
  * Команды фонового голоса (неаутентифицированные) никогда не выполняются сразу: только
  * предлагаются на подтверждение в открытом приложении ([route] с unattendedVoice = true).
  *
+ * Модель угроз голоса: голосового отпечатка нет. Микрофон в приложении включает человек,
+ * который держит разблокированный телефон и видит экран, поэтому такой голос приравнен к
+ * тексту из чата (опасное всё равно требует нажатия). Фоновый голос (слово пробуждения)
+ * может произнести кто угодно рядом — он только ПРЕДЛАГАЕТ действие.
+ *
  * Здесь нет доступа к shell, root или скрытым командам.
  */
 class ActionRouter(
@@ -172,6 +177,13 @@ class ActionRouter(
         return ScreenTarget(label, shown, typing, dangerous)
     }
 
+    /** Действия, привязанные к экрану: их цель вычисляется в момент подтверждения, а не из фона. */
+    private fun isScreenBound(action: SvetlanaAction): Boolean = when (action) {
+        is SvetlanaAction.Click, is SvetlanaAction.LongClick, is SvetlanaAction.TypeText,
+        is SvetlanaAction.ReadScreen, is SvetlanaAction.FindElement, is SvetlanaAction.TakeScreenshot -> true
+        else -> false
+    }
+
     /**
      * @param unattendedVoice команда фонового слова пробуждения: голос не аутентифицирован, поэтому
      *   ничего не выполняется — действие только предлагается на подтверждение в приложении.
@@ -193,9 +205,18 @@ class ActionRouter(
         return null
     }
 
-    /** Действие из фонового голоса: НИЧЕГО не выполняем, только спрашиваем в приложении. */
+    /**
+     * Действие из фонового голоса: НИЧЕГО не выполняем, только спрашиваем в приложении.
+     * Одно нажатие «Подтвердить» в разблокированном приложении = согласие (одноразовое, 60 с).
+     * Экранные действия (нажать/ввести/прочитать/скриншот) не получают заранее выданного
+     * согласия: при подтверждении цель пересчитывается по живому экрану и, если она опасная,
+     * пользователь увидит её и подтвердит отдельно.
+     */
     private fun proposeFromVoice(action: SvetlanaAction): ActionResult {
         historyManager.record(HistoryCategory.CONFIRMATIONS, "Голос из фона: ${action.name} ждёт подтверждения в приложении")
+        if (!isScreenBound(action) && ActionRiskPolicy.requiresConfirmation(action)) {
+            rememberApproval(Approval(action, null))
+        }
         val question = ConfirmationText.question(action, null, secretField = false)
         return ActionResult(action, false, "${VoicePolicy.CONFIRM_IN_APP}\n$question",
             way = "voice", requiresUserConfirmation = true)
