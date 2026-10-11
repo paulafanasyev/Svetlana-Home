@@ -60,14 +60,9 @@ class ActionRouter(
         executeInternal(action, confirmed, chainApproved = false)
 
     private suspend fun executeInternal(action: SvetlanaAction, confirmed: Boolean, chainApproved: Boolean): ActionResult {
-        // ТЗ §58: опасные действия (звонки, SMS, публикации) — явное подтверждение.
-        // Внутри уже подтверждённой цепочки шаги были показаны пользователю
-        // поимённо, поэтому повторно по политике не спрашиваем; но элемент на
-        // экране проверяется всегда — его при подтверждении цепочки ещё не было видно.
         val policyRisk = ActionRiskPolicy.requiresConfirmation(action) && !chainApproved
-        // Клик/ввод: проверяем РЕАЛЬНЫЙ элемент на экране. «Кнопка» может
-        // оказаться «Удалить», а «поле» — полем пароля (prompt injection).
-        // Скриншот чужого приложения — только с согласия пользователя на конкретное приложение.
+        // Клик/ввод: проверяем РЕАЛЬНЫЙ элемент на экране. Снимок и чтение чужого приложения —
+        // только с согласия пользователя, и в вопросе видно, КАКОЕ приложение на экране.
         val target = screenTarget(action)
         val targetRisk = target != null && target.dangerous
         var approved = false
@@ -124,9 +119,7 @@ class ActionRouter(
     /**
      * Единая проверка для исполнителей без диалога с пользователем (Mobile Harness,
      * автотесты): true — действие безопасно и его можно выполнить сразу.
-     * Опасное по политике или по реальному элементу на экране НЕ выполняется:
-     * записываем запрос подтверждения в историю, а подтвердить его можно только
-     * через обычный диалог Светланы (execute → confirmed).
+     * Опасное по политике или по реальному элементу на экране НЕ выполняется.
      */
     suspend fun authorizeUnattended(action: SvetlanaAction): Boolean {
         val target = screenTarget(action)
@@ -140,14 +133,8 @@ class ActionRouter(
 
     private class ScreenTarget(val label: String, val shown: String, val typing: Boolean, val dangerous: Boolean)
 
-    /** Заданный пользователю вопрос: действие со всеми параметрами + элемент на экране. */
     private data class Approval(val action: SvetlanaAction, val targetLabel: String?)
 
-    /**
-     * Вопросы, на которые ждём ответа (несколько окон чата/главного экрана), со временем вопроса.
-     * Ответ действителен [APPROVAL_TTL_MS]: подтверждение, на которое не нажали (отмена, ушли
-     * с экрана), протухает и не может быть использовано позже.
-     */
     private val pendingApprovals = LinkedHashMap<Approval, Long>()
 
     @Synchronized
@@ -171,20 +158,21 @@ class ActionRouter(
         resumeChain = null
     }
 
-    /** Цепочка, остановленная на шаге, который потребовал подтверждения: продолжаем с него, не повторяя выполненные шаги. */
     @Volatile
     private var resumeChain: Pair<SvetlanaAction.Compound, Int>? = null
 
     /**
      * Реальная цель действия на экране и её опасность:
      * - Click/LongClick/TypeText: элемент с подписью «Удалить/Оплатить/…» или поле пароля/PIN/карты;
-     * - TakeScreenshot: приложение на экране не входит в доверенные ([ScreenshotPolicy]).
+     * - TakeScreenshot / ReadScreen / FindElement: приложение на экране не входит в доверенные
+     *   ([ScreenshotPolicy]); в вопросе показывается реальный пакет.
      */
     private fun screenTarget(action: SvetlanaAction): ScreenTarget? {
-        if (action is SvetlanaAction.TakeScreenshot) {
+        if (action is SvetlanaAction.TakeScreenshot || action is SvetlanaAction.ReadScreen || action is SvetlanaAction.FindElement) {
             val pkg = currentPackageForScreenshot()
             val trusted = ScreenshotPolicy.isTrusted(pkg, context.packageName)
-            return ScreenTarget("screenshot:$pkg", pkg, typing = false, dangerous = !trusted)
+            val kind = if (action is SvetlanaAction.TakeScreenshot) "screenshot" else "read"
+            return ScreenTarget("$kind:$pkg", pkg, typing = false, dangerous = !trusted)
         }
         val (element, typing) = when (action) {
             is SvetlanaAction.Click -> action.element to false
@@ -203,11 +191,6 @@ class ActionRouter(
         return ScreenTarget(label, shown, typing, dangerous)
     }
 
-    /**
-     * Полный цикл: голос/текст → действие → результат.
-     * Возвращает результат действия или null, если это не команда управления
-     * (значит, нужно передать в AI-чат).
-     */
     suspend fun route(command: String, confirmed: Boolean = false): ActionResult? {
         val action = CommandParser.parse(command)
         if (action != null) return execute(action, confirmed)
@@ -218,14 +201,11 @@ class ActionRouter(
         return null
     }
 
-    /**
-     * Проверка разрешений, необходимых для действия.
-     */
     fun missingPermissionsFor(action: SvetlanaAction): List<String> {
         val needed = mutableListOf<String>()
         when (action) {
-            is SvetlanaAction.MakeCall -> needed.add(android.Manifest.permission.CALL_PHONE)
-            is SvetlanaAction.SendMessage -> needed.add(android.Manifest.permission.SEND_SMS)
+            is SvetlanaAction.MakeCall -> { /* только набор номера — разрешение не нужно */ }
+            is SvetlanaAction.SendMessage -> { /* черновик в приложении SMS — разрешение не нужно */ }
             is SvetlanaAction.TypeText, is SvetlanaAction.Click, is SvetlanaAction.Swipe,
             is SvetlanaAction.Scroll, is SvetlanaAction.TakeScreenshot, is SvetlanaAction.ReadScreen,
             is SvetlanaAction.ComposeMessage, is SvetlanaAction.Compound -> {
@@ -239,9 +219,6 @@ class ActionRouter(
         }
     }
 
-    /**
-     * Доступность способа управления для действия.
-     */
     fun availabilityFor(action: SvetlanaAction): Availability {
         return when (action) {
             is SvetlanaAction.OpenApp, is SvetlanaAction.OpenAppScreen -> Availability.AVAILABLE
@@ -256,11 +233,6 @@ class ActionRouter(
         }
     }
 
-    /**
-     * Выполнение последовательности действий (Compound). Каждый шаг — только после успеха
-     * предыдущего. Если шаг потребовал подтверждения, после ответа цепочка продолжается
-     * С ЭТОГО шага: уже выполненные шаги не повторяются.
-     */
     private suspend fun executeCompound(action: SvetlanaAction.Compound, confirmed: Boolean): ActionResult {
         val resume = resumeChain
         val start = if (confirmed && resume != null && resume.first == action) resume.second else 0
