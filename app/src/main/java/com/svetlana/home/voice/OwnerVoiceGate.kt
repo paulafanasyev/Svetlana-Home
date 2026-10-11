@@ -16,8 +16,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 2. Android 13+: проверяется сама фраза команды (аудио из OwnerAudioTap).
  * 3. Иначе (старый Android или слишком тихо) → контрольная фраза «Светлана, это я».
  * 4. 5 чужих голосов подряд → пауза 5 минут; состояние переживает перезапуск приложения.
- * 5. Проверки идут строго по одной (Mutex); перед «разрешено» перепроверяется пауза и то,
- *    что шаблон не перезаписан и не удалён за время проверки.
+ * 5. Проверки идут строго по одной (Mutex). Финальное решение «разрешено» принимается под
+ *    тем же замком, что и запись/удаление шаблона (OwnerVoiceStore), и только если шаблон
+ *    не менялся за время проверки.
  *
  * Честно: отпечаток голоса отсекает чужие голоса, но не отличает живой голос от записи.
  * Поэтому всё, что меняет данные или пишет людям, подтверждается на экране (ActionRiskPolicy).
@@ -65,22 +66,24 @@ object OwnerVoiceGate {
                     print = audio?.let { VoicePrint.compute(it, PcmCapture.SAMPLE_RATE).also { _ -> it.fill(0f) } }
                 }
                 val verdict = VoicePrint.verify(print, template)
-                if (OwnerVoiceStore.generation != gen) {
-                    // Шаблон перезаписали или удалили во время проверки: старый вердикт не считается.
-                    return@withLock Decision.Denied(CHANGED)
-                }
-                if (verdict.ok && !lockout.isLocked()) {
-                    lockout.onSuccess()
-                    OwnerVoiceStore.saveLock(context, lockout.snapshot())
-                    Decision.Allowed
-                } else {
-                    // Тишина не считается попыткой перебора, чужой голос считается.
-                    if (print != null && !verdict.ok) {
-                        lockout.onFailure()
-                        OwnerVoiceStore.saveLock(context, lockout.snapshot())
+                // Решение принимается под замком хранилища: save/delete не могут вклиниться
+                // между проверкой поколения и ответом «разрешено».
+                synchronized(OwnerVoiceStore) {
+                    if (OwnerVoiceStore.generation != gen) {
+                        return@withLock Decision.Denied(CHANGED)
                     }
-                    Decision.Denied(if (lockout.isLocked()) lockedMessage() else verdict.reason ?: VoicePrint.MSG_FOREIGN)
+                    if (verdict.ok && !lockout.isLocked()) {
+                        lockout.onSuccess()
+                        OwnerVoiceStore.saveLock(context, lockout.snapshot())
+                        return@withLock Decision.Allowed
+                    }
                 }
+                // Тишина не считается попыткой перебора, чужой голос считается.
+                if (print != null && !verdict.ok) {
+                    lockout.onFailure()
+                    OwnerVoiceStore.saveLock(context, lockout.snapshot())
+                }
+                Decision.Denied(if (lockout.isLocked()) lockedMessage() else verdict.reason ?: VoicePrint.MSG_FOREIGN)
             }
         }
 
