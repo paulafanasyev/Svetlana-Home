@@ -26,8 +26,9 @@ import com.svetlana.home.permissions.PermissionManager
  *   приложения отменяет действие;
  * - нажатие/ввод/очистка выполняются только на том элементе, который роутер оценил и пользователь
  *   подтвердил ([targetLabel]); другая кнопка на его месте или сдвиг = отказ;
- * - сообщение в мессенджере уходит только в чат, где виден именно этот собеседник, текст вводится
- *   в то же поле, а нажимается та же кнопка «Отправить» (каждый шаг перепроверяется перед действием);
+ * - сообщение в мессенджере уходит только в чат, в ШАПКЕ которого именно этот собеседник, текст
+ *   вводится в то же поле, а нажимается та же кнопка «Отправить» (каждый шаг перепроверяется
+ *   перед действием); имя в тексте сообщения ниже шапки не считается;
  * - звонок только через набор номера, SMS — только черновик.
  *
  * Запрещено: произвольные shell-команды, root, Termux, скрытое управление, автонабор звонка.
@@ -91,10 +92,20 @@ class AppControlEngine(
     private fun sameTarget(pkg: String, a: UiNode, b: UiNode?): Boolean =
         b != null && targetLabel(pkg, a) == targetLabel(pkg, b)
 
-    /** Открыт чат именно с этим собеседником: его имя видно на экране, и это не само поле ввода. */
+    /**
+     * Открыт чат именно с этим собеседником: шапка чата (самый верхний текст выше поля ввода)
+     * равна имени контакта или начинается с него. Имя в сообщении ниже шапки не считается.
+     */
     private fun recipientShown(contact: String, input: UiNode): Boolean {
-        val n = hands.findElement(contact) ?: return false
-        return !sameSpot(input, n)
+        val want = contact.trim().lowercase()
+        if (want.isEmpty()) return false
+        val tree = hands.uiTree() ?: return false
+        val title = tree.nodes
+            .filter { it.text.isNotBlank() && !it.bounds.isEmpty && !sameSpot(input, it) && it.bounds.top < input.bounds.top }
+            .minWithOrNull(compareBy<UiNode>({ it.bounds.top }, { it.bounds.left }))
+            ?: return false
+        val shown = title.text.trim().lowercase()
+        return shown == want || shown.startsWith("$want ")
     }
 
     suspend fun openApp(target: String): ActionResult {
@@ -510,7 +521,7 @@ class AppControlEngine(
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED")
             return ActionResult(action, false, "Не нашла поле ввода для сообщения", steps, "hands")
         }
-        // Перед вводом: то же поле и тот же собеседник на экране.
+        // Перед вводом: то же поле и тот же собеседник в шапке.
         if (!sameSpot(field, hands.findEditableField())) return changed("поле ввода изменилось")
         if (!recipientShown(contact, field)) return changed("собеседник не подтверждён")
         if (!onScreen(appPkg)) return moved(hands.currentPackage())
@@ -532,7 +543,7 @@ class AppControlEngine(
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED")
             return ActionResult(action, false, "Не нашла кнопку отправки сообщения", steps, "hands")
         }
-        // Перед отправкой: та же кнопка, то же поле с текстом и тот же собеседник.
+        // Перед отправкой: та же кнопка, то же поле с текстом и тот же собеседник в шапке.
         if (!sameTarget(appPkg, send, hands.findSendButton())) return changed("кнопка отправки изменилась")
         if (!sameSpot(field, hands.findEditableField())) return changed("поле ввода изменилось")
         if (!recipientShown(contact, field)) return changed("собеседник не подтверждён")
