@@ -114,7 +114,9 @@ android {
     sourceSets {
         getByName("main") {
             // Портрет Светланы из Svetlana 2.0 (см. fetchSvetlanaAvatar выше).
-            assets.srcDir(fetchSvetlanaAvatar)
+            // Обычный каталог + явная зависимость ниже: с TaskProvider AGP не запускал
+            // скачивание, и в APK не было портрета (на экране — пустой круг).
+            assets.srcDir(svetlanaAvatarDir.get().asFile)
         }
     }
 
@@ -155,6 +157,15 @@ android {
         // флаг оставлен как страховка для будущих транзитивных обновлений.
         // TODO: убрать после перехода проекта на Kotlin 2.x / AGP 8.13+.
         abortOnError = true
+    }
+}
+
+// Всё, что читает assets (слияние/сжатие assets, lint), должно идти после скачивания портрета.
+tasks.configureEach {
+    if (name != "fetchSvetlanaAvatar" &&
+        (name == "preBuild" || name.contains("Assets") || name.contains("Lint", ignoreCase = true))
+    ) {
+        dependsOn(fetchSvetlanaAvatar)
     }
 }
 
