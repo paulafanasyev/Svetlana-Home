@@ -16,7 +16,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 2. Android 13+: проверяется сама фраза команды (аудио из OwnerAudioTap).
  * 3. Иначе (старый Android или слишком тихо) → контрольная фраза «Светлана, это я».
  * 4. 5 чужих голосов подряд → пауза 5 минут; состояние переживает перезапуск приложения.
- * 5. Проверки идут строго по одной (Mutex), пауза перепроверяется перед «разрешено».
+ * 5. Проверки идут строго по одной (Mutex); перед «разрешено» перепроверяется пауза и то,
+ *    что шаблон не перезаписан и не удалён за время проверки.
  *
  * Честно: отпечаток голоса отсекает чужие голоса, но не отличает живой голос от записи.
  * Поэтому всё, что меняет данные или пишет людям, подтверждается на экране (ActionRiskPolicy).
@@ -24,6 +25,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 object OwnerVoiceGate {
     const val NOT_ENROLLED = "Голос владельца ещё не записан. Откройте Настройки, раздел «Владелец», и запишите голос. До этого голосовые команды не выполняются, текстом можно пользоваться как обычно."
     const val CHALLENGE = "Подтвердите, что это вы: скажите «Светлана, это я»."
+    const val CHANGED = "Голос владельца только что изменили. Повторите команду."
     const val CHALLENGE_MS = 3_000
 
     val lockout = OwnerVoiceLockout()
@@ -55,13 +57,18 @@ object OwnerVoiceGate {
                     lockRestored = true
                 }
                 if (lockout.isLocked()) return@withLock Decision.Denied(lockedMessage())
-                val template = OwnerVoiceStore.load(context) ?: return@withLock Decision.Denied(NOT_ENROLLED)
+                val (template, gen) = OwnerVoiceStore.loadWithGeneration(context)
+                if (template == null) return@withLock Decision.Denied(NOT_ENROLLED)
                 var print = ownerAudio?.let { VoicePrint.compute(it, PcmCapture.SAMPLE_RATE) }
                 if (print == null) {
                     val audio = challenge(context, tts)
                     print = audio?.let { VoicePrint.compute(it, PcmCapture.SAMPLE_RATE).also { _ -> it.fill(0f) } }
                 }
                 val verdict = VoicePrint.verify(print, template)
+                if (OwnerVoiceStore.generation != gen) {
+                    // Шаблон перезаписали или удалили во время проверки: старый вердикт не считается.
+                    return@withLock Decision.Denied(CHANGED)
+                }
                 if (verdict.ok && !lockout.isLocked()) {
                     lockout.onSuccess()
                     OwnerVoiceStore.saveLock(context, lockout.snapshot())

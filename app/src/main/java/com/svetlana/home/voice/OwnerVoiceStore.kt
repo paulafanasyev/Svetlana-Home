@@ -14,6 +14,8 @@ import com.svetlana.home.core.ServiceLocator
  *
  * Запись и удаление шаблона разрешены только в течение [AUTH_WINDOW_MS] после успешного
  * BiometricPrompt (OwnerIdentity.lastVerifiedAt): проверка живёт здесь, а не только в UI.
+ * Каждая запись/удаление увеличивает [generation]: проверка, начатая со старым шаблоном,
+ * уже не может закончиться «разрешено».
  */
 object OwnerVoiceStore {
     private const val PREFS = "svetlana_owner_voice"
@@ -26,6 +28,11 @@ object OwnerVoiceStore {
 
     @Volatile
     private var loaded = false
+
+    /** Меняется при каждой записи/удалении шаблона. */
+    @Volatile
+    var generation: Long = 0L
+        private set
 
     private fun prefs(context: Context): SharedPreferences {
         val app = context.applicationContext
@@ -54,6 +61,11 @@ object OwnerVoiceStore {
         }
     }
 
+    /** Шаблон вместе с поколением, снятые атомарно. */
+    fun loadWithGeneration(context: Context): Pair<VoicePrint.Template?, Long> = synchronized(this) {
+        load(context) to generation
+    }
+
     fun isEnrolled(context: Context): Boolean = load(context) != null
 
     /** Без диска: известно ли уже, что голос записан (для main thread). */
@@ -75,6 +87,7 @@ object OwnerVoiceStore {
     /** true: шаблон сохранён. false: нет свежей проверки владельца или ошибка записи. */
     fun save(context: Context, t: VoicePrint.Template): Boolean = synchronized(this) {
         if (!ownerRecentlyVerified()) return false
+        generation++
         val ok = runCatching {
             prefs(context).edit().putString(K_TEMPLATE, VoicePrint.encode(t)).remove(K_LOCK).commit()
         }.getOrDefault(false)
@@ -82,6 +95,9 @@ object OwnerVoiceStore {
             cached = t
             loaded = true
             OwnerVoiceGate.lockout.reset()
+        } else {
+            loaded = false
+            cached = null
         }
         ok
     }
@@ -89,12 +105,12 @@ object OwnerVoiceStore {
     /** Удалить шаблон (только после свежей проверки владельца, либо [force] для «стереть всё»). */
     fun delete(context: Context, force: Boolean = false): Boolean = synchronized(this) {
         if (!force && !ownerRecentlyVerified()) return false
+        generation++
+        cached = null
         val ok = runCatching { prefs(context).edit().clear().commit() }.getOrDefault(false)
-        if (ok) {
-            cached = null
-            loaded = true
-            OwnerVoiceGate.lockout.reset()
-        }
+        // При ошибке записи считаем голос не записанным до перезапуска (безопасная сторона).
+        loaded = true
+        OwnerVoiceGate.lockout.reset()
         ok
     }
 
