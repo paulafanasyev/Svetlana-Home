@@ -5,8 +5,9 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
+import android.os.Build
 import android.os.ParcelFileDescriptor
-import java.io.File
+import java.io.ByteArrayOutputStream
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
@@ -90,6 +91,17 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
         shell("input keyevent KEYCODE_WAKEUP")
     }
 
+    private val shotErrors = mutableListOf<String>()
+
+    /** Пишет байты в файл на устройстве от имени shell (каталог /data/local/tmp приложению закрыт). */
+    private fun writeDeviceFile(path: String, bytes: ByteArray): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val fds = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommandRw("dd of=$path")
+        ParcelFileDescriptor.AutoCloseOutputStream(fds[1]).use { it.write(bytes) }
+        ParcelFileDescriptor.AutoCloseInputStream(fds[0]).use { it.readBytes() }
+        return true
+    }
+
     /**
      * Чистый снимок окна launcher: системные окна эмулятора (ANR-диалог «System UI isn't
      * responding») в него не попадают. Окно прозрачное, поэтому под него подкладываются
@@ -100,8 +112,7 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
         val out = Bitmap.createBitmap(window.width, window.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         canvas.drawColor(Color.BLACK)
-        val wm = WallpaperManager.getInstance(context)
-        val wallpaper = wm.builtInDrawable
+        val wallpaper = WallpaperManager.getInstance(context).builtInDrawable
         if (wallpaper != null) {
             val w = wallpaper.intrinsicWidth.takeIf { it > 0 } ?: out.width
             val h = wallpaper.intrinsicHeight.takeIf { it > 0 } ?: out.height
@@ -114,13 +125,11 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
             wallpaper.draw(canvas)
         }
         canvas.drawBitmap(window, 0f, 0f, null)
-        val dir = File(context.getExternalFilesDir(null), "shots").apply { mkdirs() }
-        val file = File(dir, "$name.png")
-        file.outputStream().use { out.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        shell("cp ${file.absolutePath} $DIR/$name.png")
-        shellOut("ls $DIR").contains("$name.png")
+        val png = ByteArrayOutputStream().also { out.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        writeDeviceFile("$DIR/$name.png", png) &&
+            (shellOut("stat -c %s $DIR/$name.png").trim().toLongOrNull() ?: 0L) > 1000L
     } catch (t: Throwable) {
-        println("SVETLANA_CLEAN_SHOT_FAILED=$name ${t.javaClass.simpleName}: ${t.message}")
+        shotErrors += "$name: ${t.javaClass.simpleName}: ${t.message?.take(200)}"
         false
     }
 
@@ -130,7 +139,10 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
         Thread.sleep(1200)
         closeSystemDialogs()
         compose.waitForIdle()
-        if (!cleanShot(name)) shell("screencap -p $DIR/$name.png")
+        if (!cleanShot(name)) {
+            if (shotErrors.none { it.startsWith("$name:") }) shotErrors += "$name: clean shot not written"
+            shell("screencap -p $DIR/$name.png")
+        }
         println("SVETLANA_SCREENSHOT=$name")
     }
 
@@ -233,6 +245,9 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
             shot("10_search_window")
         } finally {
             scenario.close()
+            if (shotErrors.isNotEmpty()) {
+                try { writeDeviceFile("$DIR/errors.txt", shotErrors.joinToString("\n").toByteArray()) } catch (t: Throwable) { }
+            }
         }
     }
 

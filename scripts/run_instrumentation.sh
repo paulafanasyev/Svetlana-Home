@@ -80,7 +80,11 @@ publish_screenshots() {
   rm -rf "$dir"
   mkdir -p "$dir"
   : > "$index"
-  local names
+  local names errs
+  errs="$(adb shell cat "$SHOTS_DEVICE_DIR/errors.txt" 2>/dev/null | tr '\r\n' '  ' | cut -c1-900 || true)"
+  if [ -n "$errs" ]; then
+    echo "::warning title=SCREENSHOT_ERRORS::$errs"
+  fi
   names="$(adb shell ls "$SHOTS_DEVICE_DIR" 2>/dev/null | tr -d '\r' | grep '\.png$' || true)"
   if [ -z "$names" ]; then
     echo "::warning::Скриншоты launcher не найдены на эмуляторе"
