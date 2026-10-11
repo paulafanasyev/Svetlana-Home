@@ -41,9 +41,9 @@ class ActionRouter(
      *
      * Подтверждение привязано к КОНКРЕТНОМУ действию со всеми параметрами и к
      * реальному элементу на экране: `confirmed = true` срабатывает, только если
-     * именно этот вопрос был задан пользователю. Если экран подменили между
-     * вопросом и ответом (под тем же именем теперь другой элемент) — спрашиваем
-     * снова. Вопрос всегда показывает точные параметры ([ConfirmationText]).
+     * именно этот вопрос был задан пользователю не более минуты назад. Если экран
+     * подменили между вопросом и ответом (под тем же именем теперь другой элемент) —
+     * спрашиваем снова. Вопрос всегда показывает точные параметры ([ConfirmationText]).
      */
     suspend fun execute(action: SvetlanaAction, confirmed: Boolean = false): ActionResult =
         executeInternal(action, confirmed, chainApproved = false)
@@ -131,19 +131,33 @@ class ActionRouter(
     /** Заданный пользователю вопрос: действие со всеми параметрами + элемент на экране. */
     private data class Approval(val action: SvetlanaAction, val targetLabel: String?)
 
-    /** Вопросы, на которые ждём ответа (несколько окон чата/главного экрана). */
-    private val pendingApprovals = LinkedHashSet<Approval>()
+    /**
+     * Вопросы, на которые ждём ответа (несколько окон чата/главного экрана), со временем вопроса.
+     * Ответ действителен [APPROVAL_TTL_MS]: подтверждение, на которое не нажали (отмена, ушли
+     * с экрана), протухает и не может быть использовано позже.
+     */
+    private val pendingApprovals = LinkedHashMap<Approval, Long>()
 
     @Synchronized
     private fun rememberApproval(key: Approval) {
         pendingApprovals.remove(key)
-        pendingApprovals.add(key)
-        while (pendingApprovals.size > MAX_PENDING) pendingApprovals.remove(pendingApprovals.first())
+        pendingApprovals[key] = System.currentTimeMillis()
+        while (pendingApprovals.size > MAX_PENDING) pendingApprovals.remove(pendingApprovals.keys.first())
     }
 
-    /** Одноразово: подтверждение нельзя использовать повторно. */
+    /** Одноразово и только пока вопрос свежий: подтверждение нельзя использовать повторно или позже. */
     @Synchronized
-    private fun consumeApproval(key: Approval): Boolean = pendingApprovals.remove(key)
+    private fun consumeApproval(key: Approval): Boolean {
+        val askedAt = pendingApprovals.remove(key) ?: return false
+        return System.currentTimeMillis() - askedAt in 0..APPROVAL_TTL_MS
+    }
+
+    /** Пользователь отказался (или окно подтверждения закрыто): все ожидающие ответы аннулируются. */
+    @Synchronized
+    fun cancelPendingConfirmations() {
+        pendingApprovals.clear()
+        resumeChain = null
+    }
 
     /** Цепочка, остановленная на шаге, который потребовал подтверждения: продолжаем с него, не повторяя выполненные шаги. */
     @Volatile
@@ -291,5 +305,6 @@ class ActionRouter(
 
     private companion object {
         const val MAX_PENDING = 8
+        const val APPROVAL_TTL_MS = 60_000L
     }
 }
