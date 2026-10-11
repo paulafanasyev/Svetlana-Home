@@ -26,6 +26,7 @@ import com.svetlana.home.store.SettingsRepository
  *
  * Голос должен быть один: любая СКАЗАННАЯ команда ([voice] != null) сначала проходит
  * OwnerVoiceGate. Текст с экрана не проверяется голосом (его защищает блокировка телефона).
+ * Голосом нельзя перевести ИИ на внешний сервер: только в сторону большей приватности.
  */
 class VoiceAgent(
     private val context: Context,
@@ -88,6 +89,21 @@ class VoiceAgent(
         onPartial: ((String) -> Unit)? = null,
         voice: VoiceInput? = null
     ): Outcome {
+        // Аудио команды стирается при любом исходе, включая ошибки и отмену.
+        try {
+            return handleInner(text, speak, tts, onPartial, voice)
+        } finally {
+            voice?.ownerAudio?.fill(0f)
+        }
+    }
+
+    private suspend fun handleInner(
+        text: String,
+        speak: Boolean,
+        tts: SvetlanaTts?,
+        onPartial: ((String) -> Unit)?,
+        voice: VoiceInput?
+    ): Outcome {
         if (text.isBlank()) return Outcome.Replied("")
 
         // 0. Голос должен быть один: только верифицированный владелец.
@@ -122,7 +138,7 @@ class VoiceAgent(
         }
 
         // 2. Команды выбора ИИ (ТЗ §48)
-        val aiCommand = handleAiCommand(text)
+        val aiCommand = handleAiCommand(text, fromVoice = voice != null)
         if (aiCommand != null) {
             if (speak) tts?.speak(aiCommand)
             _events.tryEmit(DialogueEvent.Reply(aiCommand))
@@ -162,24 +178,30 @@ class VoiceAgent(
         tts?.speak(phrase, flush = false)
     }
 
-    private suspend fun handleAiCommand(text: String): String? {
+    private suspend fun handleAiCommand(text: String, fromVoice: Boolean): String? {
         val low = text.lowercase().trim().replace("ё", "е")
+        val cloudByVoice = "Голосом нельзя перевести ИИ на внешний сервер: данные ушли бы за пределы телефона. " +
+            "Сделайте это в настройках, раздел «ИИ»."
         return when {
             low.contains("только локальный") || low.contains("только устройство") -> {
                 settings.setAiMode(AIMode.LOCAL_ONLY)
                 "Хорошо, теперь используется только локальный ИИ. Ничего не отправляется в облако."
             }
             low.contains("мой сервер") -> {
-                settings.setAiMode(AIMode.MY_SERVER)
-                "Хорошо, теперь используется ваш сервер."
+                if (fromVoice) cloudByVoice else {
+                    settings.setAiMode(AIMode.MY_SERVER)
+                    "Хорошо, теперь используется ваш сервер."
+                }
             }
             low.contains("локальный в приоритете") -> {
                 settings.setAiMode(AIMode.LOCAL_FIRST)
                 "Хорошо, локальный ИИ в приоритете."
             }
             low.contains("внешнего провайдера") || low.contains("openai-compatible") -> {
-                settings.setAiMode(AIMode.EXTERNAL)
-                "Хорошо, используется внешний провайдер."
+                if (fromVoice) cloudByVoice else {
+                    settings.setAiMode(AIMode.EXTERNAL)
+                    "Хорошо, используется внешний провайдер."
+                }
             }
             low.contains("не отправляй") && low.contains("облако") -> {
                 settings.setAiMode(AIMode.LOCAL_ONLY)

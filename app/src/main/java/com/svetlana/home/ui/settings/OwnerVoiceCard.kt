@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,16 +44,21 @@ private const val RECORD_MS = 3_500
 /**
  * Запись голоса владельца. Записать, перезаписать или удалить голос можно только после
  * системной проверки владельца (биометрия или PIN устройства): чужой человек с разблокированным
- * телефоном не подменит свой голос. Аудио не сохраняется, только числа шаблона.
+ * телефоном не подменит свой голос. То же правило дублирует OwnerVoiceStore. Аудио не
+ * сохраняется, только числа шаблона. Keystore читается не на main thread.
  */
 @Composable
 fun OwnerVoiceCard() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var enrolled by remember { mutableStateOf(OwnerVoiceStore.isEnrolled(context)) }
+    var enrolled by remember { mutableStateOf(OwnerVoiceStore.isEnrolledCached()) }
     var busy by remember { mutableStateOf(false) }
     var step by remember { mutableStateOf(-1) }
     var message by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        enrolled = withContext(Dispatchers.IO) { OwnerVoiceStore.isEnrolled(context) }
+    }
 
     fun withOwner(title: String, action: () -> Unit) {
         val activity = context as? FragmentActivity
@@ -99,9 +105,9 @@ fun OwnerVoiceCard() {
             }
             val template = VoicePrint.buildTemplate(prints)
             val saved = withContext(Dispatchers.IO) { OwnerVoiceStore.save(context, template) }
-            enrolled = saved || enrolled
+            enrolled = withContext(Dispatchers.IO) { OwnerVoiceStore.isEnrolled(context) }
             message = if (saved) "Голос записан. Теперь голосовые команды выполняются только от вас."
-            else "Не удалось сохранить шаблон голоса."
+            else "Не удалось сохранить голос: подтвердите владельца ещё раз и повторите."
             ServiceLocator.historyManager.record(
                 HistoryCategory.CONFIRMATIONS,
                 if (saved) "Записан голос владельца (${prints.size} записей)" else "Ошибка сохранения голоса владельца"
@@ -156,10 +162,14 @@ fun OwnerVoiceCard() {
                     onClick = {
                         withOwner("Удалить голос владельца") {
                             scope.launch {
-                                withContext(Dispatchers.IO) { OwnerVoiceStore.delete(context) }
-                                enrolled = false
-                                message = "Голос удалён. Голосовые команды отключены до новой записи."
-                                ServiceLocator.historyManager.record(HistoryCategory.CONFIRMATIONS, "Удалён голос владельца")
+                                val ok = withContext(Dispatchers.IO) { OwnerVoiceStore.delete(context) }
+                                if (ok) {
+                                    enrolled = false
+                                    message = "Голос удалён. Голосовые команды отключены до новой записи."
+                                    ServiceLocator.historyManager.record(HistoryCategory.CONFIRMATIONS, "Удалён голос владельца")
+                                } else {
+                                    message = "Не удалось удалить голос. Попробуйте ещё раз."
+                                }
                             }
                         }
                     },
