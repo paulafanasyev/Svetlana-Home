@@ -26,12 +26,17 @@ import kotlinx.coroutines.flow.first
  * в настройках и предоставил разрешение на микрофон.
  *
  * Голос владельца: вместе с командой сохраняется её аудио (только в памяти),
- * чтобы VoiceAgent проверил, что говорил именно владелец.
+ * чтобы VoiceAgent проверил, что говорил именно владелец. Пока Светлана сама
+ * говорит (и ещё [TTS_TAIL_MS] после), цикл не слушает: её голос не станет командой
+ * и не накрутит паузу «чужой голос».
  */
 class WakeWordEngine(
     private val context: Context,
     private val recognizer: SvetlanaSpeechRecognizer,
-    private val settings: SettingsRepository
+    private val settings: SettingsRepository,
+    private val isSpeaking: () -> Boolean = {
+        runCatching { com.svetlana.home.core.ServiceLocator.tts.speaking.value }.getOrDefault(false)
+    }
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -49,12 +54,15 @@ class WakeWordEngine(
     @Volatile
     private var detectionAudio: FloatArray? = null
 
+    private var quietUntil = 0L
+
     private var job: kotlinx.coroutines.Job? = null
 
     enum class State { IDLE, LISTENING, DETECTED }
 
     fun start() {
         if (job?.isActive == true) return
+        OwnerVoiceStore.prewarm(context)
         // Background wake-word mode must never silently fall back to a
         // potentially network-backed SpeechRecognizer.
         if (!recognizer.isOnDeviceAvailable) {
@@ -67,6 +75,17 @@ class WakeWordEngine(
                 try {
                     val enabled = settings.wakeWordEnabled.first()
                     if (!enabled) { delay(1000); continue }
+                    // Светлана сама говорит: не слушаем, иначе её голос попадёт в команду.
+                    if (isSpeaking()) {
+                        quietUntil = System.currentTimeMillis() + TTS_TAIL_MS
+                        _state.value = State.IDLE
+                        delay(200)
+                        continue
+                    }
+                    if (System.currentTimeMillis() < quietUntil) {
+                        delay(100)
+                        continue
+                    }
                     // Аудит-2026 проблема 1: если пользователь сейчас говорит
                     // (активна foreground-сессия) — НЕ перехватываем микрофон.
                     // Раньше фоновый цикл убивал активную сессию пользователя.
@@ -121,7 +140,11 @@ class WakeWordEngine(
     private fun processSttResult(current: SvetlanaSpeechRecognizer.SttResult? = recognizer.result.value) {
         current ?: return
         if (current !is SvetlanaSpeechRecognizer.SttResult.Success) return
-        val command = matchWakeWord(current.text) ?: return
+        val command = matchWakeWord(current.text)
+        if (command == null) {
+            current.ownerAudio?.fill(0f)
+            return
+        }
         Log.i(TAG, "Слово пробуждения обнаружено")
         detectionAudio = current.ownerAudio
         _detection.value = command
@@ -179,5 +202,8 @@ class WakeWordEngine(
         return command
     }
 
-    companion object { private const val TAG = "WakeWord" }
+    companion object {
+        private const val TAG = "WakeWord"
+        private const val TTS_TAIL_MS = 700L
+    }
 }
