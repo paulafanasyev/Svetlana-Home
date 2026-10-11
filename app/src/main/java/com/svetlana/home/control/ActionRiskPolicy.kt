@@ -4,41 +4,76 @@ package com.svetlana.home.control
  * ActionRiskPolicy — классификация опасности действий (ТЗ §58, аудит п.27).
  *
  * Чистая функция, не зависящая от Android/Context — поэтому классификация
- * полностью покрывается unit-тестами. Это критично: если риск действия
- * определён неверно, его можно выполнить без подтверждения пользователя.
+ * полностью покрывается unit-тестами.
  *
- * Опасные действия (отправка сообщений, звонки) требуют явного
- * подтверждения. ActionRouter не выполняет их, пока confirmed != true.
+ * Клики и ввод текста оцениваются по цели: «нажми Удалить / Оплатить /
+ * Отправить / Установить» и ввод в поле пароля/карты — DANGEROUS, хотя это
+ * «просто клик». Иначе подсказка с чужого экрана (prompt injection) могла бы
+ * провести необратимое действие без подтверждения.
  */
 object ActionRiskPolicy {
 
     fun riskOf(action: SvetlanaAction): ActionRisk = when (action) {
-        // ТЗ §58: отправка сообщений и звонки — критические действия
         is SvetlanaAction.SendMessage -> ActionRisk.DANGEROUS
         is SvetlanaAction.MakeCall -> ActionRisk.DANGEROUS
-        // Многошаговая отправка сообщения в мессенджере — то же самое
-        // необратимое действие, выполняемое через Hands.
         is SvetlanaAction.ComposeMessage -> ActionRisk.DANGEROUS
-        // Публикации / шеринг — умеренный риск
         is SvetlanaAction.Share -> ActionRisk.MODERATE
-        // Цепочка: опасность равна самому опасному шагу
+        is SvetlanaAction.Click ->
+            if (isDangerousLabel(action.element)) ActionRisk.DANGEROUS else ActionRisk.SAFE
+        is SvetlanaAction.LongClick ->
+            if (isDangerousLabel(action.element)) ActionRisk.DANGEROUS else ActionRisk.SAFE
+        is SvetlanaAction.TypeText ->
+            if (isSensitiveFieldLabel(action.element) || looksLikeSecret(action.text)) ActionRisk.DANGEROUS
+            else ActionRisk.SAFE
         is SvetlanaAction.Compound -> action.steps.map(::riskOf).maxByOrNull { it.ordinal }
             ?: ActionRisk.SAFE
-        // Остальное управление телефоном — безопасно (выполняется в рамках
-        // выданных разрешений и не имеет необратимых последствий)
         else -> ActionRisk.SAFE
     }
 
-    /**
-     * Требует ли действие явного подтверждения пользователя.
-     * ТЗ §58: отправка сообщений, звонки, публикации — требуют.
-     */
     fun requiresConfirmation(action: SvetlanaAction): Boolean =
         riskOf(action) in CONFIRM_REQUIRED
 
-    private val CONFIRM_REQUIRED = setOf(
-        ActionRisk.DANGEROUS,
-        // ТЗ §58: публикации/шеринг требуют подтверждения
-        ActionRisk.MODERATE
+    /** Подпись кнопки/элемента, нажатие на который необратимо. */
+    fun isDangerousLabel(label: String): Boolean {
+        val low = label.lowercase()
+        if (low.isBlank()) return false
+        return DANGEROUS_STEMS.any { low.contains(it) } || DANGEROUS_WORD_RES.any { it.containsMatchIn(low) }
+    }
+
+    /** Поле пароля, PIN, одноразового кода или банковской карты. */
+    fun isSensitiveFieldLabel(label: String): Boolean {
+        val low = label.lowercase()
+        return SENSITIVE_FIELD_STEMS.any { low.contains(it) } || SENSITIVE_FIELD_WORD_RES.any { it.containsMatchIn(low) }
+    }
+
+    /** Номер карты (13–19 цифр) — не вводим без подтверждения. */
+    fun looksLikeSecret(text: String): Boolean {
+        val digits = text.filter { it.isDigit() }
+        val onlyDigitsAndSeparators = text.all { it.isDigit() || it == ' ' || it == '-' }
+        return onlyDigitsAndSeparators && digits.length in 13..19
+    }
+
+    private fun wordRe(word: String) = Regex("(^|[^\\p{L}\\p{N}])${Regex.escape(word)}($|[^\\p{L}\\p{N}])")
+
+    private val DANGEROUS_STEMS = listOf(
+        "удал", "оплат", "заплат", "купить", "покуп", "перевест", "отправ", "установ",
+        "подтвер", "сброс", "стере", "очистить вс", "выйти из аккаунт", "оформить заказ", "заказать",
+        "подписат", "списат", "разреш", "предостав", "позвон", "вызов",
+        "delete", "remove", "uninstall", "install", "purchase", "checkout", "transfer", "confirm",
+        "submit", "factory reset", "erase", "wipe", "subscribe", "allow", "grant", "sign out", "log out",
+        "place order",
     )
+
+    private val DANGEROUS_WORDS = listOf("pay", "buy", "send", "order", "call", "reset", "format", "accept", "ok")
+
+    private val SENSITIVE_FIELD_STEMS = listOf(
+        "парол", "пин-код", "пин код", "код из смс", "код подтверждения", "одноразов", "номер карты",
+        "password", "passcode", "pincode", "pin code", "otp", "cvv", "cvc", "card number", "security code",
+    )
+    private val SENSITIVE_FIELD_WORDS = listOf("pin", "пин", "2fa", "totp")
+
+    private val DANGEROUS_WORD_RES = DANGEROUS_WORDS.map(::wordRe)
+    private val SENSITIVE_FIELD_WORD_RES = SENSITIVE_FIELD_WORDS.map(::wordRe)
+
+    private val CONFIRM_REQUIRED = setOf(ActionRisk.DANGEROUS, ActionRisk.MODERATE)
 }
