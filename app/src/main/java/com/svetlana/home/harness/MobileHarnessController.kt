@@ -30,9 +30,10 @@ import kotlinx.coroutines.delay
  *
  * Безопасность: действия выполняются только когда на экране ДЕЙСТВИТЕЛЬНО
  * Mobile Harness (иначе — отказ), и даже там не нажимаются необратимые кнопки
- * и не заполняются поля паролей/карт. Каждое нажатие/ввод проходит ту же
- * проверку, что и команды Светланы ([com.svetlana.home.control.ActionRouter.authorizeUnattended]);
- * опасное подтверждается только пользователем в обычном диалоге.
+ * и не заполняются поля паролей/карт. Каждое нажатие, ввод и скриншот
+ * проходит ту же проверку, что и команды Светланы
+ * ([com.svetlana.home.control.ActionRouter.authorizeUnattended]); опасное подтверждается
+ * только пользователем в обычном диалоге.
  */
 class MobileHarnessController(
     private val context: Context,
@@ -204,7 +205,8 @@ class MobileHarnessController(
     }
 
     suspend fun screenshot(): Bitmap? {
-        ensureHarnessInForeground() ?: return null
+        val pkg = ensureHarnessInForeground() ?: return null
+        if (!authorized(SvetlanaAction.TakeScreenshot(pkg))) return null
         return hands.takeScreenshot()
     }
 

@@ -158,11 +158,14 @@ class HandsController(private val context: Context) {
      *
      * Приватность: поля паролей/PIN/кодов/карт и текст с одноразовыми кодами
      * закрашиваются до того, как картинка уйдёт дальше (модель, история).
-     * Fail closed: скриншот НЕ возвращается, если закрасить не удалось, если экран
-     * не удалось прочитать (неизвестно, где секреты) или если у секретного
-     * поля нет координат. Окна с FLAG_SECURE (банки, пароли) Android и так отдаёт чёрными.
+     * Fail closed: скриншот НЕ делается в банках, платёжных сервисах, менеджерах
+     * паролей и аутентификаторах ([SensitiveApps]: там секреты часто нарисованы вне
+     * Accessibility), и не возвращается, если закрасить не удалось, если экран не
+     * удалось прочитать или у секретного поля нет координат.
+     * Окна с FLAG_SECURE Android и так отдаёт чёрными.
      */
     suspend fun takeScreenshot(timeoutMs: Long = 8000L): Bitmap? {
+        if (SensitiveApps.isSensitive(currentPackage())) return null
         val raw: Bitmap = withTimeoutOrNull(timeoutMs) {
             suspendCancellableCoroutine<Bitmap?> { cont ->
                 val svc = service()
@@ -175,6 +178,8 @@ class HandsController(private val context: Context) {
                 }
             }
         } ?: return null
+        // Пока делали снимок, на экран могло выйти банковское приложение.
+        if (SensitiveApps.isSensitive(currentPackage())) return null
         return redactSecrets(raw)
     }
 
