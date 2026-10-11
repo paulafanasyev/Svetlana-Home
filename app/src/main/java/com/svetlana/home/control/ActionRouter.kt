@@ -8,6 +8,7 @@ import com.svetlana.home.hands.ScreenshotPolicy
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.memory.HistoryManager
 import com.svetlana.home.permissions.PermissionManager
+import com.svetlana.home.voice.VoicePolicy
 
 /**
  * Право на выполнение действия движком ([AppControlEngine]). Выдаётся ТОЛЬКО ActionRouter:
@@ -25,6 +26,9 @@ private object RouterGrant : ActionGrant
  * Pipeline ТЗ §18:
  *   Voice/Text → Intent → Target App Resolver → Permission Check
  *   → Action Router → Native API / Hands → Action → Verification → Result
+ *
+ * Команды фонового голоса (неаутентифицированные) никогда не выполняются сразу: только
+ * предлагаются на подтверждение в открытом приложении ([route] с unattendedVoice = true).
  *
  * Здесь нет доступа к shell, root или скрытым командам.
  */
@@ -168,14 +172,33 @@ class ActionRouter(
         return ScreenTarget(label, shown, typing, dangerous)
     }
 
-    suspend fun route(command: String, confirmed: Boolean = false): ActionResult? {
+    /**
+     * @param unattendedVoice команда фонового слова пробуждения: голос не аутентифицирован, поэтому
+     *   ничего не выполняется — действие только предлагается на подтверждение в приложении.
+     */
+    suspend fun route(command: String, confirmed: Boolean = false, unattendedVoice: Boolean = false): ActionResult? {
         val action = CommandParser.parse(command)
-        if (action != null) return execute(action, confirmed)
+        if (action != null) {
+            if (unattendedVoice) return proposeFromVoice(action)
+            return execute(action, confirmed)
+        }
         val systemIntent = ServiceLocator.appResolver.resolveSystem(command)
         if (systemIntent is AppResolver.ResolveResult.SystemAction) {
+            if (unattendedVoice) {
+                historyManager.record(HistoryCategory.CONFIRMATIONS, "Голос из фона: системная команда не выполнена")
+                return ActionResult(SvetlanaAction.OpenSettings, false, VoicePolicy.SYSTEM_REFUSED, way = "voice")
+            }
             return engine.openSystemIntent(systemIntent.intent)
         }
         return null
+    }
+
+    /** Действие из фонового голоса: НИЧЕГО не выполняем, только спрашиваем в приложении. */
+    private fun proposeFromVoice(action: SvetlanaAction): ActionResult {
+        historyManager.record(HistoryCategory.CONFIRMATIONS, "Голос из фона: ${action.name} ждёт подтверждения в приложении")
+        val question = ConfirmationText.question(action, null, secretField = false)
+        return ActionResult(action, false, "${VoicePolicy.CONFIRM_IN_APP}\n$question",
+            way = "voice", requiresUserConfirmation = true)
     }
 
     fun missingPermissionsFor(action: SvetlanaAction): List<String> {
