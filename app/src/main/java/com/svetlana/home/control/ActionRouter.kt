@@ -47,22 +47,11 @@ class ActionRouter(
 
     private fun currentPackageForScreenshot(): String = currentPackageSafe()
 
-    /**
-     * Выполнить разобранное действие с проверкой разрешений.
-     *
-     * Подтверждение привязано к КОНКРЕТНОМУ действию со всеми параметрами и к
-     * реальному элементу на экране: `confirmed = true` срабатывает, только если
-     * именно этот вопрос был задан пользователю не более минуты назад. Если экран
-     * подменили между вопросом и ответом (под тем же именем теперь другой элемент) —
-     * спрашиваем снова. Вопрос всегда показывает точные параметры ([ConfirmationText]).
-     */
     suspend fun execute(action: SvetlanaAction, confirmed: Boolean = false): ActionResult =
         executeInternal(action, confirmed, chainApproved = false)
 
     private suspend fun executeInternal(action: SvetlanaAction, confirmed: Boolean, chainApproved: Boolean): ActionResult {
         val policyRisk = ActionRiskPolicy.requiresConfirmation(action) && !chainApproved
-        // Клик/ввод: проверяем РЕАЛЬНЫЙ элемент на экране. Снимок и чтение чужого приложения —
-        // только с согласия пользователя, и в вопросе видно, КАКОЕ приложение на экране.
         val target = screenTarget(action)
         val targetRisk = target != null && target.dangerous
         var approved = false
@@ -79,10 +68,11 @@ class ActionRouter(
                     way = if (target != null) "hands" else "unknown", requiresUserConfirmation = true)
             }
         }
-        // Одноразовое согласие на снимок именно того приложения и того окна, о которых спрашивали.
         if (approved && action is SvetlanaAction.TakeScreenshot && target != null) {
             ScreenshotPolicy.allowOnce(target.shown, ScreenshotPolicy.windowKeyOf(ServiceLocator.hands.uiTree()))
         }
+        // Чтение экрана исполняется для ТОГО пакета, о котором спрашивали (движок сверит его до и после).
+        val readTarget = target?.shown?.takeIf { it != "unknown" }
 
         val result = when (action) {
             is SvetlanaAction.OpenApp -> engine.openApp(action.target)
@@ -93,8 +83,8 @@ class ActionRouter(
             is SvetlanaAction.Scroll -> engine.scroll(RouterGrant, action.target, action.direction)
             is SvetlanaAction.TypeText -> engine.typeText(RouterGrant, action.target, action.element, action.text)
             is SvetlanaAction.ClearText -> engine.clearText(RouterGrant, action.target, action.element)
-            is SvetlanaAction.ReadScreen -> engine.readScreen(RouterGrant, action.target)
-            is SvetlanaAction.FindElement -> engine.readScreen(RouterGrant, action.target)
+            is SvetlanaAction.ReadScreen -> engine.readScreen(RouterGrant, readTarget ?: action.target)
+            is SvetlanaAction.FindElement -> engine.readScreen(RouterGrant, readTarget ?: action.target)
             is SvetlanaAction.TakeScreenshot -> engine.takeScreenshotAction(RouterGrant, action.target)
             SvetlanaAction.PressBack -> engine.pressBack(RouterGrant)
             SvetlanaAction.PressHome -> engine.pressHome(RouterGrant)
@@ -116,11 +106,6 @@ class ActionRouter(
         return result
     }
 
-    /**
-     * Единая проверка для исполнителей без диалога с пользователем (Mobile Harness,
-     * автотесты): true — действие безопасно и его можно выполнить сразу.
-     * Опасное по политике или по реальному элементу на экране НЕ выполняется.
-     */
     suspend fun authorizeUnattended(action: SvetlanaAction): Boolean {
         val target = screenTarget(action)
         val risky = ActionRiskPolicy.requiresConfirmation(action) || (target != null && target.dangerous)
@@ -144,14 +129,12 @@ class ActionRouter(
         while (pendingApprovals.size > MAX_PENDING) pendingApprovals.remove(pendingApprovals.keys.first())
     }
 
-    /** Одноразово и только пока вопрос свежий: подтверждение нельзя использовать повторно или позже. */
     @Synchronized
     private fun consumeApproval(key: Approval): Boolean {
         val askedAt = pendingApprovals.remove(key) ?: return false
         return System.currentTimeMillis() - askedAt in 0..APPROVAL_TTL_MS
     }
 
-    /** Пользователь отказался (или окно подтверждения закрыто): все ожидающие ответы аннулируются. */
     @Synchronized
     fun cancelPendingConfirmations() {
         pendingApprovals.clear()
@@ -161,12 +144,6 @@ class ActionRouter(
     @Volatile
     private var resumeChain: Pair<SvetlanaAction.Compound, Int>? = null
 
-    /**
-     * Реальная цель действия на экране и её опасность:
-     * - Click/LongClick/TypeText: элемент с подписью «Удалить/Оплатить/…» или поле пароля/PIN/карты;
-     * - TakeScreenshot / ReadScreen / FindElement: приложение на экране не входит в доверенные
-     *   ([ScreenshotPolicy]); в вопросе показывается реальный пакет.
-     */
     private fun screenTarget(action: SvetlanaAction): ScreenTarget? {
         if (action is SvetlanaAction.TakeScreenshot || action is SvetlanaAction.ReadScreen || action is SvetlanaAction.FindElement) {
             val pkg = currentPackageForScreenshot()
