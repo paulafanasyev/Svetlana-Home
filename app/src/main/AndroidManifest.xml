@@ -103,10 +103,6 @@
             android:theme="@style/Theme.SvetlanaHome" />
 
         <activity
-            android:name=".ui.translator.TranslatorActivity"
-            android:exported="false" />
-
-        <activity
             android:name=".ui.apps.AppDrawerActivity"
             android:exported="false"
             android:label="@string/title_apps"

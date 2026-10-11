@@ -42,14 +42,15 @@
 | Ввод | `WakeWordEngine`, `SvetlanaSpeechRecognizer` | Слово пробуждения, русский STT |
 | Вывод | `SvetlanaTts` | Русский TTS |
 | Понимание | `CommandParser`, `ActionRouter` | Разбор команд на русском, маршрутизация |
+| Голос владельца | `VoicePrint`, `OwnerVoiceStore`, `OwnerVoiceGate`, `LivenessChallenge`, `VoiceTrust` | Команды исполняются только голосом владельца, защита от записи (случайные цифры) |
 | Управление | `AppControlEngine`, `IntentResolver`, `HandsController` | Выполнение действий |
 | Доказательство | `ProofBuilder`, `ProofStep` | Доказательная цепочка |
 | Приложения | `AppRegistry`, `AppRepository` | Обнаружение, capability matrix |
 | Зрение | `VisionManager` | Скриншоты, чтение экрана, анализ |
-| Перевод | `RuViTranslator`, `TranslatorActivity` | RU↔VI text/voice translation with explicit model download |
 | ИИ | `AIModelRegistry`, `AIModelCompatibilityEngine`, `AIRouter`, `ModelRouter`, `PrivacyRouter` | Модели, маршрутизация, приватность |
 | Провайдеры | `AIProvider` + реализации | Local / OpenAI-compatible / Personal Server |
 | Сервер | `PersonalServerManager` | Подключение пользовательского compute |
+| Кабинет | `CabinetClient`, `CabinetProtocol` | Привязка к кабинету на сайте, heartbeat со статусом |
 | Аватар | `AvatarEngine` | Адаптивный выбор режима |
 | Владелец | `OwnerIdentity` | Профиль владельца, Android Keystore |
 | Разрешения | `PermissionManager` | Мастер и Permission Center |
