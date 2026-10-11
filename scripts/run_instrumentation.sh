@@ -57,8 +57,10 @@ collect_diagnostics() {
 # (tar.gz в base64 — имя подходит под существующий шаблон загрузки артефактов).
 # Восстановить: base64 -d instrumentation-diagnostics-screenshots-png.b64.txt | tar xz
 #
-# Публичная превью-ссылка (litterbox, 72 часа, без постоянных хостингов)
-# включается только явным флагом в репозитории: файл ci/public-screenshots.allow.
+# Публичная превью-ссылка (litterbox, срок жизни 72 часа, без постоянных
+# хостингов) включается только явным флагом в репозитории: файл
+# ci/public-screenshots.allow. Скриншоты делаются на чистом CI-эмуляторе без
+# личных данных; файл добавляет только владелец, когда хочет посмотреть превью.
 PUBLIC_SHOTS_FLAG="$WORKSPACE/ci/public-screenshots.allow"
 
 upload_png_preview() {
@@ -103,7 +105,12 @@ publish_screenshots() {
       ocr="$(tesseract "$dir/$n" - -l rus+eng 2>/dev/null | tr '\r\n\t' '   ' | tr -s ' ' | cut -c1-700 || true)"
     fi
     echo "$n bytes=$size url=$url ocr=$ocr" >> "$index"
-    echo "::notice title=SCREENSHOT ${n%.png}::$url | bytes=$size | OCR: $ocr"
+    # OCR-текст в лог только вместе с явно разрешёнными превью; иначе — только в приватном артефакте.
+    if [ "$public" = true ]; then
+      echo "::notice title=SCREENSHOT ${n%.png}::$url | bytes=$size | OCR: $ocr"
+    else
+      echo "::notice title=SCREENSHOT ${n%.png}::$url | bytes=$size | ocr_chars=${#ocr}"
+    fi
   done
   (cd "$dir" && tar czf - ./*.png | base64 -w 0) > "$bundle" || true
   echo "::notice title=SCREENSHOTS_ARTIFACT::$(basename "$bundle") ($(wc -c < "$bundle" | tr -d ' ') bytes, private)"

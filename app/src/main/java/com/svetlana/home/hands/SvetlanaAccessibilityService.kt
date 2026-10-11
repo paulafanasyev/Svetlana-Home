@@ -34,7 +34,8 @@ import kotlinx.coroutines.flow.asSharedFlow
  *
  * Приватность: текст полей паролей, PIN, одноразовых кодов и номеров карт
  * никогда не попадает в снимок экрана ([SensitiveText]) — ни в модель, ни в
- * историю, ни в логи.
+ * историю, ни в логи. Это касается и contentDescription (например, всплывающее
+ * уведомление «Код: 123456»).
  */
 class SvetlanaAccessibilityService : AccessibilityService() {
 
@@ -77,7 +78,7 @@ class SvetlanaAccessibilityService : AccessibilityService() {
         return UiNode(
             className = node.className?.toString() ?: "",
             text = SensitiveText.redact(node.text?.toString() ?: "", password, id, description, hint),
-            contentDescription = SensitiveText.maskCardNumbers(description),
+            contentDescription = SensitiveText.maskSecrets(description),
             id = id,
             isClickable = node.isClickable,
             isScrollable = node.isScrollable,
