@@ -24,8 +24,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 4. Где защита от записи невозможна (старый Android), решение Allowed(live = false):
  *    VoiceAgent любое действие с телефоном отправляет на подтверждение на экране.
  * 5. 5 неудач подряд (чужой голос или неверные цифры) → пауза 5 минут, переживает перезапуск.
- * 6. Проверки строго по одной (Mutex); решение «разрешено» принимается под замком
- *    хранилища и только если шаблон не менялся за время проверки.
+ * 6. Проверки строго по одной (Mutex); ЛЮБОЕ решение «разрешено» принимается под замком
+ *    хранилища с повторной проверкой того, что шаблон не менялся.
  * Звонки, сообщения, нажатия и ввод текста всё равно подтверждаются на экране (ActionRiskPolicy).
  */
 object OwnerVoiceGate {
@@ -74,6 +74,17 @@ object OwnerVoiceGate {
         OwnerVoiceStore.saveLock(context, lockout.snapshot())
     }
 
+    /** Успех фиксируется ТОЛЬКО под замком хранилища и при неизменном шаблоне. */
+    private fun allowUnderStoreLock(context: Context, gen: Long, live: Boolean, startTrust: Boolean): Decision =
+        synchronized(OwnerVoiceStore) {
+            if (OwnerVoiceStore.generation != gen) return@synchronized Decision.Denied(CHANGED)
+            if (lockout.isLocked()) return@synchronized Decision.Denied(lockedMessage())
+            lockout.onSuccess()
+            OwnerVoiceStore.saveLock(context, lockout.snapshot())
+            if (startTrust) trust.start(gen, SystemClock.elapsedRealtime())
+            Decision.Allowed(live)
+        }
+
     /**
      * @param ownerAudio аудио самой команды (Android 13+), null: нужна контрольная фраза.
      * @param tts чем попросить контрольную фразу или цифры; без него такие проверки невозможны.
@@ -95,43 +106,29 @@ object OwnerVoiceGate {
                     print = audio?.let { VoicePrint.compute(it, PcmCapture.SAMPLE_RATE).also { _ -> it.fill(0f) } }
                 }
                 val verdict = VoicePrint.verify(print, template)
-                val passed = synchronized(OwnerVoiceStore) {
-                    OwnerVoiceStore.generation == gen && verdict.ok && !lockout.isLocked()
-                }
-                if (!passed) {
-                    if (OwnerVoiceStore.generation != gen) return@withLock Decision.Denied(CHANGED)
-                    if (print != null && !verdict.ok) registerFailure(context)
+                if (OwnerVoiceStore.generation != gen) return@withLock Decision.Denied(CHANGED)
+                if (!verdict.ok) {
+                    if (print != null) registerFailure(context)
                     return@withLock Decision.Denied(
                         if (lockout.isLocked()) lockedMessage() else verdict.reason ?: VoicePrint.MSG_FOREIGN
                     )
                 }
 
-                // Голос владельца. Теперь защита от записи.
-                if (trust.isValid(gen, SystemClock.elapsedRealtime())) {
-                    trust.touch(SystemClock.elapsedRealtime())
-                    lockout.onSuccess()
-                    OwnerVoiceStore.saveLock(context, lockout.snapshot())
-                    return@withLock Decision.Allowed(live = true)
+                // Голос владельца. Доверенная сессия проверяется и продлевается под замком хранилища.
+                val trusted: Decision? = synchronized(OwnerVoiceStore) {
+                    val now = SystemClock.elapsedRealtime()
+                    if (OwnerVoiceStore.generation == gen && !lockout.isLocked() && trust.isValid(gen, now)) {
+                        trust.touch(now)
+                        lockout.onSuccess()
+                        OwnerVoiceStore.saveLock(context, lockout.snapshot())
+                        Decision.Allowed(live = true)
+                    } else null
                 }
+                if (trusted != null) return@withLock trusted
+
                 when (val live = liveness(tts, template)) {
-                    Live.Ok -> synchronized(OwnerVoiceStore) {
-                        if (OwnerVoiceStore.generation != gen || lockout.isLocked()) {
-                            Decision.Denied(CHANGED)
-                        } else {
-                            lockout.onSuccess()
-                            OwnerVoiceStore.saveLock(context, lockout.snapshot())
-                            trust.start(gen, SystemClock.elapsedRealtime())
-                            Decision.Allowed(live = true)
-                        }
-                    }
-                    Live.Unavailable -> synchronized(OwnerVoiceStore) {
-                        if (OwnerVoiceStore.generation != gen) Decision.Denied(CHANGED)
-                        else {
-                            lockout.onSuccess()
-                            OwnerVoiceStore.saveLock(context, lockout.snapshot())
-                            Decision.Allowed(live = false)
-                        }
-                    }
+                    Live.Ok -> allowUnderStoreLock(context, gen, live = true, startTrust = true)
+                    Live.Unavailable -> allowUnderStoreLock(context, gen, live = false, startTrust = false)
                     is Live.Failed -> {
                         if (live.countsAsFailure) registerFailure(context)
                         Decision.Denied(if (lockout.isLocked()) lockedMessage() else live.message)
