@@ -27,7 +27,8 @@ object CabinetProtocol {
 
     private val CODE = Regex("^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$")
     private val TOKEN = Regex("^[A-Za-z0-9_-]{40,100}$")
-    private val UNSAFE_NAME = Regex("[\-\\u001f\\u007f-\\u009f\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]")
+    // Управляющие символы (\p{Cntrl}, C1) и bidi-переключатели вырезаются из названия устройства.
+    private val UNSAFE_NAME = Regex("[\\p{Cntrl}\\x{80}-\\x{9F}\\x{200E}\\x{200F}\\x{202A}-\\x{202E}\\x{2066}-\\x{2069}]")
 
     /** id моделей телефона из каталога сайта (backend/src/lib/modelCatalog.js). */
     val CATALOG_IDS = setOf(
