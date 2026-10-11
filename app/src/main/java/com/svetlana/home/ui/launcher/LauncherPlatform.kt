@@ -21,6 +21,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -30,6 +32,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.core.graphics.drawable.toBitmap
 import com.svetlana.home.apps.AppModel
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.ui.components.rememberSvetlanaAvatar
 import com.svetlana.home.ui.theme.GreenDeep
 import com.svetlana.home.ui.theme.MintPrimary
 import com.svetlana.home.ui.theme.MintSoft
@@ -70,14 +73,24 @@ internal fun AppIconImage(packageName: String, size: Dp, modifier: Modifier = Mo
     }
 }
 
-/** Маленький орб Светланы для поисковой строки, чипов и плиток. */
+/** Маленький портрет Светланы для поисковой строки, чипов и плиток (без портрета — орб). */
 @Composable
 internal fun MiniOrb(size: Dp, modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .size(size)
-            .background(Brush.radialGradient(listOf(MintSoft, MintPrimary, GreenDeep)), CircleShape)
-    )
+    val avatar = rememberSvetlanaAvatar()
+    if (avatar != null) {
+        Image(
+            bitmap = avatar,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = modifier.size(size).clip(CircleShape)
+        )
+    } else {
+        Box(
+            modifier
+                .size(size)
+                .background(Brush.radialGradient(listOf(MintSoft, MintPrimary, GreenDeep)), CircleShape)
+        )
+    }
 }
 
 /** Определение приложений по умолчанию для дока через официальные Intent'ы. */

@@ -7,6 +7,36 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+/**
+ * Портрет Светланы — тот же файл, что в Svetlana 2.0
+ * (public/images/avatar/svetlana-master.jpg, закреплённый коммит). Кладётся в
+ * assets при сборке; без сети сборка не падает — приложение покажет шар.
+ */
+val svetlanaAvatarUrl =
+    "https://raw.githubusercontent.com/paulafanasyev/Svetlana-2.0/16568a4ec62b5b91ffa12c8322883775c5690b62/public/images/avatar/svetlana-master.jpg"
+val svetlanaAvatarDir = layout.buildDirectory.dir("generated/svetlanaAvatar/assets")
+val fetchSvetlanaAvatar = tasks.register("fetchSvetlanaAvatar") {
+    val outDir = svetlanaAvatarDir
+    val url = svetlanaAvatarUrl
+    outputs.dir(outDir)
+    doLast {
+        val target = outDir.get().file("avatar/svetlana.jpg").asFile
+        if (target.isFile && target.length() > 1000) return@doLast
+        target.parentFile.mkdirs()
+        try {
+            val conn = java.net.URL(url).openConnection()
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 30_000
+            val bytes = conn.getInputStream().use { it.readBytes() }
+            check(bytes.size > 1000 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()) { "не JPEG" }
+            target.writeBytes(bytes)
+            logger.lifecycle("Портрет Светланы: ${bytes.size} байт")
+        } catch (e: Exception) {
+            logger.warn("Портрет Светланы не скачан (${e.message}) — в приложении будет шар")
+        }
+    }
+}
+
 android {
     namespace = "com.svetlana.home"
     compileSdk = 36
@@ -69,6 +99,13 @@ android {
             isMinifyEnabled = true
             // R8: включаем оптимизацию и обфускацию для release.
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            // Портрет Светланы из Svetlana 2.0 (см. fetchSvetlanaAvatar выше).
+            assets.srcDir(fetchSvetlanaAvatar)
         }
     }
 
