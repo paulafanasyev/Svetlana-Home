@@ -57,6 +57,8 @@ data class ServerCapabilities(
  * Безопасность: адрес проверяется [ServerUrlPolicy] при сохранении и перед КАЖДЫМ запросом,
  * DNS не может увести на сам телефон/metadata, перенаправления запрещены (токен не уйдёт
  * на чужой адрес), ответ ограничен [MAX_RESPONSE] байтами.
+ * Токен отправляется ТОЛЬКО по https: незащищённый http допустим лишь для сервера в домашней
+ * сети без токена, чтобы сосед по Wi‑Fi не мог перехватить секрет.
  */
 class PersonalServerManager(
     private val context: Context,
@@ -104,6 +106,15 @@ class PersonalServerManager(
     fun setToken(token: String) = keyStore.put(SecureKeyStore.SERVER_TOKEN, token)
     fun token(): String? = keyStore.get(SecureKeyStore.SERVER_TOKEN)
     fun clearToken() = keyStore.remove(SecureKeyStore.SERVER_TOKEN)
+
+    /** Токен для запроса: только если соединение защищено (https). По http токен не отправляется никогда. */
+    private fun bearerFor(base: String): String? {
+        if (!base.startsWith("https://", ignoreCase = true)) {
+            if (token() != null) Log.w(TAG, "Сервер по http: токен не отправлен (нужен https)")
+            return null
+        }
+        return token()
+    }
 
     /** Адрес сервера, если он задан и проходит политику (старые сохранённые адреса тоже проверяются). */
     private fun safeBase(): String? {
@@ -186,7 +197,7 @@ class PersonalServerManager(
                 .build()
             val request = Request.Builder()
                 .url("$base/vlm")
-                .apply { token()?.let { addHeader("Authorization", "Bearer $it") } }
+                .apply { bearerFor(base)?.let { addHeader("Authorization", "Bearer $it") } }
                 .post(body)
                 .build()
             client.newCall(request).execute().use { response ->
@@ -217,7 +228,7 @@ class PersonalServerManager(
     private fun request(base: String, path: String) = client.newCall(
         Request.Builder()
             .url(base + path)
-            .apply { token()?.let { addHeader("Authorization", "Bearer $it") } }
+            .apply { bearerFor(base)?.let { addHeader("Authorization", "Bearer $it") } }
             .build()
     ).execute()
 
@@ -233,7 +244,7 @@ class PersonalServerManager(
         client.newCall(
             Request.Builder()
                 .url(base + path)
-                .apply { token()?.let { addHeader("Authorization", "Bearer $it") } }
+                .apply { bearerFor(base)?.let { addHeader("Authorization", "Bearer $it") } }
                 .post(body)
                 .build()
         ).execute().use { r ->
