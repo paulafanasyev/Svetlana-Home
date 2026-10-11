@@ -35,6 +35,9 @@ private object RouterGrant : ActionGrant
  * тексту из чата (опасное всё равно требует нажатия). Фоновый голос (слово пробуждения)
  * может произнести кто угодно рядом — он только ПРЕДЛАГАЕТ действие.
  *
+ * Нажатие/ввод выполняются только на том элементе, который был оценён и подтверждён: движок
+ * получает его метку (пакет, текст, id, границы) и отказывает, если на экране уже другой элемент.
+ *
  * Здесь нет доступа к shell, root или скрытым командам.
  */
 class ActionRouter(
@@ -82,15 +85,17 @@ class ActionRouter(
         }
         // Чтение экрана исполняется для ТОГО пакета, о котором спрашивали (движок сверит его до и после).
         val readTarget = target?.shown?.takeIf { it != "unknown" }
+        // Метка оценённого (и при необходимости подтверждённого) элемента: движок действует только на нём.
+        val expected = target?.label
 
         val result = when (action) {
             is SvetlanaAction.OpenApp -> engine.openApp(action.target)
             is SvetlanaAction.OpenAppScreen -> engine.openApp(action.target)
-            is SvetlanaAction.Click -> engine.click(RouterGrant, action.target, action.element)
-            is SvetlanaAction.LongClick -> engine.longClick(RouterGrant, action.target, action.element)
+            is SvetlanaAction.Click -> engine.click(RouterGrant, action.target, action.element, expected)
+            is SvetlanaAction.LongClick -> engine.longClick(RouterGrant, action.target, action.element, expected)
             is SvetlanaAction.Swipe -> engine.swipe(RouterGrant, action.target, action.direction)
             is SvetlanaAction.Scroll -> engine.scroll(RouterGrant, action.target, action.direction)
-            is SvetlanaAction.TypeText -> engine.typeText(RouterGrant, action.target, action.element, action.text)
+            is SvetlanaAction.TypeText -> engine.typeText(RouterGrant, action.target, action.element, action.text, expected)
             is SvetlanaAction.ClearText -> engine.clearText(RouterGrant, action.target, action.element)
             is SvetlanaAction.ReadScreen -> engine.readScreen(RouterGrant, readTarget ?: action.target)
             is SvetlanaAction.FindElement -> engine.readScreen(RouterGrant, readTarget ?: action.target)
@@ -169,7 +174,7 @@ class ActionRouter(
         val hands = ServiceLocator.hands
         if (!hands.isActive) return null
         val node = hands.findElement(element) ?: return null
-        val label = "${hands.currentPackage()} ${node.text} ${node.contentDescription} ${node.id} ${node.bounds}"
+        val label = AppControlEngine.targetLabel(hands.currentPackage(), node)
         val semantic = "${node.text} ${node.contentDescription} ${node.id}"
         val dangerous = if (typing) node.isPassword || ActionRiskPolicy.isSensitiveFieldLabel(semantic)
         else ActionRiskPolicy.isDangerousLabel(semantic)
