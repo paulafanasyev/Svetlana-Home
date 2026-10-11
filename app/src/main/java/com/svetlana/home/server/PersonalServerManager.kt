@@ -15,6 +15,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.ResponseBody
 import java.util.concurrent.TimeUnit
 
 /**
@@ -53,11 +54,9 @@ data class ServerCapabilities(
 /**
  * PersonalServerManager — управление персональным AI-сервером (ТЗ §44).
  *
- * Пользователь подключает собственный compute: домашний ПК, VPS, NAS,
- * GPU server, бесплатный/условно бесплатный cloud compute.
- *
- * Приложение не гарантирует, что ресурс бесплатен — пользователь сам
- * проверяет условия (ТЗ §43).
+ * Безопасность: адрес проверяется [ServerUrlPolicy] при сохранении и перед КАЖДЫМ запросом,
+ * DNS не может увести на сам телефон/metadata, перенаправления запрещены (токен не уйдёт
+ * на чужой адрес), ответ ограничен [MAX_RESPONSE] байтами.
  */
 class PersonalServerManager(
     private val context: Context,
@@ -70,23 +69,31 @@ class PersonalServerManager(
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .dns(ServerUrlPolicy.safeDns)
         .build()
 
     @Volatile
     private var config: ServerConfig = loadConfig()
 
-    /** Последние известные возможности сервера (обновляются в [capabilities]). */
     @Volatile
     private var lastCaps: ServerCapabilities = ServerCapabilities.unknown
 
     fun config(): ServerConfig = config
 
-    /** Кешированные возможности — без сети, для capability-проверок. */
     fun lastCapabilities(): ServerCapabilities = lastCaps
 
-    fun setBaseUrl(url: String) {
-        config = config.copy(baseUrl = url.trimEnd('/'))
+    /**
+     * Сохранить адрес. Пустая строка очищает адрес.
+     * @return null — сохранено, иначе причина отказа (адрес не сохранён).
+     */
+    fun setBaseUrl(url: String): String? {
+        val clean = url.trim().trimEnd('/')
+        if (clean.isNotEmpty()) ServerUrlPolicy.check(clean)?.let { return it }
+        config = config.copy(baseUrl = clean)
         saveConfig()
+        return null
     }
 
     fun setEnabled(enabled: Boolean) {
@@ -98,41 +105,46 @@ class PersonalServerManager(
     fun token(): String? = keyStore.get(SecureKeyStore.SERVER_TOKEN)
     fun clearToken() = keyStore.remove(SecureKeyStore.SERVER_TOKEN)
 
-    /**
-     * Health check: проверяет, что сервер отвечает и аутентифицирует.
-     */
+    /** Адрес сервера, если он задан и проходит политику (старые сохранённые адреса тоже проверяются). */
+    private fun safeBase(): String? {
+        val base = config.baseUrl
+        if (base.isBlank()) return null
+        val problem = ServerUrlPolicy.check(base)
+        if (problem != null) {
+            Log.w(TAG, "Адрес сервера отклонён политикой: $problem")
+            return null
+        }
+        return base
+    }
+
     suspend fun healthCheck(): Boolean = withContext(Dispatchers.IO) {
-        if (config.baseUrl.isBlank()) return@withContext false
+        val base = safeBase() ?: return@withContext false
         try {
-            val response = request("/health")
-            response.isSuccessful
+            request(base, "/health").use { it.isSuccessful }
         } catch (t: Throwable) {
             Log.w(TAG, "Health check не удался", t)
             false
         }
     }
 
-    /**
-     * Обнаружение возможностей сервера: CPU/RAM/GPU/VRAM/модели/inference.
-     */
     suspend fun capabilities(): ServerCapabilities = withContext(Dispatchers.IO) {
-        if (config.baseUrl.isBlank()) return@withContext ServerCapabilities.unknown
+        val base = safeBase() ?: return@withContext ServerCapabilities.unknown
         val started = System.currentTimeMillis()
         try {
-            val body = requestJson("/capabilities") ?: return@withContext ServerCapabilities.unknown
+            val body = requestJson(base, "/capabilities") ?: return@withContext ServerCapabilities.unknown
             val root = json.parseToJsonElement(body).jsonObject
             val hardware = root["hardware"]?.jsonObject ?: JsonObject(emptyMap())
             val gpu = root["gpu"]?.jsonObject ?: JsonObject(emptyMap())
             val caps = ServerCapabilities(
                 reachable = true,
-                cpu = hardware["cpu"]?.jsonPrimitive?.content ?: "unknown",
+                cpu = hardware["cpu"]?.jsonPrimitive?.content?.take(200) ?: "unknown",
                 ramGb = hardware["ram_gb"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
-                gpu = gpu["name"]?.jsonPrimitive?.content ?: "none",
+                gpu = gpu["name"]?.jsonPrimitive?.content?.take(200) ?: "none",
                 vramGb = gpu["vram_gb"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
                 models = root["models"]?.let { el ->
                     json.decodeFromJsonElement(
                         kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<String>()), el
-                    )
+                    ).take(200).map { it.take(200) }
                 } ?: emptyList(),
                 inferenceSupported = root["inference"]?.jsonPrimitive?.content?.toBoolean() ?: false,
                 latencyMs = System.currentTimeMillis() - started
@@ -145,11 +157,8 @@ class PersonalServerManager(
         }
     }
 
-    /**
-     * Удалённый inference. Запрос идёт на сервер пользователя.
-     */
     suspend fun inference(prompt: String, model: String? = null): String? = withContext(Dispatchers.IO) {
-        if (config.baseUrl.isBlank()) return@withContext null
+        val base = safeBase() ?: return@withContext null
         try {
             val payload = buildString {
                 append("{")
@@ -157,21 +166,15 @@ class PersonalServerManager(
                 model?.let { append(",\"model\":").append(json.encodeToString(kotlinx.serialization.serializer<String>(), it)) }
                 append("}")
             }
-            val response = postJson("/inference", payload)
-            response ?: null
+            postJson(base, "/inference", payload)
         } catch (t: Throwable) {
             Log.w(TAG, "Inference на сервере не удался", t)
             null
         }
     }
 
-    /**
-     * Vision inference на сервере: текст + JPEG.
-     * Сервер должен предоставить /vlm endpoint, принимающий multipart.
-     * Возвращает null, если сервер недоступен или не поддерживает VLM.
-     */
     suspend fun visionInference(prompt: String, imageBytes: ByteArray): String? = withContext(Dispatchers.IO) {
-        if (config.baseUrl.isBlank()) return@withContext null
+        val base = safeBase() ?: return@withContext null
         try {
             val body = okhttp3.MultipartBody.Builder()
                 .setType(okhttp3.MultipartBody.FORM)
@@ -182,7 +185,7 @@ class PersonalServerManager(
                 )
                 .build()
             val request = Request.Builder()
-                .url("${config.baseUrl}/vlm")
+                .url("$base/vlm")
                 .apply { token()?.let { addHeader("Authorization", "Bearer $it") } }
                 .post(body)
                 .build()
@@ -191,7 +194,7 @@ class PersonalServerManager(
                     Log.w(TAG, "VLM на сервере: HTTP ${response.code}")
                     return@withContext null
                 }
-                response.body?.string()
+                response.body?.limitedString()
             }
         } catch (t: Throwable) {
             Log.w(TAG, "VLM inference на сервере не удался", t)
@@ -199,21 +202,8 @@ class PersonalServerManager(
         }
     }
 
-    /**
-     * Аудит п.18: это НЕ проверка доступности — это "настроен и включён".
-     * Реальная доступность проверяется только healthCheck-запросом /health.
-     * Маршрутизация не должна считать сервер доступным по одному полю.
-     */
     fun isConfigured(): Boolean = config.enabled && config.baseUrl.isNotBlank()
 
-    /**
-     * Реальная доступность: сетевой запрос к серверу.
-     * Используется routing-логикой вместо isConfigured().
-     *
-     * Аудит: раньше было `healthCheck() != null`, а healthCheck(): Boolean —
-     * ненулевой Boolean никогда не равен null, поэтому сервер считался
-     * доступным, даже будучи мёртвым. Теперь возвращаем сам результат.
-     */
     suspend fun isReachable(): Boolean = withContext(Dispatchers.IO) {
         if (!isConfigured()) return@withContext false
         healthCheck()
@@ -224,32 +214,41 @@ class PersonalServerManager(
         ReplaceWith("isConfigured()"))
     fun isReachableLegacy(): Boolean = isConfigured()
 
-    private fun request(path: String) = client.newCall(
+    private fun request(base: String, path: String) = client.newCall(
         Request.Builder()
-            .url(config.baseUrl + path)
+            .url(base + path)
             .apply { token()?.let { addHeader("Authorization", "Bearer $it") } }
             .build()
     ).execute()
 
-    private fun requestJson(path: String): String? {
-        request(path).use { r ->
+    private fun requestJson(base: String, path: String): String? {
+        request(base, path).use { r ->
             if (!r.isSuccessful) return null
-            return r.body?.string()
+            return r.body?.limitedString()
         }
     }
 
-    private fun postJson(path: String, payload: String): String? {
+    private fun postJson(base: String, path: String, payload: String): String? {
         val body = payload.toRequestBody("application/json".toMediaType())
         client.newCall(
             Request.Builder()
-                .url(config.baseUrl + path)
+                .url(base + path)
                 .apply { token()?.let { addHeader("Authorization", "Bearer $it") } }
                 .post(body)
                 .build()
         ).execute().use { r ->
             if (!r.isSuccessful) return null
-            return r.body?.string()
+            return r.body?.limitedString()
         }
+    }
+
+    /** Тело ответа не больше [MAX_RESPONSE]; слишком большой ответ отбрасывается. */
+    private fun ResponseBody.limitedString(): String? {
+        val len = contentLength()
+        if (len > MAX_RESPONSE) return null
+        val src = source()
+        if (src.request(MAX_RESPONSE + 1)) return null
+        return src.buffer.readUtf8()
     }
 
     private fun loadConfig(): ServerConfig = try {
@@ -274,5 +273,6 @@ class PersonalServerManager(
         private const val PREFS = "svetlana_server"
         private const val KEY_URL = "base_url"
         private const val KEY_ENABLED = "enabled"
+        private const val MAX_RESPONSE = 4L * 1024 * 1024
     }
 }
