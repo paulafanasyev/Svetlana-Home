@@ -29,6 +29,14 @@ class ScreenshotPolicyTest {
     }
 
     @Test
+    fun consentIsBoundToWindow() {
+        ScreenshotPolicy.allowOnce("org.telegram.messenger", window = "Chat@0,0,1080,2400", now = 0)
+        assertThat(ScreenshotPolicy.mayCapture("org.telegram.messenger", own, window = "Login@0,0,1080,2400", now = 1)).isFalse()
+        ScreenshotPolicy.allowOnce("org.telegram.messenger", window = "Chat@0,0,1080,2400", now = 0)
+        assertThat(ScreenshotPolicy.mayCapture("org.telegram.messenger", own, window = "Chat@0,0,1080,2400", now = 1)).isTrue()
+    }
+
+    @Test
     fun consentExpires() {
         ScreenshotPolicy.allowOnce("org.telegram.messenger", now = 0)
         assertThat(ScreenshotPolicy.mayCapture("org.telegram.messenger", own, now = ScreenshotPolicy.CONSENT_TTL_MS + 1)).isFalse()
