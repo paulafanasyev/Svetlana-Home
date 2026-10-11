@@ -23,7 +23,6 @@ Hands + Voice + Vision + управление приложениями + Mobile 
 - [Launcher](#launcher)
 - [Voice](#voice)
 - [Hands](#hands)
-- [Переводчик](#переводчик-ru--vi)
 - [Mobile Harness](#mobile-harness)
 - [Vision](#vision)
 - [Local AI](#local-ai)
@@ -145,20 +144,11 @@ compileSdk 36, AGP 8.11.0, Kotlin 1.9.22, Java 17.
 - Wake words: **Света**, **Светочка**, **Светлана**; ручной запуск голосового ввода — касанием орба;
 - Команды: «открой Telegram», «сделай скриншот», «пролистай вниз»,
   «нажми кнопку», «введи это значение»;
-- Управление режимами ИИ голосом.
+- Управление режимами ИИ голосом;
+- **Только голос владельца**: голосовой отпечаток (Настройки → Владелец),
+  защита от записи случайными цифрами, блокировка после 5 неудачных попыток.
 
 Подробно: [docs/voice.md](docs/voice.md).
-
-## Переводчик RU ↔ VI
-
-В launcher доступен отдельный переводчик русского и вьетнамского языка:
-текстовый и голосовой ввод, локальный перевод и озвучивание результата.
-
-Модели перевода скачиваются только после явного нажатия пользователя.
-После установки самой модели перевод не обращается к внешнему AI.
-Голосовой режим доступен только при наличии on-device SpeechRecognizer.
-
-Подробно: [docs/translation.md](docs/translation.md).
 
 ## Hands
 
@@ -430,6 +420,7 @@ battery, screen, camera, mic, network.
 | Hands (dispatchGesture) | CODE VERIFIED | async-callback исправлен; **target-specific postconditions** (`PostconditionLogic`); нужен device-тест |
 | Mobile Harness | CODE VERIFIED | нужны device-тесты |
 | Voice (STT/TTS) | CODE VERIFIED | системные STT/TTS; **on-device recognizer приоритетнее** (API 31+); **VoiceSessionStateMachine** против гонок |
+| **Голос владельца** | CODE VERIFIED | `VoicePrint` + `OwnerVoiceGate` + `LivenessChallenge`: команды только от владельца, случайные цифры против записи; нужен device-тест |
 | **Фоновый голосовой агент** | CODE VERIFIED | **VoiceAssistantService** (foreground, тип microphone) + переключатель в настройках |
 | **Мгновенный голосовой отклик** | CODE VERIFIED | **filler «Дай подумать…» + SSE-стриминг** ответа |
 | Wake word | NOT PROVEN | не always-on low-power детектор (STT-polling); state machine защищает от гонок |
