@@ -41,9 +41,9 @@ data class UiTree(
  * проверяет наличие системного доступа перед выполнением.
  *
  * Безопасность: нажатие/ввод/очистка выполняются ТОЛЬКО на том живом элементе, который
- * точно совпадает со снимком ([findExactNode]: класс, границы, id и текст). Если за это время
- * элемент сдвинули или подменили похожим (другая строка списка с тем же id, кнопка с тем же
- * текстом) — действие не выполняется.
+ * точно совпадает со снимком ([findExactNode]: класс, границы, id, текст, описание — в том
+ * же виде, что и в снимке, с вычищенными секретами). Если элемент сдвинули или подменили
+ * похожим (другая строка списка с тем же id, кнопка с тем же текстом) — действие не выполняется.
  */
 class HandsController(private val context: Context) {
 
@@ -90,16 +90,24 @@ class HandsController(private val context: Context) {
         return findExact(root, node, 0)
     }
 
+    /** Сравнение в том же виде, что и в снимке (текст паролей/кодов вычищен одинаково). */
+    private fun sameAsSnapshot(n: AccessibilityNodeInfo, target: UiNode): Boolean {
+        val bounds = Rect().also { n.getBoundsInScreen(it) }
+        if (bounds != target.bounds) return false
+        if (n.className?.toString().orEmpty() != target.className) return false
+        val id = n.viewIdResourceName ?: ""
+        if (id != target.id) return false
+        val description = n.contentDescription?.toString() ?: ""
+        val hint = n.hintText?.toString() ?: ""
+        val password = n.isPassword || SensitiveText.isSensitiveField(false, id, description, hint)
+        if (password != target.isPassword) return false
+        if (SensitiveText.maskSecrets(description) != target.contentDescription) return false
+        return SensitiveText.redact(n.text?.toString() ?: "", n.isPassword, id, description, hint) == target.text
+    }
+
     private fun findExact(n: AccessibilityNodeInfo, target: UiNode, depth: Int): AccessibilityNodeInfo? {
         if (depth > MAX_DEPTH) return null
-        val bounds = Rect().also { n.getBoundsInScreen(it) }
-        if (bounds == target.bounds &&
-            n.className?.toString().orEmpty() == target.className &&
-            n.viewIdResourceName.orEmpty() == target.id &&
-            n.text?.toString().orEmpty() == target.text &&
-            n.contentDescription?.toString().orEmpty() == target.contentDescription &&
-            n.isPassword == target.isPassword
-        ) return n
+        if (sameAsSnapshot(n, target)) return n
         for (i in 0 until n.childCount) {
             val child = n.getChild(i) ?: continue
             findExact(child, target, depth + 1)?.let { return it }
