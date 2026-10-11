@@ -17,6 +17,9 @@ import java.io.File
  *
  * Только после явного решения пользователя:
  *   Предложить → Показать размер → Показать требования → Решение → Скачать
+ *
+ * Целостность: любая модель скачивается только по https и устанавливается только при совпадении
+ * с доверенным SHA-256 из реестра; без доверенного хеша скачивание отключено для всех форматов.
  */
 @Serializable
 data class InstalledModel(
@@ -88,21 +91,31 @@ open class LocalModelManager(
                 return Result.failure(IllegalStateException(
                     "Для модели ${model.name} встроенный runtime ещё не реализован; скачивание отключено."))
             }
+            // Доверенный хеш обязателен для ЛЮБОГО формата: без него нельзя отличить
+            // настоящую модель от подменённой. Проверяем ДО скачивания.
+            val expected = model.expectedSha256
+            if (expected.isNullOrBlank() || expected.length != 64) {
+                return Result.failure(IllegalStateException(
+                    "Для модели ${model.name} нет доверенной контрольной суммы SHA-256; скачивание отключено."))
+            }
+            if (!model.downloadUrl.startsWith("https://", ignoreCase = true)) {
+                return Result.failure(IllegalStateException("Модели скачиваются только по защищённому https"))
+            }
             if (!isSpaceEnough(model)) {
                 return Result.failure(IllegalStateException("Недостаточно свободного места"))
             }
             Log.i(TAG, "Начинаю загрузку модели ${model.name} (${model.sizeMb}MB) по решению пользователя")
-            // Расширение файла обязано совпадать с форматом: движок LiteRT-LM
-            // отклоняет тот же контент, если файл назван .bin вместо .litertlm
-            // (upstream issue: загрузка зависит от расширения). Для GGUF
-            // расширение не принципиально, но оставляем осмысленное.
             temp.delete()
             backup.delete()
-            val client = okhttp3.OkHttpClient.Builder().build()
+            // Перенаправления https→https (CDN) разрешены, https→http — нет.
+            val client = okhttp3.OkHttpClient.Builder().followSslRedirects(false).build()
             val request = okhttp3.Request.Builder().url(model.downloadUrl).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     return Result.failure(IllegalStateException("Сервер вернул код ${response.code}"))
+                }
+                if (!response.request.url.isHttps) {
+                    return Result.failure(IllegalStateException("Загрузка перенаправлена на незащищённый адрес — отменена"))
                 }
                 val body = response.body ?: return Result.failure(IllegalStateException("Пустой ответ"))
                 val total = body.contentLength()
@@ -128,30 +141,18 @@ open class LocalModelManager(
                 temp.delete()
                 return Result.failure(IllegalStateException("Файл загрузился не полностью"))
             }
-            // Аудит п.9: криптографическая и форматная проверка файла.
-            // Файл мог скачаться страницей 404/HTML вместо модели.
             val sha = sha256(temp)
             if (!verifyFormat(temp, model)) {
                 temp.delete()
                 return Result.failure(IllegalStateException(
                     "Скачанный файл не является моделью формата ${model.backend}"))
             }
-            // Аудит §13: вычислить SHA ≠ проверить SHA. Если реестр знает
-            // доверенный хеш — сверяем. Несовпадение = файл повреждён/подменён.
-            val expected = model.expectedSha256
-            if (model.backend.equals("litertlm", ignoreCase = true) && expected.isNullOrBlank()) {
-                temp.delete()
-                return Result.failure(IllegalStateException("Для LiteRT-LM модели отсутствует доверенный SHA-256"))
-            }
-            val shaVerified = expected.isNullOrBlank() || sha.equals(expected, ignoreCase = true)
-            if (!shaVerified) {
+            if (!sha.equals(expected, ignoreCase = true)) {
                 temp.delete()
                 return Result.failure(IllegalStateException(
                     "Контрольная сумма файла не совпадает с доверенной. Загрузка отменена. Предыдущая модель сохранена."))
             }
 
-            // Безопасная замена: сначала сохраняем рабочий файл, затем
-            // устанавливаем новый. При сбое rename старый файл возвращается.
             if (target.exists() && !target.renameTo(backup)) {
                 temp.delete()
                 return Result.failure(IllegalStateException(
@@ -173,8 +174,6 @@ open class LocalModelManager(
                 sha256 = sha,
                 formatVerified = true
             )
-            // Повторная установка той же модели не должна плодить дубликаты
-            // в реестре установленных моделей.
             installed = installed.filterNot { it.modelId == model.id } + installedModel
             save()
             Log.i(TAG, "Модель ${model.name} установлена")
@@ -204,13 +203,6 @@ open class LocalModelManager(
         save()
     }
 
-    /**
-     * Аудит §14: строгий жизненный цикл модели. Статус вычисляется из фактов.
-     *
-     * @param runtimeReady загружен ли runtime и готов ли он к работе
-     * @param modelLoaded  загружена ли модель в память
-     * @param inferenceVerified прошёл ли реальный inference
-     */
     fun statusFor(
         modelId: String,
         runtimeReady: Boolean = false,
@@ -229,21 +221,11 @@ open class LocalModelManager(
         )
     }
 
-    /**
-     * Активная модель — та, которую пользователь выбрал основной.
-     * Удалять активную модель запрещено (аудит §15).
-     */
     fun isActive(modelId: String, activeId: String?): Boolean = activeId != null && modelId == activeId
 
-    /**
-     * Можно ли удалить модель: активную удалять запрещено.
-     */
     fun canUninstall(modelId: String, activeId: String?): Boolean =
         !isActive(modelId, activeId)
 
-    /**
-     * Фактический benchmark ставит DEVICE VERIFIED только после реального теста (ТЗ §35).
-     */
     fun benchmarkStatusFor(modelId: String): String {
         val model = byId(modelId) ?: return SvetlanaStatus.NOT_PROVEN
         return model.benchmark?.let {
@@ -255,22 +237,12 @@ open class LocalModelManager(
     private fun isSpaceEnough(model: AIModel): Boolean =
         freeSpaceBytes() > model.storageRequirementMb * 1024L * 1024L * 1.1
 
-    /**
-     * Расширение целевого файла по формату модели. LiteRT-LM требует
-     * именно .litertlm, иначе Engine отклоняет файл.
-     */
     private fun extensionFor(model: AIModel): String = when (model.backend) {
         "litertlm" -> "litertlm"
         "llama.cpp" -> "gguf"
         else -> "bin"
     }
 
-    /**
-     * Миграция установленных моделей со старого расширения .bin на
-     * расширение формата (актуально для litertlm — движок требует
-     * именно .litertlm, иначе Engine отклоняет файл). Вызывается при
-     * инициализации.
-     */
     fun migrateExtensions() {
         var changed = false
         val mapped = installed.map { m ->
@@ -291,36 +263,16 @@ open class LocalModelManager(
         }
     }
 
-    /**
-     * Аудит п.9: проверка magic bytes скачанного файла.
-     * GGUF (llama.cpp) начинается с "GGUF" (0x47 0x47 0x55 0x46).
-     * ONNX — protobuf; первый field ModelProto имеет тег 0x0c (field 1, wire 4)?
-     * Надёжнее: ONNX-модели от HF не имеют стабильного magic, поэтому для
-     * onnxruntime принимаем любой непустой бинарный файл нетекстового вида.
-     */
     private fun verifyFormat(file: File, model: AIModel): Boolean {
         return try {
             when (model.backend) {
                 "llama.cpp" -> ModelFormat.GGUF.matchesMagic(readHead(file, 4))
-                "litertlm" -> {
-                    // Контейнер .litertlm начинается с 8-байтного
-                    // magic "LITERTLM" по нулевому смещению.
-                    // (Раньше ошибочно проверяли "TFL" по смещению 4 —
-                    // это заголовок .tflite, а не LiteRT-LM.)
-                    ModelFormat.LITERT_LM.matchesMagic(readHead(file, 8))
-                }
-                else -> {
-                    // No runtime/format validator is implemented for this backend.
-                    // Never mark an unsupported format as verified.
-                    false
-                }
+                "litertlm" -> ModelFormat.LITERT_LM.matchesMagic(readHead(file, 8))
+                else -> false
             }
         } catch (t: Throwable) { false }
     }
 
-    /**
-     * readNBytes требует API 33; minSdk = 26 — читаем вручную.
-     */
     private fun readHead(file: File, n: Int): ByteArray =
         file.inputStream().use { input ->
             val buffer = ByteArray(n)
