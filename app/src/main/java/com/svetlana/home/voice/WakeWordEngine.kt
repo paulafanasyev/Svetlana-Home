@@ -24,6 +24,9 @@ import kotlinx.coroutines.flow.first
  *
  * Wake word listening активируется только когда пользователь включил его
  * в настройках и предоставил разрешение на микрофон.
+ *
+ * Голос владельца: вместе с командой сохраняется её аудио (только в памяти),
+ * чтобы VoiceAgent проверил, что говорил именно владелец.
  */
 class WakeWordEngine(
     private val context: Context,
@@ -42,6 +45,9 @@ class WakeWordEngine(
      */
     private val _detection = MutableStateFlow<String?>(null)
     val detection: StateFlow<String?> = _detection.asStateFlow()
+
+    @Volatile
+    private var detectionAudio: FloatArray? = null
 
     private var job: kotlinx.coroutines.Job? = null
 
@@ -85,8 +91,8 @@ class WakeWordEngine(
                     val result = recognizer.awaitResult(4_000L)
                     if (result == null) {
                         recognizer.stopListening()
-                        // Даём SpeechRecognizer короткое дополнительное окно
-                        // на доставку финального onResults после stopListening().
+                        // Даём SpeechRecognizer короткое дополнительное окно на доставку
+                        // финального onResults после stopListening().
                         val finalResult = recognizer.awaitResult(1_200L)
                         processSttResult(finalResult)
                     } else {
@@ -116,7 +122,8 @@ class WakeWordEngine(
         current ?: return
         if (current !is SvetlanaSpeechRecognizer.SttResult.Success) return
         val command = matchWakeWord(current.text) ?: return
-        Log.i(TAG, "Слово пробуждения обнаружено, команда: $command")
+        Log.i(TAG, "Слово пробуждения обнаружено")
+        detectionAudio = current.ownerAudio
         _detection.value = command
     }
 
@@ -124,10 +131,21 @@ class WakeWordEngine(
         while (_detection.value != null) delay(100)
     }
 
+    /** Аудио обнаруженной команды для проверки владельца. Отдаётся один раз. */
+    fun takeDetectionAudio(): FloatArray? {
+        val a = detectionAudio
+        detectionAudio = null
+        return a
+    }
+
     /**
      * Сброс detections после того, как HomeViewModel обработал команду.
      */
-    fun consumeDetection() { _detection.value = null }
+    fun consumeDetection() {
+        detectionAudio?.fill(0f)
+        detectionAudio = null
+        _detection.value = null
+    }
 
     fun stop() {
         job?.cancel()
