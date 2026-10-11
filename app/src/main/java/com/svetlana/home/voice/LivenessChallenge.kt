@@ -9,7 +9,8 @@ import java.security.SecureRandom
  * звуку: распознанный текст = загаданные цифры И голос = владелец.
  *
  * Чистая логика, покрыта юнит-тестами. Понимает «7 4 2», «742», «семь, четыре, два»
- * и «семьсот сорок два» (распознаватели пишут числа по-разному).
+ * и «семьсот сорок два». Составное число разбирается по строгой грамматике: сотни,
+ * десятки, единицы по убыванию, каждый разряд не больше одного раза, лишнее слово = отказ.
  */
 object LivenessChallenge {
     const val LENGTH = 3
@@ -20,12 +21,16 @@ object LivenessChallenge {
         "ноль" to 0, "нуль" to 0, "один" to 1, "одна" to 1, "два" to 2, "две" to 2, "три" to 3,
         "четыре" to 4, "пять" to 5, "шесть" to 6, "семь" to 7, "восемь" to 8, "девять" to 9,
     )
-    private val COMPOUND = mapOf(
+    private val TEENS = mapOf(
         "десять" to 10, "одиннадцать" to 11, "двенадцать" to 12, "тринадцать" to 13,
         "четырнадцать" to 14, "пятнадцать" to 15, "шестнадцать" to 16, "семнадцать" to 17,
         "восемнадцать" to 18, "девятнадцать" to 19,
+    )
+    private val TENS = mapOf(
         "двадцать" to 20, "тридцать" to 30, "сорок" to 40, "пятьдесят" to 50, "шестьдесят" to 60,
         "семьдесят" to 70, "восемьдесят" to 80, "девяносто" to 90,
+    )
+    private val HUNDREDS = mapOf(
         "сто" to 100, "двести" to 200, "триста" to 300, "четыреста" to 400, "пятьсот" to 500,
         "шестьсот" to 600, "семьсот" to 700, "восемьсот" to 800, "девятьсот" to 900,
     )
@@ -46,35 +51,67 @@ object LivenessChallenge {
     fun matches(transcript: String?, challenge: Challenge): Boolean {
         if (transcript.isNullOrBlank() || transcript.length > 200) return false
         val text = transcript.lowercase().replace('ё', 'е')
-        val tokens = Regex("[0-9]+|[а-я]+").findAll(text).map { it.value }.toList()
+        val tokens = Regex("[0-9]+|[а-я]+").findAll(text).map { it.value }
+            .filter { it[0].isDigit() || it in UNITS || it in TEENS || it in TENS || it in HUNDREDS }
+            .toList()
         if (tokens.isEmpty()) return false
 
-        val hasCompound = tokens.any { it in COMPOUND }
-        if (!hasCompound) {
+        val compound = tokens.any { it in TEENS || it in TENS || it in HUNDREDS }
+        if (!compound) {
             // «7 4 2», «742», «семь четыре два», «7 четыре 2»
             val seq = StringBuilder()
             for (t in tokens) {
-                when {
-                    t[0].isDigit() -> seq.append(t)
-                    t in UNITS -> seq.append(UNITS.getValue(t))
-                }
+                if (t[0].isDigit()) seq.append(t) else seq.append(UNITS.getValue(t))
                 if (seq.length > 12) return false
             }
             return seq.toString() == challenge.code
         }
-        // «семьсот сорок два», «семьсот 42»: складываем разряды одного числа.
+        return parseCompound(tokens)?.toString() == challenge.code
+    }
+
+    /**
+     * «семьсот сорок два», «семьсот 42», «семьсот два». Каждая часть обязана быть меньше
+     * оставшегося разряда ([limit]); ноль и лишние части дают null.
+     */
+    private fun parseCompound(tokens: List<String>): Int? {
         var value = 0
+        var limit = 1000
         for (t in tokens) {
-            val v = when {
-                t[0].isDigit() -> if (t.length <= 3) t.toInt() else return false
-                t in COMPOUND -> COMPOUND.getValue(t)
-                t in UNITS -> UNITS.getValue(t)
-                else -> continue
+            when {
+                t[0].isDigit() -> {
+                    if (t.length > 3) return null
+                    val n = t.toInt()
+                    if (n == 0 || n >= limit) return null
+                    value += n
+                    limit = 1
+                }
+                t in HUNDREDS -> {
+                    val n = HUNDREDS.getValue(t)
+                    if (n >= limit) return null
+                    value += n
+                    limit = 100
+                }
+                t in TENS -> {
+                    val n = TENS.getValue(t)
+                    if (n >= limit) return null
+                    value += n
+                    limit = 10
+                }
+                t in TEENS -> {
+                    val n = TEENS.getValue(t)
+                    if (n >= limit) return null
+                    value += n
+                    limit = 1
+                }
+                else -> {
+                    val n = UNITS.getValue(t)
+                    if (n == 0 || n >= limit) return null
+                    value += n
+                    limit = 1
+                }
             }
-            value += v
-            if (value > 999) return false
         }
-        return value.toString() == challenge.code
+        return value
     }
 }
 

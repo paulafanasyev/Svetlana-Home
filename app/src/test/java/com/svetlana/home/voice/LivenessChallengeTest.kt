@@ -7,6 +7,7 @@ class LivenessChallengeTest {
 
     private val c742 = LivenessChallenge.Challenge(intArrayOf(7, 4, 2))
     private val c702 = LivenessChallenge.Challenge(intArrayOf(7, 0, 2))
+    private val c715 = LivenessChallenge.Challenge(intArrayOf(7, 1, 5))
 
     @Test fun spokenAndCode() {
         assertThat(c742.code).isEqualTo("742")
@@ -18,14 +19,19 @@ class LivenessChallengeTest {
             "7 4 2", "742", "7, 4, 2", "семь четыре два", "Семь, четыре, два.",
             "семьсот сорок два", "семьсот 42", "это 7 4 2", "света 742", "74 2"
         ).forEach { assertThat(LivenessChallenge.matches(it, c742)).isTrue() }
-        listOf("702", "7 0 2", "семь ноль два", "семьсот два")
+        listOf("702", "7 0 2", "семь ноль два", "семьсот два", "семьсот 2")
             .forEach { assertThat(LivenessChallenge.matches(it, c702)).isTrue() }
+        listOf("семьсот пятнадцать", "715", "семь один пять", "семьсот 15")
+            .forEach { assertThat(LivenessChallenge.matches(it, c715)).isTrue() }
     }
 
     @Test fun rejectsWrongOrPartialDigits() {
         listOf(
             null, "", "   ", "7 4 3", "7 4", "7 4 2 1", "семь четыре", "семьсот сорок три",
-            "сорок два", "светлана это я", "247", "7420", "1 742", "x".repeat(500)
+            "сорок два", "светлана это я", "247", "7420", "1 742", "x".repeat(500),
+            // строгая грамматика составных чисел
+            "семьсот сорок два ноль", "сорок семьсот два", "семьсот сорок 2 два",
+            "семьсот сорок два два", "семьсот семьсот", "семьсот 142", "семь сорок два"
         ).forEach { assertThat(LivenessChallenge.matches(it, c742)).isFalse() }
     }
 
