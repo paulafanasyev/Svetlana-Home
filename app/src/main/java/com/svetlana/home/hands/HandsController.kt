@@ -47,10 +47,15 @@ data class UiTree(
  * между проверкой экрана и нажатием, не получит действие). Если элемент сдвинули или
  * подменили похожим — действие не выполняется. Ввод идёт прямо в этот элемент
  * (ACTION_SET_TEXT), а не «куда сейчас фокус», поэтому смена фокуса не перенаправляет текст.
+ * Проверка результата ввода/очистки читает поле только из того же приложения, в котором было действие.
  */
 class HandsController(private val context: Context) {
 
     private val permissionManager = PermissionManager(context)
+
+    /** Приложение последнего ввода/очистки: из него (и только из него) читается подтверждение. */
+    @Volatile
+    private var lastInputPackage: String? = null
 
     val isActive: Boolean
         get() = permissionManager.accessibilityEnabled() && service() != null
@@ -68,22 +73,27 @@ class HandsController(private val context: Context) {
 
     fun click(x: Float, y: Float): Boolean = service()?.clickPoint(x, y) ?: false
 
+    private fun inPkg(n: AccessibilityNodeInfo, pkg: String?): Boolean =
+        pkg == null || n.packageName?.toString().equals(pkg, ignoreCase = true)
+
     /**
      * Поиск «живого» AccessibilityNodeInfo, соответствующего UiNode из снапшота:
      * id → текст → contentDescription → класс + bounds (аудит п.12). Только для ПРОВЕРОК после
      * действия (текст поля уже изменился); для самих действий — [findExactNode].
+     * Если задан [inPackage] — окно и найденный элемент должны принадлежать этому приложению.
      */
-    private fun findLiveNode(node: UiNode): AccessibilityNodeInfo? {
+    private fun findLiveNode(node: UiNode, inPackage: String? = null): AccessibilityNodeInfo? {
         val svc = service() ?: return null
         val root = svc.rootInActiveWindow ?: return null
-        if (node.id.isNotBlank()) {
-            findByViewId(root, node.id)?.let { return it }
-        }
-        val byText = node.visibleText.takeIf { it.isNotBlank() }?.let { text ->
-            findByText(root, text)
-        }
-        if (byText != null) return byText
-        return findByClassAndBounds(root, node)
+        if (!inPkg(root, inPackage)) return null
+        val found = run {
+            if (node.id.isNotBlank()) {
+                findByViewId(root, node.id)?.let { return@run it }
+            }
+            node.visibleText.takeIf { it.isNotBlank() }?.let { text -> findByText(root, text) }
+                ?: findByClassAndBounds(root, node)
+        } ?: return null
+        return found.takeIf { inPkg(it, inPackage) }
     }
 
     /**
@@ -93,10 +103,9 @@ class HandsController(private val context: Context) {
     private fun findExactNode(node: UiNode, inPackage: String?): AccessibilityNodeInfo? {
         val svc = service() ?: return null
         val root = svc.rootInActiveWindow ?: return null
-        if (inPackage != null && !root.packageName?.toString().equals(inPackage, ignoreCase = true)) return null
+        if (!inPkg(root, inPackage)) return null
         val live = findExact(root, node, 0) ?: return null
-        if (inPackage != null && !live.packageName?.toString().equals(inPackage, ignoreCase = true)) return null
-        return live
+        return live.takeIf { inPkg(it, inPackage) }
     }
 
     /** Сравнение в том же виде, что и в снимке (текст паролей/кодов вычищен одинаково). */
@@ -159,12 +168,14 @@ class HandsController(private val context: Context) {
     }
 
     fun inputText(node: UiNode, text: String, inPackage: String? = null): Boolean {
+        lastInputPackage = inPackage
         val svc = service() ?: return false
         val live = findExactNode(node, inPackage) ?: return false
         return svc.inputText(live, text)
     }
 
     fun clearText(node: UiNode, inPackage: String? = null): Boolean {
+        lastInputPackage = inPackage
         val svc = service() ?: return false
         val live = findExactNode(node, inPackage) ?: return false
         return svc.clearText(live)
@@ -341,14 +352,16 @@ class HandsController(private val context: Context) {
         }
     }
 
-    fun verifyTextEntered(node: UiNode, text: String): Boolean {
-        val live = findLiveNode(node) ?: return false
+    /** Текст действительно в поле — читается только из того приложения, в котором был ввод. */
+    fun verifyTextEntered(node: UiNode, text: String, inPackage: String? = lastInputPackage): Boolean {
+        val live = findLiveNode(node, inPackage) ?: return false
         val current = live.text?.toString() ?: live.contentDescription?.toString().orEmpty()
         return current.contains(text)
     }
 
-    fun verifyTextEmpty(node: UiNode): Boolean {
-        val live = findLiveNode(node) ?: return false
+    /** Поле пусто — читается только из того приложения, в котором была очистка. */
+    fun verifyTextEmpty(node: UiNode, inPackage: String? = lastInputPackage): Boolean {
+        val live = findLiveNode(node, inPackage) ?: return false
         return live.text?.toString().isNullOrBlank()
     }
 
