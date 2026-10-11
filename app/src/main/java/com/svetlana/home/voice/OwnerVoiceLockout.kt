@@ -3,7 +3,8 @@ package com.svetlana.home.voice
 /**
  * Защита от перебора голосом: после [maxFails] отказов подряд голосовое управление
  * ставится на паузу на [lockMs]. Успешная проверка владельца сбрасывает счётчик.
- * Чистая логика (часы подменяемые) для юнит-тестов.
+ * Состояние можно снять ([snapshot]) и восстановить ([restore]): перезапуск приложения
+ * не обнуляет попытки. Чистая логика (часы подменяемые) для юнит-тестов.
  */
 class OwnerVoiceLockout(
     private val maxFails: Int = 5,
@@ -37,5 +38,20 @@ class OwnerVoiceLockout(
     fun reset() {
         fails = 0
         lockedUntil = 0L
+    }
+
+    /** Состояние для сохранения: число неудач и момент окончания паузы. */
+    @Synchronized
+    fun snapshot(): Pair<Int, Long> = fails to lockedUntil
+
+    /**
+     * Восстановить сохранённое состояние. Берём худшее из текущего и сохранённого;
+     * пауза не больше [lockMs] от текущего момента (часы могли уйти назад).
+     */
+    @Synchronized
+    fun restore(savedFails: Int, savedUntil: Long) {
+        fails = maxOf(fails, savedFails.coerceIn(0, maxFails - 1))
+        val cap = clock() + lockMs
+        lockedUntil = maxOf(lockedUntil, minOf(savedUntil, cap))
     }
 }

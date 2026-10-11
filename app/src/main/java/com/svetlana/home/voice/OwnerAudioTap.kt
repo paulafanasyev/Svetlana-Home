@@ -25,6 +25,7 @@ interface OwnerAudioSource {
  * Android 13+: микрофон открывает Светлана и отдаёт тот же звук распознавателю через pipe
  * (RecognizerIntent.EXTRA_AUDIO_SOURCE). Так проверяется ИМЕННО та фраза, которая станет командой:
  * подменить «чужую команду + свой голос» нельзя. Буфер ограничен 15 с, только в памяти.
+ * При остановке закрываются оба конца pipe и освобождается микрофон, даже если поток завис.
  */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 class OwnerAudioTap private constructor(
@@ -72,6 +73,7 @@ class OwnerAudioTap private constructor(
             runCatching { record.stop() }
             runCatching { record.release() }
             java.util.Arrays.fill(chunk, 0.toShort())
+            java.util.Arrays.fill(bytes, 0.toByte())
         }
     }
 
@@ -81,8 +83,12 @@ class OwnerAudioTap private constructor(
         runCatching { record.stop() }
         runCatching { worker.join(200) }
         runCatching { readSide.close() }
-        // Если поток завис на записи в pipe, микрофон всё равно освобождаем сразу.
-        if (worker.isAlive) runCatching { record.release() }
+        if (worker.isAlive) {
+            // Поток завис на записи в pipe: закрываем второй конец и освобождаем микрофон сразу.
+            runCatching { writeSide.close() }
+            runCatching { record.release() }
+            worker.interrupt()
+        }
     }
 
     override fun takeAudio(): FloatArray? {
@@ -90,7 +96,7 @@ class OwnerAudioTap private constructor(
         synchronized(lock) {
             val out = if (count < PcmCapture.SAMPLE_RATE / 2) null else VoicePrint.pcm16ToFloat(buffer, count)
             java.util.Arrays.fill(buffer, 0, count, 0.toShort())
-            count = 0
+            count = MAX_SAMPLES // после выдачи новые данные в буфер не пишутся
             return out
         }
     }
@@ -98,8 +104,8 @@ class OwnerAudioTap private constructor(
     override fun discard() {
         stop()
         synchronized(lock) {
-            java.util.Arrays.fill(buffer, 0, count, 0.toShort())
-            count = 0
+            java.util.Arrays.fill(buffer, 0, count.coerceAtMost(MAX_SAMPLES), 0.toShort())
+            count = MAX_SAMPLES
         }
     }
 

@@ -4,6 +4,8 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -13,8 +15,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 1. Голос не записан → голосовые команды не исполняются (как на ПК: NOT_ENROLLED).
  * 2. Android 13+: проверяется сама фраза команды (аудио из OwnerAudioTap).
  * 3. Иначе (старый Android или слишком тихо) → контрольная фраза «Светлана, это я».
- * 4. 5 чужих голосов подряд → пауза 5 минут.
- * Опасные действия всё равно подтверждаются на экране (запись голоса можно воспроизвести).
+ * 4. 5 чужих голосов подряд → пауза 5 минут; состояние переживает перезапуск приложения.
+ * 5. Проверки идут строго по одной (Mutex), пауза перепроверяется перед «разрешено».
+ *
+ * Честно: отпечаток голоса отсекает чужие голоса, но не отличает живой голос от записи.
+ * Поэтому всё, что меняет данные или пишет людям, подтверждается на экране (ActionRiskPolicy).
  */
 object OwnerVoiceGate {
     const val NOT_ENROLLED = "Голос владельца ещё не записан. Откройте Настройки, раздел «Владелец», и запишите голос. До этого голосовые команды не выполняются, текстом можно пользоваться как обычно."
@@ -22,6 +27,10 @@ object OwnerVoiceGate {
     const val CHALLENGE_MS = 3_000
 
     val lockout = OwnerVoiceLockout()
+    private val mutex = Mutex()
+
+    @Volatile
+    private var lockRestored = false
 
     sealed class Decision {
         object Allowed : Decision()
@@ -39,21 +48,32 @@ object OwnerVoiceGate {
      */
     suspend fun authorize(context: Context, ownerAudio: FloatArray?, tts: SvetlanaTts?): Decision =
         withContext(Dispatchers.Default) {
-            if (lockout.isLocked()) return@withContext Decision.Denied(lockedMessage())
-            val template = OwnerVoiceStore.load(context) ?: return@withContext Decision.Denied(NOT_ENROLLED)
-            var print = ownerAudio?.let { VoicePrint.compute(it, PcmCapture.SAMPLE_RATE) }
-            if (print == null) {
-                val audio = challenge(context, tts)
-                print = audio?.let { VoicePrint.compute(it, PcmCapture.SAMPLE_RATE) }
-            }
-            val verdict = VoicePrint.verify(print, template)
-            if (verdict.ok) {
-                lockout.onSuccess()
-                Decision.Allowed
-            } else {
-                // Тишина не считается попыткой перебора, чужой голос считается.
-                if (print != null) lockout.onFailure()
-                Decision.Denied(if (lockout.isLocked()) lockedMessage() else verdict.reason ?: VoicePrint.MSG_FOREIGN)
+            mutex.withLock {
+                if (!lockRestored) {
+                    val (fails, until) = OwnerVoiceStore.loadLock(context)
+                    lockout.restore(fails, until)
+                    lockRestored = true
+                }
+                if (lockout.isLocked()) return@withLock Decision.Denied(lockedMessage())
+                val template = OwnerVoiceStore.load(context) ?: return@withLock Decision.Denied(NOT_ENROLLED)
+                var print = ownerAudio?.let { VoicePrint.compute(it, PcmCapture.SAMPLE_RATE) }
+                if (print == null) {
+                    val audio = challenge(context, tts)
+                    print = audio?.let { VoicePrint.compute(it, PcmCapture.SAMPLE_RATE).also { _ -> it.fill(0f) } }
+                }
+                val verdict = VoicePrint.verify(print, template)
+                if (verdict.ok && !lockout.isLocked()) {
+                    lockout.onSuccess()
+                    OwnerVoiceStore.saveLock(context, lockout.snapshot())
+                    Decision.Allowed
+                } else {
+                    // Тишина не считается попыткой перебора, чужой голос считается.
+                    if (print != null && !verdict.ok) {
+                        lockout.onFailure()
+                        OwnerVoiceStore.saveLock(context, lockout.snapshot())
+                    }
+                    Decision.Denied(if (lockout.isLocked()) lockedMessage() else verdict.reason ?: VoicePrint.MSG_FOREIGN)
+                }
             }
         }
 
@@ -63,7 +83,7 @@ object OwnerVoiceGate {
         // Ждём, пока Светлана договорит, иначе запишем её же голос.
         withTimeoutOrNull(1_500L) { tts.speaking.first { it } }
         withTimeoutOrNull(8_000L) { tts.speaking.first { !it } }
-        delay(200)
+        delay(250)
         return PcmCapture.record(context, CHALLENGE_MS)
     }
 }
