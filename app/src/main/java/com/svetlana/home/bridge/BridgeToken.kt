@@ -4,15 +4,17 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 
 /**
- * Pairing code that the Svetlana 2.0 core must send with every /api request.
- * Format XXXX-XXXX, no ambiguous characters (0/O, 1/I).
+ * Pairing code for the Svetlana 2.0 core. Format XXXX-XXXX-XXXX (12 symbols of 32 ≈ 60 bits),
+ * no ambiguous characters (0/O, 1/I). With PBKDF2 (100 000 iterations) an offline guess of the code
+ * from a sniffed request is out of reach; online guessing is rate limited.
  */
 object BridgeToken {
     private const val ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    const val LENGTH = 12
 
     fun generate(random: SecureRandom = SecureRandom()): String {
-        val chars = CharArray(8) { ALPHABET[random.nextInt(ALPHABET.length)] }
-        return String(chars, 0, 4) + "-" + String(chars, 4, 4)
+        val chars = CharArray(LENGTH) { ALPHABET[random.nextInt(ALPHABET.length)] }
+        return String(chars).chunked(4).joinToString("-")
     }
 
     /** Upper-case, letters and digits only: "abcd-efgh" and "ABCDEFGH" are the same code. */
