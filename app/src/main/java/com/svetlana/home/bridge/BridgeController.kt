@@ -15,24 +15,33 @@ import androidx.security.crypto.MasterKey
 import com.svetlana.home.BuildConfig
 import java.io.IOException
 import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.NetworkInterface
 import kotlin.concurrent.thread
 
 /**
  * Starts the bridge that lets the Svetlana 2.0 core (Windows app) use this
- * phone: http://<phone-ip>:8080, protected by a pairing code shown on the home
- * screen and in a notification. Opt-in: off until the user enables it; every
- * enable generates a fresh code. Plain HTTP: use only on a trusted home Wi-Fi.
+ * phone: http://<phone-ip>:8080. Opt-in: off until the user enables it.
+ *
+ * Security (protocol v2): every request and reply is AES-256-GCM encrypted with a
+ * key derived (PBKDF2, per-code random salt) from the 16-symbol pairing code shown on
+ * the home screen, so the code never travels over Wi-Fi; nonces + timestamps block replay.
+ * The socket is bound to the phone's Wi-Fi (site-local IPv4) address only, never to
+ * mobile data or VPN interfaces. Every enable generates a fresh code, and codes expire
+ * after [CODE_TTL_MS].
  */
 object BridgeController {
     const val PORT = 8080
+    const val CODE_TTL_MS = 30L * 24 * 60 * 60 * 1000
     private const val TAG = "SvetlanaBridge"
     private const val PREFS = "svetlana_bridge"
     private const val KEY_CODE = "pairing_code"
+    private const val KEY_CODE_CREATED = "pairing_code_created"
     private const val KEY_ENABLED = "enabled"
     private const val SECURE_PREFS = "svetlana_bridge_secure"
     private const val CHANNEL_ID = "svetlana_bridge"
     private const val NOTIFICATION_ID = 8080
+    private val SKIPPED_IFACES = listOf("tun", "ppp", "rmnet", "ccmni", "dummy", "ipsec", "clat", "v4-")
 
     @Volatile
     private var server: BridgeServer? = null
@@ -76,19 +85,29 @@ object BridgeController {
     @Synchronized
     fun start(context: Context) {
         if (!isEnabled(context)) return
-        if (server?.isRunning == true) {
-            // Already running: re-post the notification (e.g. after the user
-            // has just granted POST_NOTIFICATIONS).
-            showNotification(context, pairingCode(context))
+        val lan = lanAddress()
+        val running = server
+        if (running?.isRunning == true) {
+            if (running.boundAddress == lan) {
+                // Already running: re-post the notification (e.g. after the user
+                // has just granted POST_NOTIFICATIONS).
+                showNotification(context, pairingCode(context))
+                return
+            }
+            // Wi-Fi address changed: rebind to the new one.
+            stop()
+        }
+        if (lan == null) {
+            Log.w(TAG, "No Wi-Fi address, bridge not started")
             return
         }
         val code = pairingCode(context)
         val router = BridgeRouter(
-            tokenCheck = { BridgeToken.matches(currentCode ?: code, it) },
+            keyring = BridgeKeyring(code = { currentCode ?: code }),
             handlers = AndroidBridgeHandlers(context),
             version = BuildConfig.VERSION_NAME,
         )
-        val candidate = BridgeServer(PORT, router)
+        val candidate = BridgeServer(PORT, router, lan)
         try {
             candidate.start()
         } catch (e: IOException) {
@@ -108,9 +127,12 @@ object BridgeController {
 
     fun pairingCode(context: Context): String {
         val prefs = securePrefs(context)
-        prefs.getString(KEY_CODE, null)?.let {
-            currentCode = it
-            return it
+        val stored = prefs.getString(KEY_CODE, null)
+        val age = System.currentTimeMillis() - prefs.getLong(KEY_CODE_CREATED, 0L)
+        // Old 8-symbol codes (protocol v1) and expired codes are replaced.
+        if (stored != null && BridgeToken.isCurrentFormat(stored) && age in 0..CODE_TTL_MS) {
+            currentCode = stored
+            return stored
         }
         return rotatePairingCode(context)
     }
@@ -118,7 +140,10 @@ object BridgeController {
     /** New code; the running server picks it up on the next request. Fails closed if it can't be saved. */
     fun rotatePairingCode(context: Context): String {
         val code = BridgeToken.generate()
-        val saved = securePrefs(context).edit().putString(KEY_CODE, code).commit()
+        val saved = securePrefs(context).edit()
+            .putString(KEY_CODE, code)
+            .putLong(KEY_CODE_CREATED, System.currentTimeMillis())
+            .commit()
         check(saved) { "Не удалось сохранить код подключения" }
         currentCode = code
         return code
@@ -144,19 +169,23 @@ object BridgeController {
         throw IllegalStateException("Защищённое хранилище недоступно, мост выключен", e)
     }
 
-    /** http://<LAN IPv4>:8080, or null when the phone has no LAN address. */
-    fun address(): String? {
-        val ip = try {
-            NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
-                .filter { it.isUp && !it.isLoopback }
-                .flatMap { it.inetAddresses.toList() }
-                .firstOrNull { it is Inet4Address && it.isSiteLocalAddress }
-                ?.hostAddress
-        } catch (e: Exception) {
-            null
-        }
-        return ip?.let { "http://$it:$PORT" }
+    /**
+     * The phone's Wi-Fi/Ethernet IPv4 address (RFC 1918). VPN (tun/ppp), mobile
+     * data (rmnet/ccmni) and virtual interfaces are skipped, so the bridge is never
+     * bound to an interface reachable from outside the home network.
+     */
+    fun lanAddress(): InetAddress? = try {
+        NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+            .filter { it.isUp && !it.isLoopback && !it.isVirtual && !it.isPointToPoint }
+            .filterNot { iface -> SKIPPED_IFACES.any { iface.name.startsWith(it) } }
+            .flatMap { it.inetAddresses.toList() }
+            .firstOrNull { it is Inet4Address && it.isSiteLocalAddress }
+    } catch (e: Exception) {
+        null
     }
+
+    /** http://<LAN IPv4>:8080, or null when the phone has no LAN address. */
+    fun address(): String? = lanAddress()?.hostAddress?.let { "http://$it:$PORT" }
 
     private fun showNotification(context: Context, code: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -170,7 +199,7 @@ object BridgeController {
             NotificationChannel(CHANNEL_ID, "Мост Светланы", NotificationManager.IMPORTANCE_LOW),
         )
         val where = address() ?: "порт $PORT"
-        val text = "Адрес: $where\nКод подключения: $code"
+        val text = "Адрес: $where\nКод подключения: $code\nСоединение зашифровано, код по сети не передаётся."
         // На заблокированном экране код не показываем.
         val publicVersion = Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_share)

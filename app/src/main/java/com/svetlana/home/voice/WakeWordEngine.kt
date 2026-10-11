@@ -22,8 +22,9 @@ import kotlinx.coroutines.flow.first
  * режиме короткого прослушивания. Распознанный текст проверяется на наличие
  * слова пробуждения полностью локально — никакой голос не покидает устройство.
  *
- * Wake word listening активируется только когда пользователь включил его
- * в настройках и предоставил разрешение на микрофон.
+ * Безопасность: пока Светлана говорит (и короткое время после), микрофон не слушается; окно,
+ * в которое попала её речь, отбрасывается — она не может «приказать» самой себе.
+ * Распознанная команда считается НЕАУТЕНТИФИЦИРОВАННОЙ (см. [VoicePolicy]).
  */
 class WakeWordEngine(
     private val context: Context,
@@ -36,10 +37,6 @@ class WakeWordEngine(
     private val _state = MutableStateFlow(State.IDLE)
     val state: StateFlow<State> = _state.asStateFlow()
 
-    /**
-     * Распознанная фраза, если она содержит слово пробуждения.
-     * HomeViewModel слушает этот поток и запускает команду.
-     */
     private val _detection = MutableStateFlow<String?>(null)
     val detection: StateFlow<String?> = _detection.asStateFlow()
 
@@ -49,8 +46,6 @@ class WakeWordEngine(
 
     fun start() {
         if (job?.isActive == true) return
-        // Background wake-word mode must never silently fall back to a
-        // potentially network-backed SpeechRecognizer.
         if (!recognizer.isOnDeviceAvailable) {
             _state.value = State.IDLE
             Log.i(TAG, "Wake word disabled: on-device speech recognition is unavailable")
@@ -61,44 +56,39 @@ class WakeWordEngine(
                 try {
                     val enabled = settings.wakeWordEnabled.first()
                     if (!enabled) { delay(1000); continue }
-                    // Аудит-2026 проблема 1: если пользователь сейчас говорит
-                    // (активна foreground-сессия) — НЕ перехватываем микрофон.
-                    // Раньше фоновый цикл убивал активную сессию пользователя.
-                    // Аудит §18: проверяем явное состояние сессии, а не только флаг.
                     if (recognizer.session.isUserSessionActive || recognizer.foregroundSession.value) {
                         _state.value = State.IDLE
                         delay(500)
                         continue
                     }
-                    // Аудит §18: дополнительная защита — startListening() сам
-                    // отклонит запуск, если сессия всё же активна.
                     if (!recognizer.session.canStartNewSession) {
                         _state.value = State.IDLE
                         delay(500)
                         continue
                     }
+                    // Не слушаем, пока Светлана говорит или только что закончила (эхо).
+                    if (!SpeechOutputGate.isQuiet()) {
+                        _state.value = State.IDLE
+                        delay(200)
+                        continue
+                    }
+                    val windowStart = SpeechOutputGate.now()
                     _state.value = State.LISTENING
                     recognizer.startListening()
-                    // Ожидаем финальный результат асинхронно. Нельзя полагаться
-                    // на фиксированные 400 мс после stopListening(): onResults()
-                    // может прийти позже и wake word будет потерян.
                     val result = recognizer.awaitResult(4_000L)
-                    if (result == null) {
+                    val finalResult = if (result == null) {
                         recognizer.stopListening()
-                        // Даём SpeechRecognizer короткое дополнительное окно
-                        // на доставку финального onResults после stopListening().
-                        val finalResult = recognizer.awaitResult(1_200L)
-                        processSttResult(finalResult)
+                        recognizer.awaitResult(1_200L)
+                    } else result
+                    if (SpeechOutputGate.spokeSince(windowStart)) {
+                        // В окно мог попасть голос самой Светланы — результат не используем.
+                        Log.i(TAG, "Окно пересеклось с речью Светланы — отброшено")
                     } else {
-                        processSttResult(result)
+                        processSttResult(finalResult)
                     }
-                    // Эта сессия больше не держит микрофон. Следующий цикл
-                    // разрешён только после завершения текущего результата.
                     recognizer.finishSession()
                     waitForDetectionConsumption()
                 } catch (t: Throwable) {
-                    // Любая ошибка после старта STT не должна оставлять
-                    // VoiceSessionStateMachine в STOPPED/PROCESSING.
                     recognizer.finishSession()
                     Log.w(TAG, "Цикл wake word прерван", t)
                     delay(2000)
@@ -107,16 +97,11 @@ class WakeWordEngine(
         }
     }
 
-    /**
-     * Читает результат STT за только что завершённое окно прослушивания и
-     * проверяет его на слово пробуждения. Полный путь:
-     *   Микрофон → STT → WakeWordMatcher → DETECTED → команда
-     */
     private fun processSttResult(current: SvetlanaSpeechRecognizer.SttResult? = recognizer.result.value) {
         current ?: return
         if (current !is SvetlanaSpeechRecognizer.SttResult.Success) return
         val command = matchWakeWord(current.text) ?: return
-        Log.i(TAG, "Слово пробуждения обнаружено, команда: $command")
+        Log.i(TAG, "Слово пробуждения обнаружено")
         _detection.value = command
     }
 
@@ -124,9 +109,6 @@ class WakeWordEngine(
         while (_detection.value != null) delay(100)
     }
 
-    /**
-     * Сброс detections после того, как HomeViewModel обработал команду.
-     */
     fun consumeDetection() { _detection.value = null }
 
     fun stop() {
@@ -137,22 +119,8 @@ class WakeWordEngine(
         recognizer.finishSession()
     }
 
-    /**
-     * Тип прослушивания (для прозрачности перед пользователем и аудита п.12).
-     *
-     * Текущая реализация — STT_POLLING: системный распознаватель опрашивается
-     * короткими окнами. Это НЕ always-on low-power аппаратный детектор:
-     * расходует больше батареи и не работает в Doze.
-     *
-     * Честно сообщаем это, вместо того чтобы заявлять «настоящий wake word».
-     */
     val listeningKind: String get() = "STT_POLLING (не always-on low-power детектор)"
 
-    /**
-     * Проверить, содержит ли фраза слово пробуждения.
-     * Возвращает команду без wake word или null.
-     * Делегирует в WakeWordMatcher — единый источник логики (покрыт тестами).
-     */
     fun matchWakeWord(phrase: String): String? {
         val command = WakeWordMatcher.matchWakeWord(phrase)
         if (command != null || WakeWordMatcher.containsWakeWord(phrase)) {

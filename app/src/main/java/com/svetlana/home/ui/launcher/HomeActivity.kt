@@ -6,91 +6,39 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.svetlana.home.R
 import com.svetlana.home.bridge.BridgeController
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.permissions.PermissionBootstrap
-import com.svetlana.home.ui.components.GlassCard
-import com.svetlana.home.ui.components.LivingOrb
 import com.svetlana.home.ui.onboarding.OnboardingFlowContent
-import com.svetlana.home.ui.theme.AlmostBlack
-import com.svetlana.home.ui.theme.LightBackground
-import com.svetlana.home.ui.theme.MintPrimary
-import com.svetlana.home.ui.theme.MintSoft
-import com.svetlana.home.ui.theme.MintSoftLight
 import com.svetlana.home.ui.theme.SvetlanaSettingsTheme
-import com.svetlana.home.ui.theme.TextPrimary
-import com.svetlana.home.ui.theme.TextSecondary
-import com.svetlana.home.ui.theme.TextTertiary
-import com.svetlana.home.voice.VoiceAssistantService
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
- * Главный экран SVETLANA HOME.
+ * Главный экран SVETLANA HOME — настоящий Android launcher.
  *
- * Три страницы (свайп влево/вправо):
- *  1. Голос — орб и голосовое общение;
- *  2. Чат — текстовая переписка со Светой;
- *  3. Приложения — закреплённые приложения, все приложения и настройки.
+ * Выглядит как стандартный рабочий стол: системные обои, часы, сетка
+ * иконок, док, строка поиска, свайп вверх — все приложения. Функции
+ * Светланы (чат, голос, переводчик, история, настройки) открываются
+ * в дополнительных окнах и на панели слева (экран −1). Подключение к ПК
+ * (мост к ядру Svetlana 2.0) — в «Настройки → Главный экран».
  */
 class HomeActivity : ComponentActivity() {
+
+    /** Счётчик нажатий «Домой», пока launcher уже открыт. */
+    private val homePresses = mutableIntStateOf(0)
 
     // Все runtime-разрешения одним системным диалогом, чтобы Светлана
     // сразу работала локально на телефоне. После ответа обновляем уведомление
@@ -107,7 +55,25 @@ class HomeActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         )
+        // Рабочий стол рисуется поверх системных обоев пользователя.
+        window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+        HomeLayoutStore.init(this)
         setContent { SvetlanaSettingsTheme { HomeScreen() } }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        LauncherWidgets.startListening(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        LauncherWidgets.stopListening(this)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (Intent.ACTION_MAIN == intent.action) homePresses.intValue += 1
     }
 
     /**
@@ -130,372 +96,27 @@ class HomeActivity : ComponentActivity() {
 
     @Composable
     private fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
-        // P0: первый запуск — показываем onboarding (Owner + разрешения),
-        // иначе пользователь никогда не проходит настройку (ТЗ §65).
-        // null = ещё читаем состояние: HomeContent (и его диалог разрешений) не
+        // P0: первый запуск — onboarding (Owner + разрешения), ТЗ §65.
+        // null = ещё читаем состояние: рабочий стол (и диалог разрешений) не
         // создаём, пока точно не знаем, что онбординг пройден.
         var onboardingDone by remember { mutableStateOf<Boolean?>(null) }
         LaunchedEffect(Unit) {
             onboardingDone = ServiceLocator.settings.onboardingDone.first()
         }
         when (onboardingDone) {
-            null -> Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-            )
-            false -> OnboardingFlowContent(
-                launchHome = { /* Home уже на экране — ничего не делаем */ },
-                onFinished = { onboardingDone = true }
-            )
-            else -> HomeContent(viewModel)
-        }
-    }
-
-    @OptIn(ExperimentalFoundationApi::class)
-    @Composable
-    private fun HomeContent(viewModel: HomeViewModel) {
-        val context = LocalContext.current
-        val uiState by viewModel.state.collectAsState()
-
-        // Диалог разрешений — только когда онбординг уже позади и не перекрывает его.
-        LaunchedEffect(Unit) {
-            requestAllPermissionsOnce()
-        }
-        LaunchedEffect(Unit) {
-            while (true) {
-                viewModel.refreshClock(context)
-                delay(20_000)
-            }
-        }
-        LaunchedEffect(Unit) {
-            viewModel.refreshAvatarLevel()
-            viewModel.refreshBackendLabel()
-        }
-        // ТЗ §21: фоновый голосовой ассистент. Цикл прослушивания слова
-        // пробуждения живёт в foreground-сервисе, поэтому работает и в фоне.
-        // Здесь лишь запускаем сервис (если он ещё не работает) и следим за
-        // ответами Светланы для отображения на экране.
-        LaunchedEffect(Unit) {
-            VoiceAssistantService.startIfEnabled(context)
-            viewModel.observeDialogueEvents()
-        }
-
-        val pagerState = rememberPagerState(initialPage = 0) { 3 }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-        ) {
-            // Лёгкий градиентный фон (liquid light). Берём фактическую тему
-            // пользователя через LocalSvetlanaDarkTheme: иначе при
-            // «система тёмная, выбрана светлая» фон останется тёмным.
-            val isDark = com.svetlana.home.ui.theme.LocalSvetlanaDarkTheme.current
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = if (isDark) listOf(
-                                MintPrimary.copy(alpha = 0.05f),
-                                AlmostBlack,
-                                AlmostBlack
-                            ) else listOf(
-                                MintSoftLight.copy(alpha = 0.25f),
-                                LightBackground,
-                                LightBackground
-                            )
-                        )
-                    )
-            )
-
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize()
-            ) { page ->
-                when (page) {
-                    0 -> VoicePage(viewModel, uiState)
-                    1 -> ChatScreen(viewModel = viewModel<ChatViewModel>())
-                    2 -> AppsPageScreen(ServiceLocator.appRegistry)
-                }
-            }
-
-            // Индикатор страниц
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                repeat(3) { index ->
-                    val selected = pagerState.currentPage == index
-                    Box(
-                        modifier = Modifier
-                            .size(if (selected) 10.dp else 7.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (selected) MintPrimary else MintSoft.copy(alpha = 0.35f)
-                            )
-                    )
-                }
-            }
-        }
-    }
-
-    /**
-     * Страница 1: только голосовое общение.
-     * Орб, часы и ответ Светланы. Отдельной кнопки микрофона нет:
-     * касание орба запускает/останавливает ручное прослушивание,
-     * wake word остаётся основным способом запуска голоса.
-     */
-    @Composable
-    private fun VoicePage(viewModel: HomeViewModel, uiState: HomeUiState) {
-        val context = LocalContext.current
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .statusBarsPadding()
-                .padding(bottom = 72.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // Часы
-            Text(
-                text = uiState.clock.ifBlank { "21:42" },
-                style = TextStyle(fontSize = 44.sp, color = MaterialTheme.colorScheme.onBackground, textAlign = TextAlign.Center),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 24.dp)
-            )
-
-            // Аудит P0: если Светлана ещё не главный экран — показываем
-            // подсказку с переходом к системному ROLE_HOME.
-            val pm = remember { ServiceLocator.permissionManager }
-            // Аудит п.11: состояние должно обновляться при возврате из
-            // системных настроек ROLE_HOME, а не кэшироваться на весь
-            // жизненный цикл Compose.
-            val lifecycleOwner = LocalLifecycleOwner.current
-            var isHome by remember { mutableStateOf(pm.isHomeLauncher()) }
-            DisposableEffect(lifecycleOwner) {
-                val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-                    if (event == Lifecycle.Event.ON_RESUME) {
-                        isHome = pm.isHomeLauncher()
-                    }
-                }
-                lifecycleOwner.lifecycle.addObserver(observer)
-                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-            }
-            if (!isHome) {
-                GlassCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Светлана ещё не назначена главным экраном",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = "Назначить",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    val intent = pm.homeRoleIntent()
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    try { context.startActivity(intent) } catch (t: Throwable) { }
-                                }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
-                    }
-                }
-            }
-
-            // Орб
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(top = 8.dp)
-            ) {
-                LivingOrb(
-                    modifier = Modifier
-                        .padding(12.dp)
-                        .semantics {
-                            contentDescription = if (uiState.isListening)
-                                "Остановить голосовой ввод Светланы"
-                            else
-                                "Запустить голосовой ввод Светланы"
-                        }
-                        .clickable {
-                            if (uiState.isListening) viewModel.stopListening()
-                            else viewModel.startListening(context)
-                        },
-                    size = 210.dp,
-                    level = uiState.orbLevel,
-                    active = uiState.orbActive || uiState.isListening || uiState.isThinking,
-                    speaking = uiState.isSpeaking
+            // Пока читаем настройки — прозрачно, видны обои (без чёрной вспышки).
+            null -> Box(Modifier.fillMaxSize())
+            // Onboarding — на непрозрачном фоне, обои под ним не просвечивают.
+            false -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                OnboardingFlowContent(
+                    launchHome = { /* Home уже на экране */ },
+                    onFinished = { onboardingDone = true }
                 )
-                Spacer(Modifier.height(18.dp))
-                Text(
-                    text = stringResource(R.string.svetlana_name),
-                    style = MaterialTheme.typography.headlineMedium
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = uiState.lastReply,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    maxLines = 6,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 32.dp)
-                )
-                if (uiState.aiBackendLabel.isNotBlank()) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = uiState.aiBackendLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outlineVariant
-                    )
-                }
-                // ТЗ §9: если режим деградирован, Светлана честно
-                // объясняет причину (ресурсы устройства/недоступный renderer).
-                if (uiState.orbReason.isNotBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = uiState.orbReason,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                        textAlign = TextAlign.Center,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 32.dp)
-                    )
-                }
             }
-
-            // Подтверждение опасного действия
-            AnimatedVisibility(
-                visible = uiState.pendingConfirmation != null,
-                enter = fadeIn(), exit = fadeOut()
-            ) {
-                GlassCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
-                ) {
-                    Column {
-                        Text(
-                            text = uiState.lastReply,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Row {
-                            Text(
-                                text = stringResource(R.string.confirm),
-                                color = MaterialTheme.colorScheme.primary,
-                                style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable { viewModel.confirmPendingAction(context) }
-                                    .padding(horizontal = 18.dp, vertical = 8.dp)
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text = stringResource(R.string.cancel),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable { viewModel.cancelPendingAction() }
-                                    .padding(horizontal = 18.dp, vertical = 8.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            Text(
-                text = if (uiState.isListening) "Слушаю…" else stringResource(R.string.home_input_hint),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
-
-            // Мост к ПК — только по явному включению. Без него Светлана
-            // полностью работает локально на телефоне. Код и адрес показываем прямо
-            // здесь (работает и без разрешения на уведомления). Вся работа с диском
-            // и Keystore — на Dispatchers.IO.
-            val scope = rememberCoroutineScope()
-            var bridgeOn by remember { mutableStateOf(false) }
-            var bridgeInfo by remember { mutableStateOf<String?>(null) }
-            LaunchedEffect(Unit) {
-                bridgeOn = withContext(Dispatchers.IO) { BridgeController.isEnabled(context) }
-            }
-            // Адрес может смениться (другая Wi‑Fi сеть) — обновляем, пока мост включён.
-            LaunchedEffect(bridgeOn) {
-                if (!bridgeOn) {
-                    bridgeInfo = null
-                    return@LaunchedEffect
-                }
-                while (true) {
-                    bridgeInfo = withContext(Dispatchers.IO) {
-                        try {
-                            val where = BridgeController.address() ?: "нет Wi‑Fi"
-                            "$where · код ${BridgeController.pairingCode(context)}"
-                        } catch (e: IllegalStateException) {
-                            e.message
-                        }
-                    }
-                    delay(30_000)
-                }
-            }
-            Text(
-                text = if (bridgeOn) "Подключение к ПК: включено · Выключить"
-                else "Подключение к ПК: выключено · Включить",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outlineVariant,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable {
-                        val target = !bridgeOn
-                        scope.launch {
-                            val ok = withContext(Dispatchers.IO) {
-                                try {
-                                    BridgeController.setEnabled(context, target)
-                                    true
-                                } catch (e: IllegalStateException) {
-                                    false
-                                }
-                            }
-                            if (ok) {
-                                bridgeOn = target
-                            } else {
-                                bridgeInfo = "Мост недоступен: нет защищённого хранилища"
-                            }
-                        }
-                    }
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-            )
-            bridgeInfo?.let { info ->
-                Text(
-                    text = info,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    textAlign = TextAlign.Center
-                )
+            else -> {
+                // Диалог разрешений — только когда онбординг уже позади.
+                LaunchedEffect(Unit) { requestAllPermissionsOnce() }
+                LauncherScreen(homeViewModel = viewModel, homeSignal = homePresses.intValue)
             }
         }
     }

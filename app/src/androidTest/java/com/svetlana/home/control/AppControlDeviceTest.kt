@@ -99,34 +99,24 @@ class AppControlDeviceTest : SvetlanaDeviceTest() {
     }
 
     /**
-     * Многошаговая цепочка ComposeMessage: если Hands выключен, цепочка
-     * честно сообщает об этом и НЕ пытается отправить сообщение.
-     *
-     * На устройстве с включённым Hands этот тест может пройти полный путь:
-     * открыть мессенджер → найти контакт → напечатать → отправить.
-     * Без Hands доказывается только корректный отказ.
+     * Многошаговая цепочка ComposeMessage идёт только через ActionRouter (движок без
+     * ActionGrant её не выполнит). Это опасное действие: без подтверждения пользователя
+     * роутер должен СПРОСИТЬ и ничего не отправлять.
      */
     @Test
-    fun composeMessageReportsHonestResult() = runBlocking {
-        val engine = ServiceLocator.controlEngine
-        val result = engine.composeMessage("whatsapp", "Серый", "привет как дела")
+    fun composeMessageAsksBeforeSending() = runBlocking {
+        val result = ServiceLocator.actionRouter.execute(
+            SvetlanaAction.ComposeMessage("whatsapp", "Серый", "привет как дела"))
 
-        println("COMPOSE_SUCCESS=${result.success}")
+        println("COMPOSE_SUCCESS=${result.success} CONFIRM=${result.requiresUserConfirmation}")
         println("COMPOSE_MESSAGE=${result.message}")
-        println("COMPOSE_PROOF=${result.proofLog().lines().joinToString(" | ")}")
 
-        if (!ServiceLocator.hands.isActive) {
-            // Hands выключен — честный отказ, без ложного «отправлено».
-            assertFalse("Без Hands сообщение не должно быть отправлено", result.success)
-            assertTrue("Должна быть понятная причина",
-                result.message.contains("Hands", ignoreCase = true))
-        } else {
-            // Hands включён — доказательная цепочка должна содержать план
-            // составного действия и все шаги.
-            val plan = result.proof.firstOrNull { it.stage == ProofStage.PLAN }
-            assertNotNull("Должен быть PLAN с описанием цепочки", plan)
-            assertTrue("План должен описывать COMPOSE_MESSAGE",
-                plan!!.detail.contains("COMPOSE_MESSAGE"))
-        }
+        assertFalse("Без подтверждения сообщение не отправляется", result.success)
+        assertTrue("Роутер должен запросить подтверждение", result.requiresUserConfirmation)
+        assertTrue("Вопрос должен быть понятным", result.message.isNotBlank())
+        // Ни один шаг не выполнен до ответа пользователя.
+        assertFalse("До подтверждения нет выполненных шагов",
+            result.proof.any { it.stage == ProofStage.ACTION_PERFORMED && it.status == StepStatus.OK })
+        ServiceLocator.actionRouter.cancelPendingConfirmations()
     }
 }

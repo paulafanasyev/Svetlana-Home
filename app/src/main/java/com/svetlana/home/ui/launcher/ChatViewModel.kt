@@ -107,7 +107,9 @@ class ChatViewModel : ViewModel() {
         }
     }
 
+    /** Отмена отзывает и ожидающее согласие в роутере: поздний «Подтвердить» уже ничего не выполнит. */
     fun cancelPendingAction() {
+        ServiceLocator.actionRouter.cancelPendingConfirmations()
         _state.value = _state.value.copy(
             pendingConfirmation = null,
             messages = _state.value.messages + ChatMessage(text = "Отменено", isUser = false)
@@ -115,6 +117,7 @@ class ChatViewModel : ViewModel() {
     }
 
     fun clear() {
+        ServiceLocator.actionRouter.cancelPendingConfirmations()
         _state.value = ChatUiState()
     }
 

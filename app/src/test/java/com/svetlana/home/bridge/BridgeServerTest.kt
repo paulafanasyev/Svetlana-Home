@@ -1,23 +1,29 @@
 package com.svetlana.home.bridge
 
 import com.google.common.truth.Truth.assertThat
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.After
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.URL
 
 class BridgeServerTest {
+    private val code = "ABCD-EFGH-JKLM-NPQR"
     private val handlers = object : BridgeHandlers {
         override fun deviceInfo(): JsonObject = buildJsonObject { put("model", "Loopback") }
         override fun listContacts(query: String?, limit: Int, offset: Int): BridgeResult =
             BridgeResult.Ok(buildJsonObject { put("total", 0) })
         override fun launchApp(packageName: String): BridgeResult = BridgeResult.Ok()
     }
-    private val server = BridgeServer(0, BridgeRouter({ BridgeToken.matches("ABCD-EFGH", it) }, handlers), InetAddress.getLoopbackAddress())
+    private val keyring = BridgeKeyring({ code }, iterations = BridgeV2TestClient.TEST_ITERATIONS)
+    private val server = BridgeServer(0, BridgeRouter(keyring, handlers), InetAddress.getLoopbackAddress())
 
     @After
     fun tearDown() {
@@ -31,35 +37,50 @@ class BridgeServerTest {
         }
 
     @Test
-    fun servesHealthAndAuthorizedApiOverRealSockets() {
+    fun servesHealthAndEncryptedApiOverRealSockets() {
         server.start()
         assertThat(server.isRunning).isTrue()
 
         val health = open("/health")
         assertThat(health.responseCode).isEqualTo(200)
-        assertThat(health.inputStream.bufferedReader().readText()).contains("svetlana-home")
+        val healthBody = Json.parseToJsonElement(health.inputStream.bufferedReader().readText()).jsonObject
+        assertThat(healthBody["service"]!!.jsonPrimitive.content).isEqualTo("svetlana-home")
+        val salt = healthBody["salt"]!!.jsonPrimitive.content
 
-        val unauthorized = open("/api/device/info").apply {
+        val legacy = open("/api/device/info").apply {
             requestMethod = "POST"
             doOutput = true
+            setRequestProperty("Authorization", "Bearer $code")
             outputStream.use { it.write("{}".toByteArray()) }
         }
-        assertThat(unauthorized.responseCode).isEqualTo(401)
+        assertThat(legacy.responseCode).isEqualTo(426)
 
+        val client = BridgeV2TestClient(code, salt, { System.currentTimeMillis() })
+        val sent = client.request("device/info", origin = null)
         val ok = open("/api/device/info").apply {
             requestMethod = "POST"
             doOutput = true
-            setRequestProperty("Authorization", "Bearer ABCD-EFGH")
-            setRequestProperty("Content-Type", "application/json")
-            outputStream.use { it.write("""{"params":{}}""".toByteArray()) }
+            sent.request.headers.forEach { (k, v) -> setRequestProperty(k, v) }
+            outputStream.use { it.write(sent.request.body.toByteArray()) }
         }
         assertThat(ok.responseCode).isEqualTo(200)
-        assertThat(ok.inputStream.bufferedReader().readText()).contains("Loopback")
+        val raw = ok.inputStream.bufferedReader().readText()
+        assertThat(raw).doesNotContain("Loopback")
+        val plain = client.open(HttpResponse(200, raw), sent)
+        assertThat(plain["data"]!!.jsonObject["model"]!!.jsonPrimitive.content).isEqualTo("Loopback")
+    }
+
+    @Test
+    fun refusesToListenOnAllInterfaces() {
+        val any = BridgeServer(0, BridgeRouter(keyring, handlers), InetAddress.getByName("0.0.0.0"))
+        assertThrows(IllegalArgumentException::class.java) { any.start() }
+        assertThat(any.isRunning).isFalse()
     }
 
     @Test
     fun stopClosesTheSocket() {
         server.start()
+        assertThat(server.boundAddress.isLoopbackAddress).isTrue()
         server.stop()
         assertThat(server.isRunning).isFalse()
     }

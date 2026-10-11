@@ -14,6 +14,7 @@ WORKSPACE="${GITHUB_WORKSPACE:-$PWD}"
 RESULT_FILE="$WORKSPACE/instrumentation-result-${ATTEMPT}.env"
 LOG_FILE="$WORKSPACE/instrumentation-gradle-${ATTEMPT}.log"
 DIAG_FILE="$WORKSPACE/instrumentation-diagnostics-${ATTEMPT}.txt"
+SHOTS_DEVICE_DIR="/data/local/tmp/svetlana-shots"
 
 write_result() {
   local infra="$1"
@@ -46,6 +47,73 @@ collect_diagnostics() {
     echo "=== recent logcat ==="
     adb logcat -d -t 300 2>&1 || true
   } > "$DIAG_FILE"
+}
+
+# Скриншоты launcher (LauncherScreenshotDeviceTest).
+#
+# Безопасность: по умолчанию скриншоты НЕ уходят на сторонние сервисы.
+# Они упаковываются в приватный артефакт GitHub Actions (доступ только у
+# участников репозитория): instrumentation-diagnostics-screenshots-png.b64.txt
+# (tar.gz в base64 — имя подходит под существующий шаблон загрузки артефактов).
+# Восстановить: base64 -d instrumentation-diagnostics-screenshots-png.b64.txt | tar xz
+#
+# Публичная превью-ссылка (litterbox, срок жизни 72 часа, без постоянных
+# хостингов) включается только явным флагом в репозитории: файл
+# ci/public-screenshots.allow. Скриншоты делаются на чистом CI-эмуляторе без
+# личных данных; файл добавляет только владелец, когда хочет посмотреть превью.
+PUBLIC_SHOTS_FLAG="$WORKSPACE/ci/public-screenshots.allow"
+
+upload_png_preview() {
+  local f="$1" r
+  r="$(curl -sS --max-time 60 -F reqtype=fileupload -F time=72h -F "fileToUpload=@$f" https://litterbox.catbox.moe/resources/internals/api.php 2>&1 || true)"
+  case "$r" in https://litter.catbox.moe/*) echo "$r"; return 0 ;; esac
+  echo "litterbox: ${r:0:200}" >&2
+  echo "upload-failed"
+}
+
+publish_screenshots() {
+  local dir="$WORKSPACE/svetlana-shots"
+  local index="$WORKSPACE/instrumentation-diagnostics-screenshots.txt"
+  local bundle="$WORKSPACE/instrumentation-diagnostics-screenshots-png.b64.txt"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  : > "$index"
+  local names errs public=false
+  [ -f "$PUBLIC_SHOTS_FLAG" ] && public=true
+  errs="$(adb shell cat "$SHOTS_DEVICE_DIR/errors.txt" 2>/dev/null | tr '\r\n' '  ' | cut -c1-900 || true)"
+  if [ -n "$errs" ]; then
+    echo "::warning title=SCREENSHOT_ERRORS::$errs"
+  fi
+  names="$(adb shell ls "$SHOTS_DEVICE_DIR" 2>/dev/null | tr -d '\r' | grep '\.png$' || true)"
+  if [ -z "$names" ]; then
+    echo "::warning::Скриншоты launcher не найдены на эмуляторе"
+    return 0
+  fi
+  if ! command -v tesseract >/dev/null 2>&1; then
+    sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-rus >/dev/null 2>&1 || true
+  fi
+  local n url ocr size
+  for n in $names; do
+    adb exec-out cat "$SHOTS_DEVICE_DIR/$n" > "$dir/$n" || continue
+    size="$(wc -c < "$dir/$n" | tr -d ' ')"
+    url="private-artifact"
+    if [ "$public" = true ]; then
+      url="$(upload_png_preview "$dir/$n")"
+    fi
+    ocr=""
+    if command -v tesseract >/dev/null 2>&1; then
+      ocr="$(tesseract "$dir/$n" - -l rus+eng 2>/dev/null | tr '\r\n\t' '   ' | tr -s ' ' | cut -c1-700 || true)"
+    fi
+    echo "$n bytes=$size url=$url ocr=$ocr" >> "$index"
+    # OCR-текст в лог только вместе с явно разрешёнными превью; иначе — только в приватном артефакте.
+    if [ "$public" = true ]; then
+      echo "::notice title=SCREENSHOT ${n%.png}::$url | bytes=$size | OCR: $ocr"
+    else
+      echo "::notice title=SCREENSHOT ${n%.png}::$url | bytes=$size | ocr_chars=${#ocr}"
+    fi
+  done
+  (cd "$dir" && tar czf - ./*.png | base64 -w 0) > "$bundle" || true
+  echo "::notice title=SCREENSHOTS_ARTIFACT::$(basename "$bundle") ($(wc -c < "$bundle" | tr -d ' ') bytes, private)"
 }
 
 fail_infra() {
@@ -101,6 +169,8 @@ set +e
 ./gradlew connectedDebugAndroidTest --no-daemon 2>&1 | tee "$LOG_FILE"
 TEST_RC="${PIPESTATUS[0]}"
 set -e
+
+publish_screenshots || echo "::warning::Не удалось опубликовать скриншоты launcher"
 
 if [ "$TEST_RC" -eq 0 ]; then
   write_result false passed "tests_passed"

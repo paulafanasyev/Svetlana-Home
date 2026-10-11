@@ -18,13 +18,14 @@ import kotlin.concurrent.thread
 
 /**
  * Blocking-socket HTTP server for the bridge. One request per connection.
- * Hardening: bounded worker pool and queue (excess connections are dropped),
+ * Hardening: bound to a single interface address ([bindAddress], required — never
+ * 0.0.0.0), bounded worker pool and queue (excess connections are dropped),
  * per-read timeout and a hard per-connection deadline counted from accept() (slowloris).
  */
 class BridgeServer(
     private val port: Int,
     private val router: BridgeRouter,
-    private val bindAddress: InetAddress? = null,
+    private val bindAddress: InetAddress,
 ) {
     @Volatile
     private var serverSocket: ServerSocket? = null
@@ -37,10 +38,15 @@ class BridgeServer(
     val isRunning: Boolean
         get() = serverSocket?.isClosed == false
 
+    /** The only address the server listens on. */
+    val boundAddress: InetAddress
+        get() = bindAddress
+
     @Synchronized
     @Throws(IOException::class)
     fun start() {
         if (isRunning) return
+        require(!bindAddress.isAnyLocalAddress) { "The bridge must not listen on all interfaces" }
         val socket = ServerSocket()
         socket.reuseAddress = true
         socket.bind(InetSocketAddress(bindAddress, port), BACKLOG)

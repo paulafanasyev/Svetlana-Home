@@ -80,6 +80,7 @@ object HttpResponseWriter {
             "Content-Length" to body.size.toString(),
             "Connection" to "close",
             "Cache-Control" to "no-store",
+            "X-Content-Type-Options" to "nosniff",
         )
         if (body.isNotEmpty()) headers["Content-Type"] = "application/json; charset=utf-8"
         headers.putAll(response.headers)
@@ -100,8 +101,10 @@ object HttpResponseWriter {
         403 -> "Forbidden"
         404 -> "Not Found"
         405 -> "Method Not Allowed"
+        409 -> "Conflict"
         413 -> "Payload Too Large"
         421 -> "Misdirected Request"
+        426 -> "Upgrade Required"
         429 -> "Too Many Requests"
         431 -> "Request Header Fields Too Large"
         500 -> "Internal Server Error"

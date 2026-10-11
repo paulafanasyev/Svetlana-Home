@@ -5,6 +5,9 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.util.Log
 import com.svetlana.home.apps.AppRegistry
+import com.svetlana.home.control.ActionRiskPolicy
+import com.svetlana.home.control.SvetlanaAction
+import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.control.IntentResolver
 import com.svetlana.home.core.ProofStage
 import com.svetlana.home.core.ProofStep
@@ -24,6 +27,13 @@ import kotlinx.coroutines.delay
  * Mobile Harness — это тестовое приложение с известными элементами интерфейса.
  * Светлана работает с ним как с обычным Android-приложением: сначала Intent,
  * потом Hands.
+ *
+ * Безопасность: действия выполняются только когда на экране ДЕЙСТВИТЕЛЬНО
+ * Mobile Harness (иначе — отказ), и даже там не нажимаются необратимые кнопки
+ * и не заполняются поля паролей/карт. Каждое действие — нажатие, ввод, прокрутка,
+ * «назад», чтение экрана и скриншот — проходит ту же проверку, что и команды Светланы
+ * ([com.svetlana.home.control.ActionRouter.authorizeUnattended]); опасное подтверждается
+ * только пользователем в обычном диалоге.
  */
 class MobileHarnessController(
     private val context: Context,
@@ -138,55 +148,81 @@ class MobileHarnessController(
     // ---------- Управление UI Mobile Harness ----------
 
     suspend fun findElement(text: String): UiNode? {
-        ensureHarnessInForeground() ?: return null
+        val pkg = ensureHarnessInForeground() ?: return null
+        if (!authorized(SvetlanaAction.FindElement(pkg, text))) return null
         return hands.findElement(text)
     }
 
+    private fun labelOf(node: UiNode) = "${node.text} ${node.contentDescription} ${node.id}"
+
     suspend fun tapElement(text: String): Boolean {
-        ensureHarnessInForeground() ?: return false
+        val pkg = ensureHarnessInForeground() ?: return false
         val node = hands.findElement(text) ?: return false
+        if (ActionRiskPolicy.isDangerousLabel(labelOf(node))) return false
+        if (!authorized(SvetlanaAction.Click(pkg, text))) return false
         return hands.clickNode(node)
     }
 
     suspend fun longPressElement(text: String): Boolean {
-        ensureHarnessInForeground() ?: return false
+        val pkg = ensureHarnessInForeground() ?: return false
         val node = hands.findElement(text) ?: return false
+        if (ActionRiskPolicy.isDangerousLabel(labelOf(node))) return false
+        if (!authorized(SvetlanaAction.LongClick(pkg, text))) return false
         return hands.longClick(node)
     }
 
     suspend fun typeIntoField(fieldHint: String, value: String): Boolean {
-        ensureHarnessInForeground() ?: return false
+        val pkg = ensureHarnessInForeground() ?: return false
         val node = hands.findElement(fieldHint) ?: return false
+        if (node.isPassword || ActionRiskPolicy.isSensitiveFieldLabel(labelOf(node))) return false
+        if (!authorized(SvetlanaAction.TypeText(pkg, fieldHint, value))) return false
         return hands.inputText(node, value)
     }
 
+    /**
+     * Единая точка авторизации: та же проверка, что у ActionRouter (политика +
+     * реальный элемент на экране). Без диалога с пользователем опасное не выполняется.
+     * Если роутер ещё не создан (ранний старт), действуем только по локальной проверке выше
+     * (она совпадает с проверкой элемента в роутере).
+     */
+    private suspend fun authorized(action: SvetlanaAction): Boolean {
+        val router = try { ServiceLocator.actionRouter } catch (t: Throwable) { null } ?: return true
+        return router.authorizeUnattended(action)
+    }
+
     suspend fun scrollDown(): Boolean {
-        ensureHarnessInForeground() ?: return false
+        val pkg = ensureHarnessInForeground() ?: return false
+        if (!authorized(SvetlanaAction.Scroll(pkg, "down"))) return false
         return hands.scrollForward()
     }
 
     suspend fun scrollUp(): Boolean {
-        ensureHarnessInForeground() ?: return false
+        val pkg = ensureHarnessInForeground() ?: return false
+        if (!authorized(SvetlanaAction.Scroll(pkg, "up"))) return false
         return hands.scrollBackward()
     }
 
     suspend fun goBack(): Boolean {
         ensureHarnessInForeground() ?: return false
+        if (!authorized(SvetlanaAction.PressBack)) return false
         return hands.pressBack()
     }
 
     suspend fun screenshot(): Bitmap? {
-        ensureHarnessInForeground() ?: return null
+        val pkg = ensureHarnessInForeground() ?: return null
+        if (!authorized(SvetlanaAction.TakeScreenshot(pkg))) return null
         return hands.takeScreenshot()
     }
 
     suspend fun verifyResult(text: String): Boolean {
-        ensureHarnessInForeground() ?: return false
+        val pkg = ensureHarnessInForeground() ?: return false
+        if (!authorized(SvetlanaAction.ReadScreen(pkg))) return false
         return hands.verifyTextVisible(text)
     }
 
     suspend fun uiTree(): String {
-        ensureHarnessInForeground() ?: return "empty"
+        val pkg = ensureHarnessInForeground() ?: return "empty"
+        if (!authorized(SvetlanaAction.ReadScreen(pkg))) return "empty"
         val tree = hands.uiTree() ?: return "empty"
         return tree.nodes.joinToString("\n") {
             "[${it.depth}] ${it.className} text=${it.visibleText} id=${it.id} " +
@@ -207,7 +243,8 @@ class MobileHarnessController(
             }
             hands.waitForPackage(pkg, timeoutMs = WAIT_PKG_MS)
         }
-        return pkg
+        // Fail closed: never act on whatever other app happens to be in front.
+        return pkg.takeIf { hands.currentPackage().equals(it, ignoreCase = true) }
     }
 
     private fun ok(v: Boolean): StepStatus = if (v) StepStatus.OK else StepStatus.FAILED

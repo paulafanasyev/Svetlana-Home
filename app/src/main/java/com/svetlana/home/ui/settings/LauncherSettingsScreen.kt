@@ -125,6 +125,9 @@ fun LauncherSettingsScreen() {
             intent = Intent(context, com.svetlana.home.ui.apps.AppDrawerActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
+
+        // Мост к ядру Svetlana 2.0 (Windows / веб) — только по явному включению.
+        BridgeSettingsCard()
     }
 }
 

@@ -2,6 +2,9 @@ package com.svetlana.home.hands
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
 import com.svetlana.home.permissions.PermissionManager
@@ -36,6 +39,11 @@ data class UiTree(
  * HandsController — единая точка управления другими приложениями.
  * Делегирует реальные действия SvetlanaAccessibilityService и всегда
  * проверяет наличие системного доступа перед выполнением.
+ *
+ * Безопасность: нажатие/ввод/очистка выполняются ТОЛЬКО на том живом элементе, который
+ * точно совпадает со снимком ([findExactNode]: класс, границы, id, текст, описание — в том
+ * же виде, что и в снимке, с вычищенными секретами). Если элемент сдвинули или подменили
+ * похожим (другая строка списка с тем же id, кнопка с тем же текстом) — действие не выполняется.
  */
 class HandsController(private val context: Context) {
 
@@ -58,28 +66,53 @@ class HandsController(private val context: Context) {
     fun click(x: Float, y: Float): Boolean = service()?.clickPoint(x, y) ?: false
 
     /**
-     * Поиск «живого» AccessibilityNodeInfo, соответствующего UiNode из снапшота.
-     *
-     * Аудит п.12: ранее поиск шёл ТОЛЬКО по resource-id. Если у элемента нет
-     * id (id пустой) — clickNode/longClick/inputText молча возвращали false,
-     * хотя элемент был только что найден по тексту. Теперь используем
-     * идентификацию по нескольким признакам: id → текст → contentDescription →
-     * класс + bounds.
+     * Поиск «живого» AccessibilityNodeInfo, соответствующего UiNode из снапшота:
+     * id → текст → contentDescription → класс + bounds (аудит п.12). Только для ПРОВЕРОК после
+     * действия (текст поля уже изменился); для самих действий — [findExactNode].
      */
     private fun findLiveNode(node: UiNode): AccessibilityNodeInfo? {
         val svc = service() ?: return null
         val root = svc.rootInActiveWindow ?: return null
-        // 1. По resource-id, если он есть (самый надёжный путь).
         if (node.id.isNotBlank()) {
             findByViewId(root, node.id)?.let { return it }
         }
-        // 2. По видимому тексту (то, как элемент был найден в findElement).
         val byText = node.visibleText.takeIf { it.isNotBlank() }?.let { text ->
             findByText(root, text)
         }
         if (byText != null) return byText
-        // 3. По классу + положению на экране (последняя надежда).
         return findByClassAndBounds(root, node)
+    }
+
+    /** Живой элемент, совпадающий со снимком во всём: класс, границы, id, текст, описание, пароль. */
+    private fun findExactNode(node: UiNode): AccessibilityNodeInfo? {
+        val svc = service() ?: return null
+        val root = svc.rootInActiveWindow ?: return null
+        return findExact(root, node, 0)
+    }
+
+    /** Сравнение в том же виде, что и в снимке (текст паролей/кодов вычищен одинаково). */
+    private fun sameAsSnapshot(n: AccessibilityNodeInfo, target: UiNode): Boolean {
+        val bounds = Rect().also { n.getBoundsInScreen(it) }
+        if (bounds != target.bounds) return false
+        if (n.className?.toString().orEmpty() != target.className) return false
+        val id = n.viewIdResourceName ?: ""
+        if (id != target.id) return false
+        val description = n.contentDescription?.toString() ?: ""
+        val hint = n.hintText?.toString() ?: ""
+        val password = n.isPassword || SensitiveText.isSensitiveField(false, id, description, hint)
+        if (password != target.isPassword) return false
+        if (SensitiveText.maskSecrets(description) != target.contentDescription) return false
+        return SensitiveText.redact(n.text?.toString() ?: "", n.isPassword, id, description, hint) == target.text
+    }
+
+    private fun findExact(n: AccessibilityNodeInfo, target: UiNode, depth: Int): AccessibilityNodeInfo? {
+        if (depth > MAX_DEPTH) return null
+        if (sameAsSnapshot(n, target)) return n
+        for (i in 0 until n.childCount) {
+            val child = n.getChild(i) ?: continue
+            findExact(child, target, depth + 1)?.let { return it }
+        }
+        return null
     }
 
     private fun findByText(node: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
@@ -106,25 +139,25 @@ class HandsController(private val context: Context) {
 
     fun clickNode(node: UiNode): Boolean {
         val svc = service() ?: return false
-        val live = findLiveNode(node) ?: return false
+        val live = findExactNode(node) ?: return false
         return svc.click(live)
     }
 
     fun longClick(node: UiNode): Boolean {
         val svc = service() ?: return false
-        val live = findLiveNode(node) ?: return false
+        val live = findExactNode(node) ?: return false
         return svc.longClick(live)
     }
 
     fun inputText(node: UiNode, text: String): Boolean {
         val svc = service() ?: return false
-        val live = findLiveNode(node) ?: return false
+        val live = findExactNode(node) ?: return false
         return svc.inputText(live, text)
     }
 
     fun clearText(node: UiNode): Boolean {
         val svc = service() ?: return false
-        val live = findLiveNode(node) ?: return false
+        val live = findExactNode(node) ?: return false
         return svc.clearText(live)
     }
 
@@ -150,12 +183,23 @@ class HandsController(private val context: Context) {
     fun openRecents(): Boolean = service()?.openRecents() ?: false
 
     /**
-     * Скриншот имеет bounded timeout: Accessibility API обязан ответить
-     * callback-ом, иначе action не должен оставлять корутину навсегда.
+     * Скриншот с bounded timeout.
+     *
+     * Приватность (default-deny, [ScreenshotPolicy]):
+     * - снимается только доверенное приложение (своё, настройки, Mobile Harness) или
+     *   то окно, на снимок которого пользователь только что дал одноразовое согласие;
+     * - банки, платёжки и менеджеры паролей не снимаются никогда;
+     * - если за время снимка сменилось приложение или окно, либо прочитанный экран
+     *   принадлежит другому пакету — снимок не отдаётся;
+     * - поля паролей/PIN/кодов/карт закрашиваются; если закрасить нельзя — не отдаётся.
+     * Окна с FLAG_SECURE Android и так отдаёт чёрными.
      */
-    suspend fun takeScreenshot(timeoutMs: Long = 8000L): Bitmap? =
-        withTimeoutOrNull(timeoutMs) {
-            suspendCancellableCoroutine { cont ->
+    suspend fun takeScreenshot(timeoutMs: Long = 8000L): Bitmap? {
+        val pkg = currentPackage()
+        val window = ScreenshotPolicy.windowKeyOf(uiTree())
+        if (!ScreenshotPolicy.mayCapture(pkg, context.packageName, window)) return null
+        val raw: Bitmap = withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine<Bitmap?> { cont ->
                 val svc = service()
                 if (svc == null) {
                     cont.resume(null)
@@ -165,7 +209,33 @@ class HandsController(private val context: Context) {
                     if (cont.isActive) cont.resume(bitmap)
                 }
             }
+        } ?: return null
+        // Пока делали снимок, на экран могло выйти другое приложение или окно.
+        if (!currentPackage().equals(pkg, ignoreCase = true)) return null
+        val tree = uiTree() ?: return null
+        if (ScreenshotPolicy.windowKeyOf(tree) != window) return null
+        return redactSecrets(raw, pkg, tree)
+    }
+
+    private fun redactSecrets(raw: Bitmap, expectedPackage: String, tree: UiTree): Bitmap? {
+        // Экран принадлежит другому приложению — неизвестно, где секреты.
+        if (tree.packageName.isNotBlank() && !tree.packageName.equals(expectedPackage, ignoreCase = true)) return null
+        val secretNodes = tree.nodes.filter {
+            it.isPassword || it.text.contains(SensitiveText.MASK) ||
+                it.contentDescription.contains(SensitiveText.MASK)
         }
+        // Секретное поле без координат: закрасить нечего — не отдаём.
+        if (secretNodes.any { it.bounds.isEmpty }) return null
+        if (secretNodes.isEmpty()) return raw
+        val copy = raw.copy(Bitmap.Config.ARGB_8888, true) ?: return null
+        val canvas = Canvas(copy)
+        val paint = Paint().apply {
+            color = Color.BLACK
+            style = Paint.Style.FILL
+        }
+        secretNodes.forEach { canvas.drawRect(it.bounds, paint) }
+        return copy
+    }
 
     /**
      * Поиск элемента в текущем UI tree.
@@ -186,13 +256,12 @@ class HandsController(private val context: Context) {
     }
 
     /**
-     * Поиск поля ввода на текущем экране. Используется в длинных
-     * Hands-цепочках (написать сообщение в мессенджере): поле ввода
-     * определяется по классу EditText и доступности для правки.
+     * Поле ввода на текущем экране (для мессенджеров). Поля паролей/PIN/карт сюда
+     * не попадают: сообщение туда не печатаем.
      */
     fun findEditableField(): UiNode? {
         val tree = uiTree() ?: return null
-        return tree.nodes.firstOrNull { isEditable(it) }
+        return tree.nodes.firstOrNull { isEditable(it) && !it.isPassword }
     }
 
     private fun isEditable(node: UiNode): Boolean {
@@ -205,9 +274,7 @@ class HandsController(private val context: Context) {
     }
 
     /**
-     * Поиск кнопки отправки на текущем экране (для мессенджеров):
-     * кликабельный элемент, чей id / contentDescription / текст
-     * содержит типичные признаки send-кнопки.
+     * Кнопка отправки на текущем экране (для мессенджеров).
      */
     fun findSendButton(): UiNode? {
         val tree = uiTree() ?: return null
@@ -235,16 +302,9 @@ class HandsController(private val context: Context) {
         return null
     }
 
-    /**
-     * Проверка результата: действительно ли изменилось состояние экрана.
-     * Используется в доказательной цепочке как RESULT_VERIFIED.
-     */
     fun verifyPackage(expectedPackage: String): Boolean =
         currentPackage().equals(expectedPackage, ignoreCase = true)
 
-    /**
-     * Ожидание перехода на указанный пакет. Poll по UI tree, без скрытых механизмов.
-     */
     suspend fun waitForPackage(packageName: String, timeoutMs: Long = 3000L): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
@@ -260,9 +320,8 @@ class HandsController(private val context: Context) {
     }
 
     /**
-     * Строгое пост-условие для отправки сообщения: текст должен быть виден
-     * в элементе, который не определяется как поле ввода. Наличие того же
-     * текста в EditText после клика «Отправить» не доказывает отправку.
+     * Строгое пост-условие для отправки сообщения: текст виден в элементе, который
+     * не является полем ввода.
      */
     fun verifyTextVisibleInNonEditableNode(text: String): Boolean {
         val needle = text.trim()
@@ -273,33 +332,19 @@ class HandsController(private val context: Context) {
         }
     }
 
-    /**
-     * Пост-условие для typeText: указанный узел теперь содержит введённый текст.
-     * Это настоящая RESULT_VERIFIED-проверка, а не «команда отправлена».
-     */
     fun verifyTextEntered(node: UiNode, text: String): Boolean {
         val live = findLiveNode(node) ?: return false
         val current = live.text?.toString() ?: live.contentDescription?.toString().orEmpty()
         return current.contains(text)
     }
 
-    /**
-     * Пост-условие для clearText: поле ввода действительно пусто.
-     */
     fun verifyTextEmpty(node: UiNode): Boolean {
         val live = findLiveNode(node) ?: return false
         return live.text?.toString().isNullOrBlank()
     }
 
     /**
-     * Проверка, что элемент всё ещё присутствует на экране (для swipe/scroll —
-     * содержимое могло измениться, но дерево осталось валидным).
-     */
-    /**
-     * Стабильный отпечаток текущего UI tree.
-     *
-     * Количество узлов недостаточно: после scroll/swipe/bаck/home дерево
-     * часто имеет то же число элементов, хотя тексты/позиции изменились.
+     * Стабильный отпечаток текущего UI tree (тексты, позиции, фокус).
      */
     fun treeFingerprint(): Long {
         val tree = uiTree() ?: return 0L
@@ -323,8 +368,7 @@ class HandsController(private val context: Context) {
         return after != 0L && after != beforeFingerprint
     }
 
-    /**
-     * Снимок количества узлов — оставлен для диагностических тестов.
-     */
     fun nodeCount(): Int = uiTree()?.nodes?.size ?: -1
+
+    private companion object { const val MAX_DEPTH = 60 }
 }

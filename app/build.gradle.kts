@@ -1,10 +1,49 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.File
+import java.net.URL
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+/**
+ * Портрет Светланы — тот же файл, что в Svetlana 2.0
+ * (public/images/avatar/svetlana-master.jpg, закреплённый коммит). Кладётся в
+ * assets при сборке. Шара больше нет, поэтому без портрета сборка падает.
+ * Офлайн-сборка: положите файл вручную в
+ * app/build/generated/svetlanaAvatar/assets/avatar/svetlana.jpg.
+ */
+val svetlanaAvatarUrl =
+    "https://raw.githubusercontent.com/paulafanasyev/Svetlana-2.0/16568a4ec62b5b91ffa12c8322883775c5690b62/public/images/avatar/svetlana-master.jpg"
+val svetlanaAvatarDir = layout.buildDirectory.dir("generated/svetlanaAvatar/assets")
+val fetchSvetlanaAvatar = tasks.register("fetchSvetlanaAvatar") {
+    val outDir = svetlanaAvatarDir
+    val url = svetlanaAvatarUrl
+    outputs.dir(outDir)
+    doLast {
+        val target = outDir.get().file("avatar/svetlana.jpg").asFile
+        if (target.isFile && target.length() > 1000) return@doLast
+        target.parentFile.mkdirs()
+        var lastError: Exception? = null
+        for (attempt in 1..3) {
+            try {
+                val conn = URL(url).openConnection()
+                conn.setConnectTimeout(15_000)
+                conn.setReadTimeout(30_000)
+                val bytes = conn.getInputStream().use { stream -> stream.readBytes() }
+                check(bytes.size > 1000 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()) { "не JPEG" }
+                target.writeBytes(bytes)
+                logger.lifecycle("Портрет Светланы: ${bytes.size} байт")
+                return@doLast
+            } catch (e: Exception) {
+                lastError = e
+                Thread.sleep(2_000L * attempt)
+            }
+        }
+        throw GradleException("Портрет Светланы не скачан: ${lastError?.message}", lastError)
+    }
 }
 
 android {
@@ -72,6 +111,15 @@ android {
         }
     }
 
+    sourceSets {
+        getByName("main") {
+            // Портрет Светланы из Svetlana 2.0 (см. fetchSvetlanaAvatar выше).
+            // Обычный каталог + явная зависимость ниже: с TaskProvider AGP не запускал
+            // скачивание, и в APK не было портрета (на экране — пустой круг).
+            assets.srcDir(svetlanaAvatarDir.get().asFile)
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -109,6 +157,15 @@ android {
         // флаг оставлен как страховка для будущих транзитивных обновлений.
         // TODO: убрать после перехода проекта на Kotlin 2.x / AGP 8.13+.
         abortOnError = true
+    }
+}
+
+// Всё, что читает assets (слияние/сжатие assets, lint), должно идти после скачивания портрета.
+tasks.configureEach {
+    if (name != "fetchSvetlanaAvatar" &&
+        (name == "preBuild" || name.contains("Assets") || name.contains("Lint", ignoreCase = true))
+    ) {
+        dependsOn(fetchSvetlanaAvatar)
     }
 }
 

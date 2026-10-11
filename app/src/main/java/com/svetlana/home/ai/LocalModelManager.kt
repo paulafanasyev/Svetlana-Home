@@ -7,16 +7,18 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Управление установленными локальными моделями.
  *
  * КРИТИЧЕСКОЕ ПРАВИЛО (ТЗ §32, §33, §87):
  * Локальная модель НИКОГДА не скачивается автоматически.
- * Даже если найдена идеально совместимая модель.
  *
- * Только после явного решения пользователя:
- *   Предложить → Показать размер → Показать требования → Решение → Скачать
+ * Целостность: любая модель скачивается только по https, не больше [maxDownloadBytes], и
+ * устанавливается только при совпадении с доверенным SHA-256 из реестра. Перед КАЖДОЙ
+ * загрузкой в нативный runtime файл заново хешируется и сверяется с хешем из реестра (сохранённый
+ * на диске хеш не считается доверенным).
  */
 @Serializable
 data class InstalledModel(
@@ -44,10 +46,6 @@ data class BenchmarkResult(
     val status: String
 )
 
-/**
- * open — чтобы unit-тесты могли подставлять предустановленный список моделей,
- * не вызывая реальную загрузку файлов (аудит п.6: проверка выбора модели).
- */
 open class LocalModelManager(
     private val context: Context,
     private val registry: AIModelRegistry = AIModelRegistry()
@@ -56,6 +54,9 @@ open class LocalModelManager(
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private val storeFile: File by lazy { File(context.filesDir, "local_models.json") }
     private val modelsDir: File by lazy { File(context.filesDir, "models").apply { mkdirs() } }
+
+    /** Успешные проверки: modelId → «путь|размер|время|хеш». Только для быстрых проверок готовности. */
+    private val integrityCache = ConcurrentHashMap<String, String>()
 
     @Volatile
     private var installed: List<InstalledModel> = load()
@@ -70,10 +71,34 @@ open class LocalModelManager(
 
     fun freeSpaceBytes(): Long = modelsDir.usableSpace
 
+    private fun maxDownloadBytes(model: AIModel): Long =
+        maxOf(model.sizeMb.toLong() * 1024L * 1024L * 5L / 4L, 64L * 1024L * 1024L)
+
     /**
-     * Запрос на загрузку модели. Этот метод только НАЧИНАЕТ загрузку после
-     * явного решения пользователя — вызывается из UI по тапу на «Скачать».
+     * Файл модели не изменён: лежит в нашей папке моделей и его SHA-256 совпадает с доверенным
+     * хешем ИЗ РЕЕСТРА. Модель без доверенного хеша не проходит проверку никогда.
+     * @param fresh true (по умолчанию) — всегда заново хешировать файл (перед загрузкой в память);
+     *   false — для проверок готовности можно взять недавний успешный результат для того же файла.
      */
+    open fun verifyIntegrity(modelId: String, fresh: Boolean = true): Boolean {
+        val m = byId(modelId) ?: return false
+        return try {
+            val f = File(m.filePath)
+            if (!f.isFile) return false
+            val canonical = f.canonicalPath
+            if (!canonical.startsWith(modelsDir.canonicalPath + File.separator)) return false
+            val trusted = registry.byId(modelId)?.expectedSha256?.takeIf { it.length == 64 } ?: return false
+            val stamp = "$canonical|${f.length()}|${f.lastModified()}|${trusted.lowercase()}"
+            if (!fresh && integrityCache[modelId] == stamp) return true
+            val ok = sha256(f).equals(trusted, ignoreCase = true)
+            if (ok) integrityCache[modelId] = stamp else {
+                integrityCache.remove(modelId)
+                Log.w(TAG, "Контрольная сумма модели $modelId не совпадает с реестром — файл изменён или повреждён")
+            }
+            ok
+        } catch (t: Throwable) { false }
+    }
+
     fun install(
         model: AIModel,
         progress: (percent: Int) -> Unit = {}
@@ -82,30 +107,42 @@ open class LocalModelManager(
         val target = File(modelsDir, "${model.id}.$ext")
         val temp = File(modelsDir, ".${model.id}.$ext.part")
         val backup = File(modelsDir, ".${model.id}.$ext.previous")
+        integrityCache.remove(model.id)
 
         return try {
             if (!model.runtimeImplemented) {
                 return Result.failure(IllegalStateException(
                     "Для модели ${model.name} встроенный runtime ещё не реализован; скачивание отключено."))
             }
+            val expected = model.expectedSha256
+            if (expected.isNullOrBlank() || expected.length != 64) {
+                return Result.failure(IllegalStateException(
+                    "Для модели ${model.name} нет доверенной контрольной суммы SHA-256; скачивание отключено."))
+            }
+            if (!model.downloadUrl.startsWith("https://", ignoreCase = true)) {
+                return Result.failure(IllegalStateException("Модели скачиваются только по защищённому https"))
+            }
             if (!isSpaceEnough(model)) {
                 return Result.failure(IllegalStateException("Недостаточно свободного места"))
             }
+            val limit = maxDownloadBytes(model)
             Log.i(TAG, "Начинаю загрузку модели ${model.name} (${model.sizeMb}MB) по решению пользователя")
-            // Расширение файла обязано совпадать с форматом: движок LiteRT-LM
-            // отклоняет тот же контент, если файл назван .bin вместо .litertlm
-            // (upstream issue: загрузка зависит от расширения). Для GGUF
-            // расширение не принципиально, но оставляем осмысленное.
             temp.delete()
             backup.delete()
-            val client = okhttp3.OkHttpClient.Builder().build()
+            val client = okhttp3.OkHttpClient.Builder().followSslRedirects(false).build()
             val request = okhttp3.Request.Builder().url(model.downloadUrl).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     return Result.failure(IllegalStateException("Сервер вернул код ${response.code}"))
                 }
+                if (!response.request.url.isHttps) {
+                    return Result.failure(IllegalStateException("Загрузка перенаправлена на незащищённый адрес — отменена"))
+                }
                 val body = response.body ?: return Result.failure(IllegalStateException("Пустой ответ"))
                 val total = body.contentLength()
+                if (total > limit) {
+                    return Result.failure(IllegalStateException("Файл на сервере больше ожидаемого — загрузка отменена"))
+                }
                 var copied = 0L
                 body.byteStream().use { input ->
                     temp.outputStream().use { output ->
@@ -113,8 +150,13 @@ open class LocalModelManager(
                         while (true) {
                             val n = input.read(buffer)
                             if (n <= 0) break
-                            output.write(buffer, 0, n)
                             copied += n
+                            if (copied > limit) {
+                                output.close()
+                                temp.delete()
+                                return Result.failure(IllegalStateException("Файл больше ожидаемого — загрузка отменена"))
+                            }
+                            output.write(buffer, 0, n)
                             if (total > 0) progress(((copied * 100) / total).toInt())
                         }
                     }
@@ -128,30 +170,18 @@ open class LocalModelManager(
                 temp.delete()
                 return Result.failure(IllegalStateException("Файл загрузился не полностью"))
             }
-            // Аудит п.9: криптографическая и форматная проверка файла.
-            // Файл мог скачаться страницей 404/HTML вместо модели.
             val sha = sha256(temp)
             if (!verifyFormat(temp, model)) {
                 temp.delete()
                 return Result.failure(IllegalStateException(
                     "Скачанный файл не является моделью формата ${model.backend}"))
             }
-            // Аудит §13: вычислить SHA ≠ проверить SHA. Если реестр знает
-            // доверенный хеш — сверяем. Несовпадение = файл повреждён/подменён.
-            val expected = model.expectedSha256
-            if (model.backend.equals("litertlm", ignoreCase = true) && expected.isNullOrBlank()) {
-                temp.delete()
-                return Result.failure(IllegalStateException("Для LiteRT-LM модели отсутствует доверенный SHA-256"))
-            }
-            val shaVerified = expected.isNullOrBlank() || sha.equals(expected, ignoreCase = true)
-            if (!shaVerified) {
+            if (!sha.equals(expected, ignoreCase = true)) {
                 temp.delete()
                 return Result.failure(IllegalStateException(
                     "Контрольная сумма файла не совпадает с доверенной. Загрузка отменена. Предыдущая модель сохранена."))
             }
 
-            // Безопасная замена: сначала сохраняем рабочий файл, затем
-            // устанавливаем новый. При сбое rename старый файл возвращается.
             if (target.exists() && !target.renameTo(backup)) {
                 temp.delete()
                 return Result.failure(IllegalStateException(
@@ -173,8 +203,6 @@ open class LocalModelManager(
                 sha256 = sha,
                 formatVerified = true
             )
-            // Повторная установка той же модели не должна плодить дубликаты
-            // в реестре установленных моделей.
             installed = installed.filterNot { it.modelId == model.id } + installedModel
             save()
             Log.i(TAG, "Модель ${model.name} установлена")
@@ -191,6 +219,7 @@ open class LocalModelManager(
 
     fun uninstall(modelId: String): Boolean {
         val model = byId(modelId) ?: return false
+        integrityCache.remove(modelId)
         val deleted = try { File(model.filePath).delete() } catch (t: Throwable) { false }
         installed = installed.filterNot { it.modelId == modelId }
         save()
@@ -204,13 +233,6 @@ open class LocalModelManager(
         save()
     }
 
-    /**
-     * Аудит §14: строгий жизненный цикл модели. Статус вычисляется из фактов.
-     *
-     * @param runtimeReady загружен ли runtime и готов ли он к работе
-     * @param modelLoaded  загружена ли модель в память
-     * @param inferenceVerified прошёл ли реальный inference
-     */
     fun statusFor(
         modelId: String,
         runtimeReady: Boolean = false,
@@ -229,21 +251,11 @@ open class LocalModelManager(
         )
     }
 
-    /**
-     * Активная модель — та, которую пользователь выбрал основной.
-     * Удалять активную модель запрещено (аудит §15).
-     */
     fun isActive(modelId: String, activeId: String?): Boolean = activeId != null && modelId == activeId
 
-    /**
-     * Можно ли удалить модель: активную удалять запрещено.
-     */
     fun canUninstall(modelId: String, activeId: String?): Boolean =
         !isActive(modelId, activeId)
 
-    /**
-     * Фактический benchmark ставит DEVICE VERIFIED только после реального теста (ТЗ §35).
-     */
     fun benchmarkStatusFor(modelId: String): String {
         val model = byId(modelId) ?: return SvetlanaStatus.NOT_PROVEN
         return model.benchmark?.let {
@@ -255,22 +267,12 @@ open class LocalModelManager(
     private fun isSpaceEnough(model: AIModel): Boolean =
         freeSpaceBytes() > model.storageRequirementMb * 1024L * 1024L * 1.1
 
-    /**
-     * Расширение целевого файла по формату модели. LiteRT-LM требует
-     * именно .litertlm, иначе Engine отклоняет файл.
-     */
     private fun extensionFor(model: AIModel): String = when (model.backend) {
         "litertlm" -> "litertlm"
         "llama.cpp" -> "gguf"
         else -> "bin"
     }
 
-    /**
-     * Миграция установленных моделей со старого расширения .bin на
-     * расширение формата (актуально для litertlm — движок требует
-     * именно .litertlm, иначе Engine отклоняет файл). Вызывается при
-     * инициализации.
-     */
     fun migrateExtensions() {
         var changed = false
         val mapped = installed.map { m ->
@@ -291,36 +293,16 @@ open class LocalModelManager(
         }
     }
 
-    /**
-     * Аудит п.9: проверка magic bytes скачанного файла.
-     * GGUF (llama.cpp) начинается с "GGUF" (0x47 0x47 0x55 0x46).
-     * ONNX — protobuf; первый field ModelProto имеет тег 0x0c (field 1, wire 4)?
-     * Надёжнее: ONNX-модели от HF не имеют стабильного magic, поэтому для
-     * onnxruntime принимаем любой непустой бинарный файл нетекстового вида.
-     */
     private fun verifyFormat(file: File, model: AIModel): Boolean {
         return try {
             when (model.backend) {
                 "llama.cpp" -> ModelFormat.GGUF.matchesMagic(readHead(file, 4))
-                "litertlm" -> {
-                    // Контейнер .litertlm начинается с 8-байтного
-                    // magic "LITERTLM" по нулевому смещению.
-                    // (Раньше ошибочно проверяли "TFL" по смещению 4 —
-                    // это заголовок .tflite, а не LiteRT-LM.)
-                    ModelFormat.LITERT_LM.matchesMagic(readHead(file, 8))
-                }
-                else -> {
-                    // No runtime/format validator is implemented for this backend.
-                    // Never mark an unsupported format as verified.
-                    false
-                }
+                "litertlm" -> ModelFormat.LITERT_LM.matchesMagic(readHead(file, 8))
+                else -> false
             }
         } catch (t: Throwable) { false }
     }
 
-    /**
-     * readNBytes требует API 33; minSdk = 26 — читаем вручную.
-     */
     private fun readHead(file: File, n: Int): ByteArray =
         file.inputStream().use { input ->
             val buffer = ByteArray(n)

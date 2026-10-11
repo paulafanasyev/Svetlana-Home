@@ -6,31 +6,45 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import java.net.Inet6Address
+import java.net.InetAddress
 
 /**
- * HTTP routes of the Svetlana bridge. Matches the HTTPHands transport of the
- * Svetlana 2.0 core: GET /health, POST /api/<route> with body {"params": {...}}.
- * Successful replies: {"success": true, "data": ..., "timestamp": ...}.
+ * HTTP routes of the Svetlana bridge (protocol v2). Matches the HTTPHands transport
+ * of the Svetlana 2.0 core: GET /health (publishes the PBKDF2 salt), POST /api/<route>.
  *
- * Browser protection:
+ * /api requests are end-to-end encrypted and authenticated with a key derived from
+ * the pairing code ([BridgeCrypto]); the code itself is never transmitted:
+ *   body {"v":2,"ts","nonce","iv","ct"} whose plaintext is {"params": {...}}.
+ * Authenticated replies are encrypted too; the plaintext is
+ * {"success": true, "data": ..., "timestamp": ...} or {"success": false, "error", "message"}.
+ *
+ * Network protection:
+ * - only clients from loopback / private / link-local addresses are served;
  * - only allow-listed origins (Tauri desktop app, localhost dev) get CORS headers;
  *   any other Origin on /api is rejected with 403 (blocks drive-by websites);
  * - Host is required (HTTP/1.1) and must be an IP literal or localhost (blocks DNS rebinding);
- * - wrong pairing codes are rate limited per client IP.
+ * - failed decryptions (wrong code / tampering) are rate limited per client and globally;
+ * - timestamps outside the skew window and reused nonces are rejected (no replay).
  */
 class BridgeRouter(
-    private val tokenCheck: (String?) -> Boolean,
+    private val keyring: BridgeKeyring,
     private val handlers: BridgeHandlers,
-    private val version: String = "1",
+    private val version: String = "2",
     private val clock: () -> Long = System::currentTimeMillis,
     private val limiter: BridgeRateLimiter = BridgeRateLimiter(clock),
+    private val replay: BridgeReplayGuard = BridgeReplayGuard(clock),
 ) {
     fun handle(request: HttpRequest): HttpResponse {
         val origin = request.headers["origin"]
         val originAllowed = origin == null || isAllowedOrigin(origin)
         val cors = if (origin != null && originAllowed) corsHeaders(origin) else emptyMap()
 
+        if (request.remoteAddress.isNotEmpty() && !isLocalNetworkAddress(request.remoteAddress)) {
+            return error(403, "NOT_LOCAL", "Only devices from the local network are served", emptyMap())
+        }
         val host = request.headers["host"]
         if (host == null && request.httpVersion == "HTTP/1.1") {
             return error(400, "BAD_HOST", "Host header is required", emptyMap())
@@ -46,6 +60,8 @@ class BridgeRouter(
             val body = buildJsonObject {
                 put("ok", true)
                 put("service", "svetlana-home")
+                put("v", BridgeCrypto.VERSION)
+                keyring.current()?.let { put("salt", it.salt) }
             }
             return HttpResponse(200, body.toString(), cors)
         }
@@ -57,29 +73,58 @@ class BridgeRouter(
         if (limiter.isLocked(client)) {
             return error(429, "TOO_MANY_ATTEMPTS", "Слишком много неверных кодов, подождите 10 минут", cors)
         }
-        if (!tokenCheck(extractToken(request.headers))) {
+        val route = path.removePrefix("/api/")
+        val envelope = parseEnvelope(request.body)
+            // Not a v2 request (e.g. an old Svetlana 2.0 sending the code as Bearer).
+            // Nothing was checked, so it is not counted as a guess.
+            ?: return error(426, "UPGRADE_REQUIRED", "Обновите Светлану на ПК: нужен защищённый протокол v2", cors)
+        if (envelope.ts == null || envelope.nonce == null || envelope.iv == null || envelope.ct == null ||
+            BridgeCrypto.decode(envelope.nonce)?.size != BridgeCrypto.NONCE_BYTES
+        ) {
+            return error(400, "BAD_REQUEST", "Malformed secure request", cors)
+        }
+        val session = keyring.current() ?: return error(503, "NOT_READY", "Мост ещё не готов", cors)
+        val nonce = envelope.nonce
+        val ts = envelope.ts
+        val plaintext = BridgeCrypto.open(session.key, envelope.iv, envelope.ct, BridgeCrypto.requestAad(route, ts, nonce))
+        if (plaintext == null) {
             limiter.recordFailure(client)
-            return error(401, "UNAUTHORIZED", "Нужен код подключения с главного экрана Светланы", cors)
+            return error(401, "UNAUTHORIZED", "Неверный код подключения", cors)
+        }
+        when (replay.check(nonce, ts)) {
+            BridgeReplayGuard.Verdict.OK -> Unit
+            BridgeReplayGuard.Verdict.STALE ->
+                return error(401, "STALE", "Часы ПК и телефона расходятся больше чем на 2 минуты", cors)
+            BridgeReplayGuard.Verdict.REPLAY -> return error(409, "REPLAY", "Повтор запроса отклонён", cors)
+            BridgeReplayGuard.Verdict.BUSY -> return error(503, "BUSY", "Слишком много запросов, повторите позже", cors)
         }
         limiter.recordSuccess(client)
-        val params = parseParams(request.body) ?: return error(400, "BAD_JSON", "Body must be a JSON object", cors)
 
-        val result = try {
-            dispatch(path.removePrefix("/api/"), params)
-        } catch (e: Exception) {
-            BridgeResult.Error("INTERNAL", e.message ?: e.javaClass.simpleName)
-        }
-        return when (result) {
-            is BridgeResult.Ok -> {
-                val body = buildJsonObject {
-                    put("success", true)
-                    result.data?.let { put("data", it) }
-                    put("timestamp", clock())
-                }
-                HttpResponse(200, body.toString(), cors)
+        val params = parseParams(plaintext)
+        val result = if (params == null) {
+            BridgeResult.Error("BAD_JSON", "Body must be a JSON object")
+        } else {
+            try {
+                dispatch(route, params)
+            } catch (e: Exception) {
+                BridgeResult.Error("INTERNAL", e.javaClass.simpleName)
             }
-            is BridgeResult.Error -> error(statusFor(result.code), result.code, result.message, cors)
         }
+        val (status, body) = when (result) {
+            is BridgeResult.Ok -> 200 to buildJsonObject {
+                put("success", true)
+                result.data?.let { put("data", it) }
+                put("timestamp", clock())
+            }.toString()
+            is BridgeResult.Error -> statusFor(result.code) to errorBody(result.code, result.message)
+        }
+        val sealed = BridgeCrypto.seal(session.key, body, BridgeCrypto.responseAad(route, nonce))
+        val envelopeOut = buildJsonObject {
+            put("v", BridgeCrypto.VERSION)
+            put("iv", sealed.iv)
+            put("ct", sealed.ct)
+        }
+        return HttpResponse(status, envelopeOut.toString(), cors)
     }
 
     private fun dispatch(route: String, params: JsonObject): BridgeResult = when (route) {
@@ -98,18 +143,18 @@ class BridgeRouter(
                 handlers.launchApp(packageName)
             }
         }
-        else -> BridgeResult.Error("UNKNOWN_METHOD", "Unknown method: $route")
+        else -> BridgeResult.Error("UNKNOWN_METHOD", "Unknown method")
     }
 
-    private fun error(status: Int, code: String, message: String, headers: Map<String, String>): HttpResponse {
-        val body = buildJsonObject {
-            put("success", false)
-            put("error", code)
-            put("message", message)
-            put("timestamp", clock())
-        }
-        return HttpResponse(status, body.toString(), headers)
-    }
+    private fun errorBody(code: String, message: String): String = buildJsonObject {
+        put("success", false)
+        put("error", code)
+        put("message", message)
+        put("timestamp", clock())
+    }.toString()
+
+    private fun error(status: Int, code: String, message: String, headers: Map<String, String>): HttpResponse =
+        HttpResponse(status, errorBody(code, message), headers)
 
     companion object {
         const val DEFAULT_LIMIT = 500
@@ -119,6 +164,8 @@ class BridgeRouter(
         private val IPV4_HOST_RE = Regex("^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})(?::(\\d{1,5}))?$")
         private val LOCAL_HOST_RE = Regex("^(localhost|\\[(?:::1|0:0:0:0:0:0:0:1)])(?::(\\d{1,5}))?$")
         private val TAURI_ORIGINS = setOf("http://tauri.localhost", "https://tauri.localhost", "tauri://localhost")
+        private val IPV4_LITERAL_RE = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
+        private val IPV6_LITERAL_RE = Regex("^[0-9A-Fa-f:.]+$")
 
         fun isAllowedOrigin(origin: String): Boolean =
             origin in TAURI_ORIGINS || LOCAL_ORIGIN_RE.matches(origin)
@@ -136,12 +183,42 @@ class BridgeRouter(
             return octetsOk && portOk(m.groupValues[5])
         }
 
+        /**
+         * True for loopback, RFC 1918 private, link-local and IPv6 unique-local peers.
+         * Only IP literals are parsed (never a DNS lookup); anything else is rejected.
+         */
+        fun isLocalNetworkAddress(ip: String): Boolean {
+            val literal = ip.removePrefix("/").substringBefore('%')
+            if (!IPV4_LITERAL_RE.matches(literal) && !(literal.contains(':') && IPV6_LITERAL_RE.matches(literal))) {
+                return false
+            }
+            val address = try {
+                InetAddress.getByName(literal)
+            } catch (e: Exception) {
+                return false
+            }
+            if (address.isLoopbackAddress || address.isLinkLocalAddress || address.isSiteLocalAddress) return true
+            if (address is Inet6Address) {
+                val first = address.address[0].toInt() and 0xFF
+                return first and 0xFE == 0xFC // fc00::/7 unique local
+            }
+            return false
+        }
+
         private fun portOk(port: String): Boolean = port.isEmpty() || (port.toIntOrNull() ?: 0) in 1..65535
 
-        fun extractToken(headers: Map<String, String>): String? {
-            val auth = headers["authorization"]
-            if (auth != null && auth.startsWith("Bearer ", ignoreCase = true)) return auth.substring(7).trim()
-            return headers["x-svetlana-token"]
+        class Envelope(val ts: Long?, val nonce: String?, val iv: String?, val ct: String?)
+
+        /** {"v":2,"ts","nonce","iv","ct"}; null when the body is not a v2 envelope at all. */
+        fun parseEnvelope(body: String): Envelope? {
+            val root = try {
+                Json.parseToJsonElement(body) as? JsonObject
+            } catch (e: Exception) {
+                null
+            } ?: return null
+            if ((root["v"] as? JsonPrimitive)?.intOrNull != BridgeCrypto.VERSION) return null
+            fun str(k: String) = (root[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            return Envelope((root["ts"] as? JsonPrimitive)?.longOrNull, str("nonce"), str("iv"), str("ct"))
         }
 
         fun parseParams(body: String): JsonObject? {
@@ -156,7 +233,7 @@ class BridgeRouter(
         }
 
         fun statusFor(code: String): Int = when (code) {
-            "BAD_PARAMS" -> 400
+            "BAD_PARAMS", "BAD_JSON" -> 400
             "PERMISSION_DENIED" -> 403
             "NOT_FOUND", "UNKNOWN_METHOD" -> 404
             else -> 500
@@ -166,7 +243,7 @@ class BridgeRouter(
             "Access-Control-Allow-Origin" to origin,
             "Vary" to "Origin",
             "Access-Control-Allow-Methods" to "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers" to "Content-Type, Authorization, X-Svetlana-Token",
+            "Access-Control-Allow-Headers" to "Content-Type",
             // Chrome Private Network Access: only for allow-listed origins.
             "Access-Control-Allow-Private-Network" to "true",
             "Access-Control-Max-Age" to "600",

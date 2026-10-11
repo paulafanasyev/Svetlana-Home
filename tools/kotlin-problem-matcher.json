@@ -1,0 +1,27 @@
+{
+  "problemMatcher": [
+    {
+      "owner": "kotlin-error",
+      "pattern": [
+        {
+          "regexp": "^\\s*e: (?:file://)?(.+?):(\\d+):(\\d+) (.+)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        }
+      ]
+    },
+    {
+      "owner": "android-lint-error",
+      "pattern": [
+        {
+          "regexp": "^\\s*(.+?\\.(?:kt|xml|kts|java)):(\\d+): Error: (.+)$",
+          "file": 1,
+          "line": 2,
+          "message": 3
+        }
+      ]
+    }
+  ]
+}

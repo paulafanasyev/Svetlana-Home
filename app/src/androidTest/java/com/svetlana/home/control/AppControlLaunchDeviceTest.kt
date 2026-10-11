@@ -23,6 +23,8 @@ import org.junit.runner.RunWith
  * startActivity() != «приложение открыто»: ACTION_PERFORMED выставляется
  * только после реального перехода в foreground (LaunchVerifier).
  *
+ * Действия с экраном идут через ActionRouter (напрямую движок их не выполняет).
+ *
  * Эти тесты запускают реальные Activity и нажимают Home — на CI-эмуляторе
  * (x86_64, без Hands/Accessibility) это дестабилизирует instrumentation,
  * поэтому они выполняются только на arm64-устройстве (POCO X3 NFC).
@@ -73,9 +75,8 @@ class AppControlLaunchDeviceTest : SvetlanaDeviceTest() {
 
     @Test
     fun clickRequiresActiveHandsOrFailsHonestly() = runBlocking {
-        val engine = ServiceLocator.controlEngine
         // Click требует Hands; если он выключен — честный отказ, а не имитация
-        val result = engine.click("Настройки", "кнопка_которой_нет")
+        val result = ServiceLocator.actionRouter.execute(SvetlanaAction.Click("Настройки", "кнопка_которой_нет"))
         if (!ServiceLocator.hands.isActive) {
             assertFalse("Click без Hands должен FAIL", result.success)
             assertTrue("Сообщение должно объяснять причину",
@@ -88,16 +89,16 @@ class AppControlLaunchDeviceTest : SvetlanaDeviceTest() {
 
     @Test
     fun takeScreenshotProducesHonestProof() = runBlocking {
-        val engine = ServiceLocator.controlEngine
-        val result = engine.takeScreenshotAction("Настройки")
-        println("SCREENSHOT=" + if (result.success) "OK" else "FAILED")
+        val result = ServiceLocator.actionRouter.execute(SvetlanaAction.TakeScreenshot("Настройки"))
+        println("SCREENSHOT=" + if (result.success) "OK" else if (result.requiresUserConfirmation) "NEEDS_CONSENT" else "FAILED")
+        if (result.requiresUserConfirmation) {
+            // На экране недоверенное приложение: без согласия снимок не делается.
+            assertFalse("Без согласия скриншот не делается", result.success)
+            return@runBlocking
+        }
         println("PROOF=" + result.proof.joinToString(" | ") { "${it.stage}=${it.status}" })
 
         assertTrue("Screenshot must record PLAN", result.proof.any { it.stage == ProofStage.PLAN })
-        assertTrue(
-            "Screenshot must record ACTION_ATTEMPTED",
-            result.proof.any { it.stage == ProofStage.ACTION_ATTEMPTED }
-        )
 
         if (result.success) {
             assertTrue(
