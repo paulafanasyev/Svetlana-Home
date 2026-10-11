@@ -10,13 +10,14 @@ import com.svetlana.home.core.ProofStage
 import com.svetlana.home.core.ProofStep
 import com.svetlana.home.core.StepStatus
 import com.svetlana.home.hands.HandsController
+import com.svetlana.home.hands.SensitiveApps
 import com.svetlana.home.permissions.PermissionManager
 
 /**
  * AppControlEngine — исполняет действия над приложениями.
  *
  * Каждое действие проходит проверку:
- * - целевое приложение идентифицировано;
+ * - целевое приложение идентифицировано (и именно оно сейчас на экране);
  * - разрешения проверены;
  * - действие выполнено;
  * - результат верифицирован.
@@ -26,7 +27,7 @@ import com.svetlana.home.permissions.PermissionManager
  * Без него вызвать эти методы нельзя (код не скомпилируется). Открытие приложений и
  * системных экранов безопасно и разрешения не требует.
  *
- * Запрещено: произвольные shell-команды, root, Termux, скрытое управление.
+ * Запрещено: произвольные shell-команды, root, Termux, скрытое управление, автонабор звонка.
  */
 class AppControlEngine(
     private val context: Context,
@@ -37,6 +38,22 @@ class AppControlEngine(
 ) {
 
     private val proofBuilder = ProofBuilder()
+
+    /**
+     * Действие на экране выполняется только в том приложении, о котором спрашивали:
+     * если цель известна, а на экране другое приложение (оверлей, переключение) — отмена.
+     * @return пакет, который оказался на экране вместо цели, или null, если всё в порядке.
+     */
+    private suspend fun wrongApp(target: String): String? {
+        if (target.isBlank()) return null
+        val expected = intentResolver.resolveApp(target)?.app?.packageName ?: return null
+        val current = hands.currentPackage()
+        return if (current.isNotBlank() && !current.equals(expected, ignoreCase = true)) current else null
+    }
+
+    private fun wrongAppResult(action: SvetlanaAction, proof: ProofBuilder, current: String, target: String): ActionResult =
+        ActionResult(action, false, "На экране другое приложение — действие отменено для безопасности",
+            proof.failed("foreground=$current expected=$target"), "hands")
 
     /**
      * Открыть приложение. Приоритет — Intent/PackageManager, Hands как резерв.
@@ -57,8 +74,6 @@ class AppControlEngine(
         return try {
             context.startActivity(resolved.launchIntent)
             proof.ok(ProofStage.ACTION_ATTEMPTED, "startActivity sent")
-            // Ключевое место: ждём реального перехода, а не считаем
-            // «команда отправлена» == «действие выполнено».
             val verified = launchVerifier.awaitForeground(resolved.app.packageName)
             val reached = verified.foregroundPackage
                 ?.equals(resolved.app.packageName, ignoreCase = true) == true
@@ -66,8 +81,6 @@ class AppControlEngine(
                 proof.ok(ProofStage.ACTION_PERFORMED, "foreground=${verified.foregroundPackage} src=${verified.source}")
                 proof.ok(ProofStage.RESULT_VERIFIED, "PLAN0_STATUS=ACTION_PERFORMED PLAN0_RESULT=VERIFIED")
             } else if (verified.foregroundPackage == null) {
-                // Нет источника проверки (Hands выключен, USAGE_STATS не выдан).
-                // Честно отмечаем: действие попытано, но не верифицировано.
                 proof.add(ProofStage.ACTION_PERFORMED, StepStatus.UNVERIFIED,
                     "no verification source (hands off, usage stats not granted)")
                 proof.add(ProofStage.RESULT_VERIFIED, StepStatus.UNVERIFIED,
@@ -82,7 +95,6 @@ class AppControlEngine(
                 if (reached) "Приложение открыто" else "Не удалось подтвердить открытие приложения",
                 proof.build(), resolved.way)
         } catch (t: Throwable) {
-            // Резерв: Hands
             if (hands.isActive) {
                 proof.ok(ProofStage.ACTION_ATTEMPTED, "fallback: Hands")
                 hands.pressHome()
@@ -102,32 +114,31 @@ class AppControlEngine(
     }
 
     suspend fun click(grant: ActionGrant, target: String, element: String): ActionResult {
+        val action = SvetlanaAction.Click(target, element)
         val proof = proofBuilder.start("PLAN0_TARGET=CLICK app=$target element=$element")
         if (!hands.isActive) {
-            return ActionResult(SvetlanaAction.Click(target, element), false,
+            return ActionResult(action, false,
                 "Для этого действия нужен Hands, но он не включён",
                 proof.failed("hands not active"))
         }
+        wrongApp(target)?.let { return wrongAppResult(action, proof, it, target) }
         proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "find element: $element")
         val node = hands.findElement(element)
         if (node == null) {
-            return ActionResult(SvetlanaAction.Click(target, element), false,
+            return ActionResult(action, false,
                 "Элемент не найден на экране", proof.failed("element not found"))
         }
         val before = hands.treeFingerprint()
         val ok = hands.clickNode(node)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "click performed" else "click failed")
-        // Пост-условие: click должен изменить экран. ACTION_PERFORMED без проверки — это
-        // только «команда отправлена» (аудит п.11).
         val changed = ok && verifyScreenChanged(before, 700)
         proof.add(ProofStage.RESULT_VERIFIED,
             if (changed) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (changed) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        // Аудит §28: успех определяется пост-условием, а не тем, что Android принял команду.
-        return ActionResult(SvetlanaAction.Click(target, element), changed,
+        return ActionResult(action, changed,
             if (changed) "Нажатие выполнено и подтверждено"
             else if (ok) "Команда отправлена, но экран не изменился — результат не подтверждён"
             else "Не удалось нажать",
@@ -135,13 +146,15 @@ class AppControlEngine(
     }
 
     suspend fun longClick(grant: ActionGrant, target: String, element: String): ActionResult {
+        val action = SvetlanaAction.LongClick(target, element)
         val proof = proofBuilder.start("PLAN0_TARGET=LONG_CLICK app=$target element=$element")
-        if (!hands.isActive) return handsOff(SvetlanaAction.LongClick(target, element), proof)
+        if (!hands.isActive) return handsOff(action, proof)
+        wrongApp(target)?.let { return wrongAppResult(action, proof, it, target) }
         proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "find element: $element")
         val node = hands.findElement(element)
-            ?: return ActionResult(SvetlanaAction.LongClick(target, element), false,
+            ?: return ActionResult(action, false,
                 "Элемент не найден", proof.failed("element not found"))
         val before = hands.treeFingerprint()
         val ok = hands.longClick(node)
@@ -151,7 +164,7 @@ class AppControlEngine(
         proof.add(ProofStage.RESULT_VERIFIED,
             if (verified) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (verified) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.LongClick(target, element), verified,
+        return ActionResult(action, verified,
             if (verified) "Долгое нажатие подтверждено"
             else if (ok) "Команда отправлена, но экран не изменился"
             else "Не удалось",
@@ -159,13 +172,15 @@ class AppControlEngine(
     }
 
     suspend fun typeText(grant: ActionGrant, target: String, element: String, text: String): ActionResult {
+        val action = SvetlanaAction.TypeText(target, element, text)
         val proof = proofBuilder.start("PLAN0_TARGET=TYPE_TEXT app=$target element=$element")
-        if (!hands.isActive) return handsOff(SvetlanaAction.TypeText(target, element, text), proof)
+        if (!hands.isActive) return handsOff(action, proof)
+        wrongApp(target)?.let { return wrongAppResult(action, proof, it, target) }
         proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "find element: $element")
         val node = hands.findElement(element)
-            ?: return ActionResult(SvetlanaAction.TypeText(target, element, text), false,
+            ?: return ActionResult(action, false,
                 "Поле ввода не найдено", proof.failed("input field not found"))
         val ok = hands.inputText(node, text)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
@@ -175,20 +190,22 @@ class AppControlEngine(
             if (entered) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (entered) "PLAN0_RESULT=VERIFIED text=\"${text.take(32)}\""
                 else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.TypeText(target, element, text), entered,
+        return ActionResult(action, entered,
             if (entered) "Текст введён и подтверждён"
             else if (ok) "Команда отправлена, но текст не появился в поле"
             else "Не удалось ввести текст", proof.build(), "hands")
     }
 
     suspend fun clearText(grant: ActionGrant, target: String, element: String): ActionResult {
+        val action = SvetlanaAction.ClearText(target, element)
         val proof = proofBuilder.start("PLAN0_TARGET=CLEAR_TEXT app=$target element=$element")
-        if (!hands.isActive) return handsOff(SvetlanaAction.ClearText(target, element), proof)
+        if (!hands.isActive) return handsOff(action, proof)
+        wrongApp(target)?.let { return wrongAppResult(action, proof, it, target) }
         proof.ok(ProofStage.TARGET_APP_IDENTIFIED, target)
         proof.ok(ProofStage.PERMISSION_CHECKED, "hands granted")
         proof.ok(ProofStage.ACTION_ATTEMPTED, "find element: $element")
         val node = hands.findElement(element)
-            ?: return ActionResult(SvetlanaAction.ClearText(target, element), false,
+            ?: return ActionResult(action, false,
                 "Поле ввода не найдено", proof.failed("input field not found"))
         val ok = hands.clearText(node)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
@@ -197,7 +214,7 @@ class AppControlEngine(
         proof.add(ProofStage.RESULT_VERIFIED,
             if (cleared) StepStatus.OK else if (!ok) StepStatus.FAILED else StepStatus.UNVERIFIED,
             if (cleared) "PLAN0_RESULT=VERIFIED" else "PLAN0_RESULT=NOT VERIFIED")
-        return ActionResult(SvetlanaAction.ClearText(target, element), cleared,
+        return ActionResult(action, cleared,
             if (cleared) "Текст очищен и подтверждён"
             else if (ok) "Команда отправлена, но поле не пусто"
             else "Не удалось очистить текст", proof.build(), "hands")
@@ -250,9 +267,6 @@ class AppControlEngine(
             else "Не удалось сделать свайп", proof.build(), "hands")
     }
 
-    /**
-     * Проверка реального изменения экрана после жеста (аудит п.11).
-     */
     private suspend fun verifyScreenChanged(beforeFingerprint: Long, settleMs: Long): Boolean {
         kotlinx.coroutines.delay(settleMs)
         return hands.verifyTreeChanged(beforeFingerprint)
@@ -262,6 +276,10 @@ class AppControlEngine(
         ActionResult(action, false,
             "Для этого действия нужен Hands, но он не включён", proof.failed("hands not active"))
 
+    /**
+     * Чтение текста с экрана. Банки, платёжки и менеджеры паролей не читаются никогда,
+     * поля паролей пропускаются. Чужие приложения — только после согласия в ActionRouter.
+     */
     suspend fun readScreen(grant: ActionGrant, target: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=READ_SCREEN app=$target")
         if (!hands.isActive) return handsOff(SvetlanaAction.ReadScreen(target), proof)
@@ -270,8 +288,13 @@ class AppControlEngine(
         val tree = hands.uiTree()
             ?: return ActionResult(SvetlanaAction.ReadScreen(target), false,
                 "Не удалось прочитать экран", proof.failed("ui tree unavailable"))
+        if (SensitiveApps.isSensitive(tree.packageName) || SensitiveApps.isSensitive(hands.currentPackage())) {
+            return ActionResult(SvetlanaAction.ReadScreen(target), false,
+                "Экран этого приложения не читаю: банки, платежи и пароли защищены",
+                proof.failed("sensitive app"), "hands")
+        }
         proof.ok(ProofStage.ACTION_PERFORMED, "${tree.nodes.size} nodes")
-        val text = tree.nodes.mapNotNull { n ->
+        val text = tree.nodes.filterNot { it.isPassword }.mapNotNull { n ->
             n.visibleText.ifBlank { null }
         }.distinct().joinToString("\n")
         proof.ok(ProofStage.RESULT_VERIFIED, "PLAN0_RESULT=VERIFIED ${tree.nodes.size} nodes")
@@ -372,10 +395,6 @@ class AppControlEngine(
 
     suspend fun openSettings(): ActionResult = openApp("настройки")
 
-    /**
-     * Запуск системного intent из декларативного каталога (аудит §7).
-     * Как и openApp, не доверяет startActivity() — проверяет реальный переход.
-     */
     suspend fun openSystemIntent(intent: android.content.Intent): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=OPEN_SYSTEM_SCREEN")
         proof.ok(ProofStage.TARGET_APP_IDENTIFIED, "system intent: ${intent.action}")
@@ -408,7 +427,8 @@ class AppControlEngine(
     /**
      * Многошаговая цепочка: «открой Whatsapp и напиши контакту Серый привет как дела».
      * Открыть → найти чат → напечатать → отправить → проверить, что сообщение в чате.
-     * Провал любого шага останавливает цепочку: нельзя отправить то, что не введено.
+     * Провал любого шага останавливает цепочку. Перед вводом и отправкой проверяем, что
+     * на экране всё ещё нужный мессенджер.
      */
     suspend fun composeMessage(grant: ActionGrant, appTarget: String, contact: String, text: String): ActionResult {
         val action = SvetlanaAction.ComposeMessage(appTarget, contact, text)
@@ -420,7 +440,8 @@ class AppControlEngine(
         steps += ProofStep(ProofStage.PLAN, StepStatus.OK,
             "PLAN_TARGET=COMPOSE_MESSAGE app=$appTarget contact=$contact text=${text.take(32)}")
 
-        val open = openApp(if (appTarget.isBlank()) DEFAULT_MESSENGER else appTarget)
+        val appName = if (appTarget.isBlank()) DEFAULT_MESSENGER else appTarget
+        val open = openApp(appName)
         steps += open.proof
         if (!open.success) {
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED: приложение не открыто")
@@ -434,6 +455,10 @@ class AppControlEngine(
             return ActionResult(action, false, chat.message, steps, "hands")
         }
 
+        wrongApp(appName)?.let { current ->
+            steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED foreground=$current")
+            return ActionResult(action, false, "На экране другое приложение — сообщение не отправлено", steps, "hands")
+        }
         val field = hands.findEditableField()
         if (field == null) {
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "поле ввода не найдено")
@@ -457,6 +482,10 @@ class AppControlEngine(
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "кнопка отправки не найдена")
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED")
             return ActionResult(action, false, "Не нашла кнопку отправки сообщения", steps, "hands")
+        }
+        wrongApp(appName)?.let { current ->
+            steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED foreground=$current")
+            return ActionResult(action, false, "На экране другое приложение — сообщение не отправлено", steps, "hands")
         }
         val sent = hands.clickNode(send)
         steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "нажата кнопка отправки")
@@ -528,43 +557,38 @@ class AppControlEngine(
 
     companion object {
         private const val UI_SETTLE_MS = 600L
-        // Мессенджер по умолчанию, если пользователь не назвал приложение.
         private const val DEFAULT_MESSENGER = "whatsapp"
     }
 
     /**
-     * Звонок (после подтверждения в ActionRouter). Честный результат: успех означает лишь,
-     * что открылось приложение «Телефон» (проверено по экрану). Сам разговор не
-     * подтверждается: RESULT_VERIFIED = UNVERIFIED, и фраза не говорит «звонок состоялся».
+     * Звонок (после подтверждения в ActionRouter). ВСЕГДА через набор номера (ACTION_DIAL):
+     * вызов нажимает сам пользователь, даже если у приложения есть CALL_PHONE. Успех означает
+     * лишь «открылся набор номера» (проверено по экрану); сам звонок не подтверждается.
      */
     suspend fun makeCall(grant: ActionGrant, contact: String): ActionResult {
         val action = SvetlanaAction.MakeCall(contact)
-        val direct = permissionManager.isGranted(android.Manifest.permission.CALL_PHONE)
-        val intent = if (direct) intentResolver.call(contact) else intentResolver.dial(contact)
-        val proof = proofBuilder.start("PLAN0_TARGET=MAKE_CALL contact=$contact mode=${if (direct) "call" else "dial"}")
+        val callPermission = permissionManager.isGranted(android.Manifest.permission.CALL_PHONE)
+        val proof = proofBuilder.start("PLAN0_TARGET=MAKE_CALL contact=$contact mode=dial call_permission=$callPermission")
         return try {
-            context.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            proof.ok(ProofStage.ACTION_ATTEMPTED, "startActivity sent")
+            context.startActivity(intentResolver.dial(contact).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            proof.ok(ProofStage.ACTION_ATTEMPTED, "dial intent sent")
             val opened = launchVerifier.waitForAnyActivity(skipPackage = context.packageName)
             proof.add(ProofStage.ACTION_PERFORMED, if (opened) StepStatus.OK else StepStatus.UNVERIFIED,
-                if (opened) "phone app in foreground" else "no foreground change detected")
+                if (opened) "dialer in foreground" else "no foreground change detected")
             proof.add(ProofStage.RESULT_VERIFIED, StepStatus.UNVERIFIED,
-                "PLAN0_RESULT=NOT PROVEN call outcome is visible only in the phone app")
+                "PLAN0_RESULT=NOT PROVEN user places the call in the phone app")
             ActionResult(action, opened,
-                when {
-                    !opened -> "Не удалось подтвердить, что открылся телефон"
-                    direct -> "Набираю: $contact. Проверьте экран звонка"
-                    else -> "Открыла набор номера: $contact. Нажмите вызов"
-                }, proof.build(), "intent")
+                if (opened) "Открыла набор номера: $contact. Нажмите вызов"
+                else "Не удалось подтвердить, что открылся набор номера",
+                proof.build(), "intent")
         } catch (t: Throwable) {
-            ActionResult(action, false, "Не удалось позвонить", proof.failed("startActivity failed"))
+            ActionResult(action, false, "Не удалось открыть набор номера", proof.failed("startActivity failed"))
         }
     }
 
     /**
      * SMS (после подтверждения в ActionRouter). Сообщение только ГОТОВИТСЯ в приложении
-     * SMS: отправляет пользователь. Поэтому успех = «приложение открылось с черновиком»,
-     * а не «отправлено».
+     * SMS: отправляет пользователь. Успех = «приложение открылось с черновиком».
      */
     suspend fun sendMessage(grant: ActionGrant, contact: String, text: String): ActionResult {
         val action = SvetlanaAction.SendMessage(contact, text)
@@ -597,14 +621,8 @@ class AppControlEngine(
     private fun handsOff(action: SvetlanaAction): ActionResult =
         ActionResult(action, false, "Для этого действия нужен Hands, но он не включён", emptyList())
 
-    /**
-     * Опасные действия, требующие подтверждения пользователя (ТЗ §58).
-     */
     fun riskOf(action: SvetlanaAction): ActionRisk = ActionRiskPolicy.riskOf(action)
 
-    /**
-     * Возможности управления для конкретного приложения (capability matrix).
-     */
     fun capabilitiesFor(app: AppModel): com.svetlana.home.apps.ControlCapabilities = app.control
 }
 
@@ -637,10 +655,6 @@ class ProofBuilder {
 
     fun build(): List<ProofStep> = steps.toList()
 
-    /**
-     * Аудит §28: структурированное доказательство.
-     * platformAccepted (Android принял команду) ≠ performed.
-     */
     fun proof(planId: String, target: String): ActionProof {
         val attempted = steps.any { it.stage == ProofStage.ACTION_ATTEMPTED }
         val platformAccepted = steps.any {
