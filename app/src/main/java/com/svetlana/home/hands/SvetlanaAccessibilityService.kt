@@ -31,6 +31,10 @@ import kotlinx.coroutines.flow.asSharedFlow
  *
  * Здесь нет ничего, что обходило бы Android: ни скрытого включения,
  * ни автоматического подтверждения опасных действий.
+ *
+ * Приватность: текст полей паролей, PIN, одноразовых кодов и номеров карт
+ * никогда не попадает в снимок экрана ([SensitiveText]) — ни в модель, ни в
+ * историю, ни в логи.
  */
 class SvetlanaAccessibilityService : AccessibilityService() {
 
@@ -59,23 +63,27 @@ class SvetlanaAccessibilityService : AccessibilityService() {
 
     // ---------- API, доступное HandsController ----------
 
-    /** Снимок UI tree текущего окна. */
+    /** Снимок UI tree текущего окна (секреты уже вычищены). */
     fun snapshotUiTree(): UiTree {
         val root = rootInActiveWindow ?: return UiTree(currentPackage(), null, emptyList())
         return UiTree(currentPackage(), mapNode(root), flatten(root))
     }
 
     private fun mapNode(node: AccessibilityNodeInfo, depth: Int = 0): UiNode {
+        val id = node.viewIdResourceName ?: ""
+        val description = node.contentDescription?.toString() ?: ""
+        val hint = node.hintText?.toString() ?: ""
+        val password = node.isPassword
         return UiNode(
             className = node.className?.toString() ?: "",
-            text = node.text?.toString() ?: "",
-            contentDescription = node.contentDescription?.toString() ?: "",
-            id = node.viewIdResourceName ?: "",
+            text = SensitiveText.redact(node.text?.toString() ?: "", password, id, description, hint),
+            contentDescription = SensitiveText.maskCardNumbers(description),
+            id = id,
             isClickable = node.isClickable,
             isScrollable = node.isScrollable,
             isEnabled = node.isEnabled,
             isFocused = node.isFocused,
-            isPassword = node.isPassword,
+            isPassword = password || SensitiveText.isSensitiveField(false, id, description, hint),
             depth = depth,
             bounds = android.graphics.Rect().also { node.getBoundsInScreen(it) }
         )

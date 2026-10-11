@@ -38,8 +38,10 @@ class ActionRouter(
 
     /**
      * Выполнить разобранное действие с проверкой разрешений.
+     *
+     * Клик/ввод без [confirmed] дополнительно проверяются по реальному
+     * элементу на экране (кнопка «Удалить», поле пароля/карты).
      */
-    @Suppress("UNUSED_PARAMETER")
     suspend fun execute(action: SvetlanaAction, confirmed: Boolean = false): ActionResult {
         // ТЗ §58: опасные действия (звонки, SMS) и публикации/шеринг
         // требуют явного подтверждения пользователя.
@@ -48,6 +50,15 @@ class ActionRouter(
                 "Запрошено подтверждение: ${action.name}")
             return ActionResult(action, false, context.getString(R.string.reply_confirm_dangerous),
                 requiresUserConfirmation = true)
+        }
+
+        // Клик/ввод: проверяем РЕАЛЬНЫЙ элемент на экране. «Кнопка» может
+        // оказаться «Удалить», а «поле» — полем пароля (prompt injection).
+        if (!confirmed && screenTargetNeedsConfirmation(action)) {
+            historyManager.record(HistoryCategory.CONFIRMATIONS,
+                "Запрошено подтверждение: ${action.name} (опасный элемент на экране)")
+            return ActionResult(action, false, context.getString(R.string.reply_confirm_dangerous),
+                way = "hands", requiresUserConfirmation = true)
         }
 
         val result = when (action) {
@@ -78,11 +89,32 @@ class ActionRouter(
             is SvetlanaAction.Compound -> executeCompound(action, confirmed)
         }
 
+        if (result.requiresUserConfirmation) return result
         historyManager.record(
             if (result.success) HistoryCategory.COMMANDS else HistoryCategory.ERRORS,
             "${action.name} → ${if (result.success) "OK" else "FAILED"}: ${result.message}"
         )
         return result
+    }
+
+    /**
+     * Нашёлся ли на экране элемент, который делает безобидный по названию
+     * Click/LongClick/TypeText опасным: подпись «Удалить/Оплатить/…» или
+     * поле пароля/PIN/карты.
+     */
+    private fun screenTargetNeedsConfirmation(action: SvetlanaAction): Boolean {
+        val (element, typing) = when (action) {
+            is SvetlanaAction.Click -> action.element to false
+            is SvetlanaAction.LongClick -> action.element to false
+            is SvetlanaAction.TypeText -> action.element to true
+            else -> return false
+        }
+        val hands = ServiceLocator.hands
+        if (!hands.isActive) return false
+        val node = hands.findElement(element) ?: return false
+        val label = "${node.text} ${node.contentDescription} ${node.id}"
+        return if (typing) node.isPassword || ActionRiskPolicy.isSensitiveFieldLabel(label)
+        else ActionRiskPolicy.isDangerousLabel(label)
     }
 
     /**
@@ -163,6 +195,11 @@ class ActionRouter(
             // целиком на уровне execute(), поэтому передаём confirmed дальше.
             val stepResult = execute(step, confirmed)
             allProof += stepResult.proof
+            if (stepResult.requiresUserConfirmation) {
+                // Опасный элемент обнаружился только на экране: спрашиваем пользователя.
+                return ActionResult(action, false, stepResult.message, allProof, stepResult.way,
+                    requiresUserConfirmation = true)
+            }
             if (!stepResult.success) {
                 allProof += com.svetlana.home.core.ProofStep(
                     com.svetlana.home.core.ProofStage.RESULT_VERIFIED,
