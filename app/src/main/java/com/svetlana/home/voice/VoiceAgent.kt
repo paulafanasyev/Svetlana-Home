@@ -6,10 +6,12 @@ import com.svetlana.home.ai.AIMode
 import com.svetlana.home.ai.AIRouter
 import com.svetlana.home.ai.AIModelCompatibilityEngine
 import com.svetlana.home.ai.AIModelRegistry
+import com.svetlana.home.apps.launcher.AppResolver
 import com.svetlana.home.control.ActionRiskPolicy
 import com.svetlana.home.control.ActionRouter
 import com.svetlana.home.control.CommandParser
 import com.svetlana.home.control.SvetlanaAction
+import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.device.DeviceCapabilityManager
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.memory.HistoryManager
@@ -27,8 +29,9 @@ import com.svetlana.home.store.SettingsRepository
  *
  * Голос должен быть один: любая СКАЗАННАЯ команда ([voice] != null) сначала проходит
  * OwnerVoiceGate. Если защита от записи на этом телефоне невозможна (live = false), любое
- * действие с телефоном, даже «открой приложение» и «прочитай экран», идёт на
- * подтверждение на экране. Текст с экрана голосом не проверяется (защищает
+ * действие с телефоном (даже «открой приложение» и «прочитай экран») идёт на
+ * подтверждение на экране, а системные команды (камера, Wi-Fi, набор номера)
+ * голосом не выполняются. Текст с экрана голосом не проверяется (защищает
  * блокировка телефона). Голосом нельзя перевести ИИ на внешний сервер.
  */
 class VoiceAgent(
@@ -95,6 +98,17 @@ class VoiceAgent(
         return Outcome.Confirmation(action, message)
     }
 
+    private fun reply(message: String, speak: Boolean, tts: SvetlanaTts?): Outcome {
+        if (speak) tts?.speak(message)
+        _events.tryEmit(DialogueEvent.Reply(message))
+        return Outcome.Replied(message)
+    }
+
+    /** Подходит ли фраза под системную команду. При ошибке считаем, что да (безопасная сторона). */
+    private fun isSystemIntent(text: String): Boolean = runCatching {
+        ServiceLocator.appResolver.resolveSystem(text) is AppResolver.ResolveResult.SystemAction
+    }.getOrDefault(true)
+
     private suspend fun handleInner(
         text: String,
         speak: Boolean,
@@ -112,9 +126,7 @@ class VoiceAgent(
             when (decision) {
                 is OwnerVoiceGate.Decision.Denied -> {
                     historyManager.record(HistoryCategory.CONFIRMATIONS, "Голосовая команда не выполнена: владелец не подтверждён")
-                    if (speak) tts?.speak(decision.message)
-                    _events.tryEmit(DialogueEvent.Reply(decision.message))
-                    return Outcome.Replied(decision.message)
+                    return reply(decision.message, speak, tts)
                 }
                 is OwnerVoiceGate.Decision.Allowed -> live = decision.live
             }
@@ -122,12 +134,15 @@ class VoiceAgent(
 
         historyManager.record(HistoryCategory.COMMANDS, "Ввод: ${text.take(120)}")
 
-        // Защита от записи недоступна: даже безопасные действия (открыть, прочитать экран)
-        // выполняются только после нажатия на экране. Опасные и так там окажутся.
+        // Защита от записи недоступна: безопасные действия только после нажатия на экране,
+        // системные команды голосом не выполняются. Опасные и так потребуют подтверждения.
         if (voice != null && !live) {
             val parsed = CommandParser.parse(text)
             if (parsed != null && !ActionRiskPolicy.requiresConfirmation(parsed)) {
                 return confirm(parsed, WEAK_CONFIRM, speak, tts)
+            }
+            if (parsed == null && isSystemIntent(text)) {
+                return reply(WEAK_SYSTEM, speak, tts)
             }
         }
 
@@ -145,11 +160,7 @@ class VoiceAgent(
 
         // 2. Команды выбора ИИ (ТЗ §48)
         val aiCommand = handleAiCommand(text, fromVoice = voice != null)
-        if (aiCommand != null) {
-            if (speak) tts?.speak(aiCommand)
-            _events.tryEmit(DialogueEvent.Reply(aiCommand))
-            return Outcome.Replied(aiCommand)
-        }
+        if (aiCommand != null) return reply(aiCommand, speak, tts)
 
         // 3. Запрос к моделям. Filler говорим СРАЗУ — до получения ответа.
         if (speak) speakFiller(tts)
@@ -241,5 +252,7 @@ class VoiceAgent(
     companion object {
         const val WEAK_CONFIRM = "На этом телефоне я не могу отличить живой голос от записи. " +
             "Подтвердите действие на экране."
+        const val WEAK_SYSTEM = "На этом телефоне я не могу отличить живой голос от записи, " +
+            "поэтому системные команды голосом не выполняю. Откройте вручную или напишите текстом."
     }
 }
