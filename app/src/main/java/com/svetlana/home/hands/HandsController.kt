@@ -156,16 +156,18 @@ class HandsController(private val context: Context) {
      * Скриншот имеет bounded timeout: Accessibility API обязан ответить
      * callback-ом, иначе action не должен оставлять корутину навсегда.
      *
-     * Приватность: поля паролей/PIN/кодов/карт и текст с одноразовыми кодами
-     * закрашиваются до того, как картинка уйдёт дальше (модель, история).
-     * Fail closed: скриншот НЕ делается в банках, платёжных сервисах, менеджерах
-     * паролей и аутентификаторах ([SensitiveApps]: там секреты часто нарисованы вне
-     * Accessibility), и не возвращается, если закрасить не удалось, если экран не
-     * удалось прочитать или у секретного поля нет координат.
+     * Приватность (default-deny, [ScreenshotPolicy]):
+     * - снимается только доверенное приложение (своё, настройки, Mobile Harness) или
+     *   то, на снимок которого пользователь только что дал одноразовое согласие;
+     * - банки, платёжки и менеджеры паролей не снимаются никогда;
+     * - если за время снимка сменилось приложение или прочитанный экран принадлежит
+     *   другому пакету — снимок не отдаётся;
+     * - поля паролей/PIN/кодов/карт закрашиваются; если закрасить нельзя — не отдаётся.
      * Окна с FLAG_SECURE Android и так отдаёт чёрными.
      */
     suspend fun takeScreenshot(timeoutMs: Long = 8000L): Bitmap? {
-        if (SensitiveApps.isSensitive(currentPackage())) return null
+        val pkg = currentPackage()
+        if (!ScreenshotPolicy.mayCapture(pkg, context.packageName)) return null
         val raw: Bitmap = withTimeoutOrNull(timeoutMs) {
             suspendCancellableCoroutine<Bitmap?> { cont ->
                 val svc = service()
@@ -178,14 +180,16 @@ class HandsController(private val context: Context) {
                 }
             }
         } ?: return null
-        // Пока делали снимок, на экран могло выйти банковское приложение.
-        if (SensitiveApps.isSensitive(currentPackage())) return null
-        return redactSecrets(raw)
+        // Пока делали снимок, на экран могло выйти другое приложение.
+        if (!currentPackage().equals(pkg, ignoreCase = true)) return null
+        return redactSecrets(raw, pkg)
     }
 
-    private fun redactSecrets(raw: Bitmap): Bitmap? {
-        // Экран не прочитан — неизвестно, где секреты: не отдаём скриншот.
-        val nodes = uiTree()?.nodes ?: return null
+    private fun redactSecrets(raw: Bitmap, expectedPackage: String): Bitmap? {
+        // Экран не прочитан или уже принадлежит другому приложению — неизвестно, где секреты.
+        val tree = uiTree() ?: return null
+        if (tree.packageName.isNotBlank() && !tree.packageName.equals(expectedPackage, ignoreCase = true)) return null
+        val nodes = tree.nodes
         val secretNodes = nodes.filter {
             it.isPassword || it.text.contains(SensitiveText.MASK) ||
                 it.contentDescription.contains(SensitiveText.MASK)
