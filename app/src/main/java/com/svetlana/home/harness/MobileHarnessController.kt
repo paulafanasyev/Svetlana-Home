@@ -6,6 +6,8 @@ import android.graphics.Bitmap
 import android.util.Log
 import com.svetlana.home.apps.AppRegistry
 import com.svetlana.home.control.ActionRiskPolicy
+import com.svetlana.home.control.SvetlanaAction
+import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.control.IntentResolver
 import com.svetlana.home.core.ProofStage
 import com.svetlana.home.core.ProofStep
@@ -28,8 +30,9 @@ import kotlinx.coroutines.delay
  *
  * Безопасность: действия выполняются только когда на экране ДЕЙСТВИТЕЛЬНО
  * Mobile Harness (иначе — отказ), и даже там не нажимаются необратимые кнопки
- * и не заполняются поля паролей/карт — для этого есть ActionRouter с
- * подтверждением пользователя.
+ * и не заполняются поля паролей/карт. Каждое нажатие/ввод проходит ту же
+ * проверку, что и команды Светланы ([com.svetlana.home.control.ActionRouter.authorizeUnattended]);
+ * опасное подтверждается только пользователем в обычном диалоге.
  */
 class MobileHarnessController(
     private val context: Context,
@@ -151,24 +154,38 @@ class MobileHarnessController(
     private fun labelOf(node: UiNode) = "${node.text} ${node.contentDescription} ${node.id}"
 
     suspend fun tapElement(text: String): Boolean {
-        ensureHarnessInForeground() ?: return false
+        val pkg = ensureHarnessInForeground() ?: return false
         val node = hands.findElement(text) ?: return false
         if (ActionRiskPolicy.isDangerousLabel(labelOf(node))) return false
+        if (!authorized(SvetlanaAction.Click(pkg, text))) return false
         return hands.clickNode(node)
     }
 
     suspend fun longPressElement(text: String): Boolean {
-        ensureHarnessInForeground() ?: return false
+        val pkg = ensureHarnessInForeground() ?: return false
         val node = hands.findElement(text) ?: return false
         if (ActionRiskPolicy.isDangerousLabel(labelOf(node))) return false
+        if (!authorized(SvetlanaAction.LongClick(pkg, text))) return false
         return hands.longClick(node)
     }
 
     suspend fun typeIntoField(fieldHint: String, value: String): Boolean {
-        ensureHarnessInForeground() ?: return false
+        val pkg = ensureHarnessInForeground() ?: return false
         val node = hands.findElement(fieldHint) ?: return false
         if (node.isPassword || ActionRiskPolicy.isSensitiveFieldLabel(labelOf(node))) return false
+        if (!authorized(SvetlanaAction.TypeText(pkg, fieldHint, value))) return false
         return hands.inputText(node, value)
+    }
+
+    /**
+     * Единая точка авторизации: та же проверка, что у ActionRouter (политика +
+     * реальный элемент на экране). Без диалога с пользователем опасное не выполняется.
+     * Если роутер ещё не создан (ранний старт), действуем только по локальной проверке выше
+     * (она совпадает с проверкой элемента в роутере).
+     */
+    private suspend fun authorized(action: SvetlanaAction): Boolean {
+        val router = try { ServiceLocator.actionRouter } catch (t: Throwable) { null } ?: return true
+        return router.authorizeUnattended(action)
     }
 
     suspend fun scrollDown(): Boolean {

@@ -58,9 +58,11 @@ class ActionRouter(
         // оказаться «Удалить», а «поле» — полем пароля (prompt injection).
         val target = screenTarget(action)
         val targetRisk = target != null && target.dangerous
+        var approved = false
         if (policyRisk || targetRisk) {
             val key = Approval(action, target?.label)
-            if (!(confirmed && consumeApproval(key))) {
+            approved = confirmed && consumeApproval(key)
+            if (!approved) {
                 rememberApproval(key)
                 historyManager.record(HistoryCategory.CONFIRMATIONS, "Запрошено подтверждение: ${action.name}")
                 val question = ConfirmationText.question(
@@ -71,14 +73,16 @@ class ActionRouter(
             }
         }
 
+        // Движок повторно проверяет элемент (защита в глубину); подтверждение,
+        // которое пользователь только что дал на ЭТОТ элемент, передаём ему явно.
         val result = when (action) {
             is SvetlanaAction.OpenApp -> engine.openApp(action.target)
             is SvetlanaAction.OpenAppScreen -> engine.openApp(action.target)
-            is SvetlanaAction.Click -> engine.click(action.target, action.element)
-            is SvetlanaAction.LongClick -> engine.longClick(action.target, action.element)
+            is SvetlanaAction.Click -> engine.click(action.target, action.element, confirmed = approved)
+            is SvetlanaAction.LongClick -> engine.longClick(action.target, action.element, confirmed = approved)
             is SvetlanaAction.Swipe -> engine.swipe(action.target, action.direction)
             is SvetlanaAction.Scroll -> engine.scroll(action.target, action.direction)
-            is SvetlanaAction.TypeText -> engine.typeText(action.target, action.element, action.text)
+            is SvetlanaAction.TypeText -> engine.typeText(action.target, action.element, action.text, confirmed = approved)
             is SvetlanaAction.ClearText -> engine.clearText(action.target, action.element)
             is SvetlanaAction.ReadScreen -> engine.readScreen(action.target)
             is SvetlanaAction.FindElement -> engine.readScreen(action.target)
@@ -105,6 +109,23 @@ class ActionRouter(
             "${action.name} → ${if (result.success) "OK" else "FAILED"}: ${result.message}"
         )
         return result
+    }
+
+    /**
+     * Единая проверка для исполнителей без диалога с пользователем (Mobile Harness,
+     * автотесты): true — действие безопасно и его можно выполнить сразу.
+     * Опасное по политике или по реальному элементу на экране НЕ выполняется:
+     * записываем запрос подтверждения в историю, а подтвердить его можно только
+     * через обычный диалог Светланы (execute → confirmed).
+     */
+    suspend fun authorizeUnattended(action: SvetlanaAction): Boolean {
+        val target = screenTarget(action)
+        val risky = ActionRiskPolicy.requiresConfirmation(action) || (target != null && target.dangerous)
+        if (risky) {
+            historyManager.record(HistoryCategory.CONFIRMATIONS,
+                "Нужно подтверждение (без диалога не выполнено): ${ConfirmationText.question(action, target?.shown, secretField = target != null && target.typing && target.dangerous)}")
+        }
+        return !risky
     }
 
     private class ScreenTarget(val label: String, val shown: String, val typing: Boolean, val dangerous: Boolean)
