@@ -4,6 +4,7 @@ package com.svetlana.home.control
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Rect
 import com.svetlana.home.R
 import com.svetlana.home.apps.AppModel
 import com.svetlana.home.core.ProofStage
@@ -29,7 +30,8 @@ import com.svetlana.home.permissions.PermissionManager
  *   подтвердил ([targetLabel]); другая кнопка на его месте или сдвиг = отказ;
  * - сообщение в мессенджере уходит только в чат, в ШАПКЕ которого именно этот собеседник, текст
  *   вводится в то же поле, а нажимается та же кнопка «Отправить» (каждый шаг перепроверяется
- *   перед действием); имя в тексте сообщения ниже шапки не считается;
+ *   перед действием); имя в тексте сообщения ниже шапки не считается; если на экране несколько
+ *   чатов с таким именем (два «Алекса»), чат не открывается — нужно точное имя ([ambiguousContact]);
  * - звонок только через набор номера, SMS — только черновик.
  *
  * Запрещено: произвольные shell-команды, root, Termux, скрытое управление, автонабор звонка.
@@ -107,6 +109,26 @@ class AppControlEngine(
             ?: return false
         val shown = title.text.trim().lowercase()
         return shown == want || shown.startsWith("$want ")
+    }
+
+    /**
+     * На экране несколько РАЗНЫХ строк, подходящих под это имя (два «Алекса» или «Алекс» и
+     * «Алекс Иванов» — шапка любого из них пройдёт [recipientShown]): кому писать — неизвестно,
+     * первую попавшуюся не выбираем. Поля ввода (поиск с тем же текстом) не считаются,
+     * вложенные элементы одной строки (перекрывающиеся границы) считаются одной строкой.
+     */
+    private fun ambiguousContact(contact: String): Boolean {
+        val want = contact.trim().lowercase()
+        if (want.isEmpty()) return true
+        val tree = hands.uiTree() ?: return true
+        val rows = mutableListOf<Rect>()
+        for (n in tree.nodes) {
+            if (n.bounds.isEmpty || n.className.lowercase().contains("edittext")) continue
+            val t = n.visibleText.trim().lowercase()
+            if (t != want && !t.startsWith("$want ")) continue
+            if (rows.none { Rect.intersects(it, n.bounds) }) rows += Rect(n.bounds)
+        }
+        return rows.size > 1
     }
 
     suspend fun openApp(target: String): ActionResult {
@@ -572,9 +594,15 @@ class AppControlEngine(
         steps += ProofStep(ProofStage.TARGET_APP_IDENTIFIED, StepStatus.OK, "контакт: $contact app=$appPkg")
         val away = StepResult(false, "На экране другое приложение — действие отменено")
         val swapped = StepResult(false, "Строка чата изменилась перед нажатием — действие отменено для безопасности")
+        val ambiguous = {
+            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "несколько чатов подходят под имя")
+            StepResult(false, "Нашла несколько чатов «${contact.take(40)}» — назовите полное имя, чтобы не ошибиться собеседником")
+        }
 
         val direct = hands.findElement(contact)
         if (direct != null && direct.isClickable) {
+            // Два подходящих чата — не выбираем первый попавшийся.
+            if (ambiguousContact(contact)) return ambiguous()
             // Строка чата ищется ещё раз прямо перед нажатием: подмена или сдвиг = отказ.
             if (!sameTarget(appPkg, direct, hands.findElement(contact))) return swapped
             if (!onScreen(appPkg)) return away
@@ -612,6 +640,7 @@ class AppControlEngine(
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "контакт не найден в результатах поиска")
             return StepResult(false, "Контакт $contact не найден")
         }
+        if (ambiguousContact(contact)) return ambiguous()
         if (!sameTarget(appPkg, found, hands.findElement(contact))) return swapped
         if (!onScreen(appPkg)) return away
         val clicked = hands.clickNode(found, appPkg)
