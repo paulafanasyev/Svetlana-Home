@@ -18,11 +18,14 @@ import com.svetlana.home.store.SettingsRepository
  * VoiceAgent — единое ядро диалога для экрана и фонового сервиса.
  *
  * Цепочка (ТЗ §18, §56):
- *   ввод → Action Router (управление устройством) → AI-команды → AI-чат → голос.
+ *   ввод → [голос: проверка владельца] → Action Router → AI-команды → AI-чат → голос.
  *
  * Используется и HomeViewModel (UI), и VoiceAssistantService (фон), поэтому
  * поведение диалога одинаково в обоих режимах: те же команды, тот же
  * privacy-роутинг, тот же голосовой отклик.
+ *
+ * Голос должен быть один: любая СКАЗАННАЯ команда ([voice] != null) сначала проходит
+ * OwnerVoiceGate. Текст с экрана не проверяется голосом (его защищает блокировка телефона).
  */
 class VoiceAgent(
     private val context: Context,
@@ -42,6 +45,9 @@ class VoiceAgent(
         /** Требуется явное подтверждение пользователя (ТЗ §58). */
         data class Confirmation(val action: SvetlanaAction, val message: String) : Outcome()
     }
+
+    /** Команда пришла голосом. [ownerAudio]: аудио этой фразы (Android 13+) или null. */
+    class VoiceInput(val ownerAudio: FloatArray?)
 
     /**
      * Последний ответ/событие диалога.
@@ -73,14 +79,29 @@ class VoiceAgent(
      * @param speak озвучивать ли результат через TTS.
      * @param tts синтезатор речи (null — тишина, только текст).
      * @param onPartial колбэк с накопленным текстом ответа (для UI/стриминга).
+     * @param voice не null, если команда сказана голосом: тогда сначала проверяем владельца.
      */
     suspend fun handle(
         text: String,
         speak: Boolean = true,
         tts: SvetlanaTts? = null,
-        onPartial: ((String) -> Unit)? = null
+        onPartial: ((String) -> Unit)? = null,
+        voice: VoiceInput? = null
     ): Outcome {
         if (text.isBlank()) return Outcome.Replied("")
+
+        // 0. Голос должен быть один: только верифицированный владелец.
+        if (voice != null) {
+            val decision = OwnerVoiceGate.authorize(context, voice.ownerAudio, if (speak) tts else null)
+            voice.ownerAudio?.fill(0f)
+            if (decision is OwnerVoiceGate.Decision.Denied) {
+                historyManager.record(HistoryCategory.CONFIRMATIONS, "Голосовая команда не выполнена: голос владельца не подтверждён")
+                if (speak) tts?.speak(decision.message)
+                _events.tryEmit(DialogueEvent.Reply(decision.message))
+                return Outcome.Replied(decision.message)
+            }
+        }
+
         historyManager.record(HistoryCategory.COMMANDS, "Ввод: ${text.take(120)}")
 
         // 1. Команды управления устройством, включая длинные Hands-цепочки
