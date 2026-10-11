@@ -158,7 +158,9 @@ class HandsController(private val context: Context) {
      *
      * Приватность: поля паролей/PIN/кодов/карт и текст с одноразовыми кодами
      * закрашиваются до того, как картинка уйдёт дальше (модель, история).
-     * Если закрасить не удалось — скриншот не возвращается (fail closed).
+     * Fail closed: скриншот НЕ возвращается, если закрасить не удалось, если экран
+     * не удалось прочитать (неизвестно, где секреты) или если у секретного
+     * поля нет координат. Окна с FLAG_SECURE (банки, пароли) Android и так отдаёт чёрными.
      */
     suspend fun takeScreenshot(timeoutMs: Long = 8000L): Bitmap? {
         val raw: Bitmap = withTimeoutOrNull(timeoutMs) {
@@ -177,21 +179,22 @@ class HandsController(private val context: Context) {
     }
 
     private fun redactSecrets(raw: Bitmap): Bitmap? {
-        val secrets = uiTree()?.nodes.orEmpty()
-            .filter {
-                it.isPassword || it.text.contains(SensitiveText.MASK) ||
-                    it.contentDescription.contains(SensitiveText.MASK)
-            }
-            .map { it.bounds }
-            .filter { !it.isEmpty }
-        if (secrets.isEmpty()) return raw
+        // Экран не прочитан — неизвестно, где секреты: не отдаём скриншот.
+        val nodes = uiTree()?.nodes ?: return null
+        val secretNodes = nodes.filter {
+            it.isPassword || it.text.contains(SensitiveText.MASK) ||
+                it.contentDescription.contains(SensitiveText.MASK)
+        }
+        // Секретное поле без координат: закрасить нечего — не отдаём.
+        if (secretNodes.any { it.bounds.isEmpty }) return null
+        if (secretNodes.isEmpty()) return raw
         val copy = raw.copy(Bitmap.Config.ARGB_8888, true) ?: return null
         val canvas = Canvas(copy)
         val paint = Paint().apply {
             color = Color.BLACK
             style = Paint.Style.FILL
         }
-        secrets.forEach { canvas.drawRect(it, paint) }
+        secretNodes.forEach { canvas.drawRect(it.bounds, paint) }
         return copy
     }
 
