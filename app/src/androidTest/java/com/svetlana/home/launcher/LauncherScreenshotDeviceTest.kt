@@ -1,13 +1,20 @@
 package com.svetlana.home.launcher
 
-import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.WallpaperManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Rect
 import android.os.ParcelFileDescriptor
-import android.view.accessibility.AccessibilityNodeInfo
+import java.io.File
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -59,39 +66,11 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
     }
 
     /**
-     * Нажимает «Подождать» в системном ANR-диалоге («System UI/Settings isn't responding»).
-     * Диалог — отдельное системное окно (пакет android), поэтому ищем его через список
-     * всех интерактивных окон UiAutomation, а не через фокус.
-     */
-    private fun tapAnrWait(): Boolean {
-        val ua = InstrumentationRegistry.getInstrumentation().uiAutomation
-        val info = ua.serviceInfo
-        if ((info.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) == 0) {
-            info.flags = info.flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
-            ua.serviceInfo = info
-        }
-        var clicked = false
-        for (window in ua.windows) {
-            val root = window.root ?: continue
-            if (root.packageName?.toString() != "android") continue
-            val nodes = root.findAccessibilityNodeInfosByViewId("android:id/aerr_wait") +
-                root.findAccessibilityNodeInfosByText("Wait") +
-                root.findAccessibilityNodeInfosByText("Подождать")
-            for (node in nodes) {
-                val target = if (node.isClickable) node else node.parent
-                if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) clicked = true
-            }
-        }
-        return clicked
-    }
-
-    /**
-     * Эмулятор CI иногда показывает ANR-диалог поверх всего. Жмём «Подождать»; если виноваты
-     * «Настройки» — останавливаем их; если диалог в фокусе — «Назад».
+     * Эмулятор CI иногда показывает ANR-диалог поверх всего. Если виноваты «Настройки» —
+     * останавливаем их; если диалог в фокусе — «Назад».
      */
     private fun closeSystemDialogs() {
         for (attempt in 0 until 5) {
-            val tapped = try { tapAnrWait() } catch (t: Throwable) { false }
             val windows = shellOut("dumpsys window windows")
             val culprit = Regex("Application (?:Not Responding|Error): ([A-Za-z0-9_.]+)")
                 .find(windows)?.groupValues?.get(1)
@@ -100,7 +79,7 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
                 .joinToString(" ")
             val focused = focus.contains("Not Responding") || focus.contains("Application Error") ||
                 focus.contains("isn't responding")
-            if (!tapped && culprit == null && !focused) break
+            if (culprit == null && !focused) break
             // Останавливаем только «Настройки» эмулятора: systemui и прочие системные
             // процессы трогать нельзя — это роняет весь прогон.
             if (culprit == "com.android.settings") shell("am force-stop com.android.settings")
@@ -111,13 +90,47 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
         shell("input keyevent KEYCODE_WAKEUP")
     }
 
+    /**
+     * Чистый снимок окна launcher: системные окна эмулятора (ANR-диалог «System UI isn't
+     * responding») в него не попадают. Окно прозрачное, поэтому под него подкладываются
+     * стандартные обои эмулятора (те же, что на обычном снимке).
+     */
+    private fun cleanShot(name: String): Boolean = try {
+        val window = compose.onRoot().captureToImage().asAndroidBitmap()
+        val out = Bitmap.createBitmap(window.width, window.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        canvas.drawColor(Color.BLACK)
+        val wm = WallpaperManager.getInstance(context)
+        val wallpaper = wm.builtInDrawable
+        if (wallpaper != null) {
+            val w = wallpaper.intrinsicWidth.takeIf { it > 0 } ?: out.width
+            val h = wallpaper.intrinsicHeight.takeIf { it > 0 } ?: out.height
+            val scale = maxOf(out.width.toFloat() / w, out.height.toFloat() / h)
+            val dw = (w * scale).toInt()
+            val dh = (h * scale).toInt()
+            val left = (out.width - dw) / 2
+            val top = (out.height - dh) / 2
+            wallpaper.bounds = Rect(left, top, left + dw, top + dh)
+            wallpaper.draw(canvas)
+        }
+        canvas.drawBitmap(window, 0f, 0f, null)
+        val dir = File(context.getExternalFilesDir(null), "shots").apply { mkdirs() }
+        val file = File(dir, "$name.png")
+        file.outputStream().use { out.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        shell("cp ${file.absolutePath} $DIR/$name.png")
+        shellOut("ls $DIR").contains("$name.png")
+    } catch (t: Throwable) {
+        println("SVETLANA_CLEAN_SHOT_FAILED=$name ${t.javaClass.simpleName}: ${t.message}")
+        false
+    }
+
     private fun shot(name: String) {
         compose.waitForIdle()
         closeSystemDialogs()
         Thread.sleep(1200)
         closeSystemDialogs()
         compose.waitForIdle()
-        shell("screencap -p $DIR/$name.png")
+        if (!cleanShot(name)) shell("screencap -p $DIR/$name.png")
         println("SVETLANA_SCREENSHOT=$name")
     }
 
