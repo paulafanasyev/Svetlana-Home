@@ -11,8 +11,9 @@ object SensitiveApps {
         "bank", "sber", "tinkoff", "tbank", "vtb", "alfa", "raiffeisen", "gazprombank", "psbank",
         "sovcombank", "otpbank", "rosbank", "pochtabank", "mkb", "ozon.fintech", "yoomoney", "qiwi",
         "paypal", "revolut", "wise", "monzo", "wallet", "pay", "crypto", "binance", "metamask", "trustwallet",
-        "authenticator", "authy", "1password", "bitwarden", "keepass", "lastpass", "dashlane", "nordpass",
-        "enpass", "gosuslugi", "nalog", "mosru",
+        "authenticator", "authy", "1password", "onepassword", "agilebits", "bitwarden", "keepass", "lastpass",
+        "dashlane", "nordpass", "enpass", "keeper", "proton.pass", "password",
+        "gosuslugi", "nalog", "mosru",
     )
 
     /** true — пакет похож на банк/платёжку/менеджер паролей. Пустой пакет считается опасным. */
