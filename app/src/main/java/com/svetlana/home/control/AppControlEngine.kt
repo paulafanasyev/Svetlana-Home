@@ -23,7 +23,8 @@ import com.svetlana.home.permissions.PermissionManager
  * - каждое действие на экране (нажатие, ввод, очистка, прокрутка, свайп, чтение)
  *   «прикалывается» к пакету целевого приложения ([guard]): неизвестное приложение = отказ,
  *   а пакет проверяется ещё раз НЕПОСРЕДСТВЕННО перед действием — оверлей или переключение
- *   приложения отменяет действие;
+ *   приложения отменяет действие; для нажатия/ввода/очистки пакет сверяется ещё и на самом
+ *   живом элементе, на который идёт действие (HandsController, inPackage);
  * - нажатие/ввод/очистка выполняются только на том элементе, который роутер оценил и пользователь
  *   подтвердил ([targetLabel]); другая кнопка на его месте или сдвиг = отказ;
  * - сообщение в мессенджере уходит только в чат, в ШАПКЕ которого именно этот собеседник, текст
@@ -173,7 +174,7 @@ class AppControlEngine(
         if (differs(expected, hands.currentPackage(), node)) return changedTarget(action, proof)
         val before = hands.treeFingerprint()
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
-        val ok = hands.clickNode(node)
+        val ok = hands.clickNode(node, pkg)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "click performed" else "click failed")
         val changed = ok && verifyScreenChanged(before, 700)
@@ -201,7 +202,7 @@ class AppControlEngine(
         if (differs(expected, hands.currentPackage(), node)) return changedTarget(action, proof)
         val before = hands.treeFingerprint()
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
-        val ok = hands.longClick(node)
+        val ok = hands.longClick(node, pkg)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "long click performed" else "long click failed")
         val verified = ok && verifyScreenChanged(before, 800)
@@ -228,7 +229,7 @@ class AppControlEngine(
             ?: return ActionResult(action, false, "Поле ввода не найдено", proof.failed("input field not found"))
         if (differs(expected, hands.currentPackage(), node)) return changedTarget(action, proof)
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
-        val ok = hands.inputText(node, text)
+        val ok = hands.inputText(node, text, pkg)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "input performed" else "input failed")
         val entered = ok && hands.verifyTextEntered(node, text)
@@ -256,7 +257,7 @@ class AppControlEngine(
         // Очищается только то поле, которое пользователь подтвердил.
         if (differs(expected, hands.currentPackage(), node)) return changedTarget(action, proof)
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
-        val ok = hands.clearText(node)
+        val ok = hands.clearText(node, pkg)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "clear performed" else "clear failed")
         val cleared = ok && hands.verifyTextEmpty(node)
@@ -525,7 +526,7 @@ class AppControlEngine(
         if (!sameSpot(field, hands.findEditableField())) return changed("поле ввода изменилось")
         if (!recipientShown(contact, field)) return changed("собеседник не подтверждён")
         if (!onScreen(appPkg)) return moved(hands.currentPackage())
-        val typed = hands.inputText(field, text)
+        val typed = hands.inputText(field, text, appPkg)
         steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "текст введён: «${text.take(32)}»")
         val textEntered = typed && hands.verifyTextEntered(field, text)
         steps += ProofStep(ProofStage.ACTION_PERFORMED,
@@ -548,7 +549,7 @@ class AppControlEngine(
         if (!sameSpot(field, hands.findEditableField())) return changed("поле ввода изменилось")
         if (!recipientShown(contact, field)) return changed("собеседник не подтверждён")
         if (!onScreen(appPkg)) return moved(hands.currentPackage())
-        val sent = hands.clickNode(send)
+        val sent = hands.clickNode(send, appPkg)
         steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "нажата кнопка отправки")
 
         kotlinx.coroutines.delay(UI_SETTLE_MS)
@@ -577,7 +578,7 @@ class AppControlEngine(
             // Строка чата ищется ещё раз прямо перед нажатием: подмена или сдвиг = отказ.
             if (!sameTarget(appPkg, direct, hands.findElement(contact))) return swapped
             if (!onScreen(appPkg)) return away
-            val clicked = hands.clickNode(direct)
+            val clicked = hands.clickNode(direct, appPkg)
             kotlinx.coroutines.delay(UI_SETTLE_MS)
             val input = if (onScreen(appPkg)) hands.findEditableField() else null
             val opened = input != null && recipientShown(contact, input)
@@ -596,7 +597,7 @@ class AppControlEngine(
             return StepResult(false, "Не нашла чат с $contact")
         }
         if (!onScreen(appPkg)) return away
-        hands.clickNode(searchEntry)
+        hands.clickNode(searchEntry, appPkg)
         kotlinx.coroutines.delay(UI_SETTLE_MS)
         val searchField = hands.findEditableField()
             ?: run {
@@ -604,7 +605,7 @@ class AppControlEngine(
                 return StepResult(false, "Не удалось открыть поиск контакта")
             }
         if (!onScreen(appPkg)) return away
-        hands.inputText(searchField, contact)
+        hands.inputText(searchField, contact, appPkg)
         kotlinx.coroutines.delay(UI_SETTLE_MS)
         val found = hands.findElement(contact)
         if (found == null || !found.isClickable) {
@@ -613,7 +614,7 @@ class AppControlEngine(
         }
         if (!sameTarget(appPkg, found, hands.findElement(contact))) return swapped
         if (!onScreen(appPkg)) return away
-        val clicked = hands.clickNode(found)
+        val clicked = hands.clickNode(found, appPkg)
         kotlinx.coroutines.delay(UI_SETTLE_MS)
         val input = if (onScreen(appPkg)) hands.findEditableField() else null
         val opened = input != null && recipientShown(contact, input)
