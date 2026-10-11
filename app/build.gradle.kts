@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.File
+import java.net.URL
 
 plugins {
     id("com.android.application")
@@ -24,10 +25,10 @@ val fetchSvetlanaAvatar = tasks.register("fetchSvetlanaAvatar") {
         if (target.isFile && target.length() > 1000) return@doLast
         target.parentFile.mkdirs()
         try {
-            val conn = java.net.URL(url).openConnection()
-            conn.connectTimeout = 15_000
-            conn.readTimeout = 30_000
-            val bytes = conn.getInputStream().use { it.readBytes() }
+            val conn = URL(url).openConnection()
+            conn.setConnectTimeout(15_000)
+            conn.setReadTimeout(30_000)
+            val bytes = conn.getInputStream().use { stream -> stream.readBytes() }
             check(bytes.size > 1000 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()) { "не JPEG" }
             target.writeBytes(bytes)
             logger.lifecycle("Портрет Светланы: ${bytes.size} байт")
