@@ -11,7 +11,9 @@ plugins {
 /**
  * Портрет Светланы — тот же файл, что в Svetlana 2.0
  * (public/images/avatar/svetlana-master.jpg, закреплённый коммит). Кладётся в
- * assets при сборке; без сети сборка не падает — приложение покажет шар.
+ * assets при сборке. Шара больше нет, поэтому без портрета сборка падает.
+ * Офлайн-сборка: положите файл вручную в
+ * app/build/generated/svetlanaAvatar/assets/avatar/svetlana.jpg.
  */
 val svetlanaAvatarUrl =
     "https://raw.githubusercontent.com/paulafanasyev/Svetlana-2.0/16568a4ec62b5b91ffa12c8322883775c5690b62/public/images/avatar/svetlana-master.jpg"
@@ -24,17 +26,23 @@ val fetchSvetlanaAvatar = tasks.register("fetchSvetlanaAvatar") {
         val target = outDir.get().file("avatar/svetlana.jpg").asFile
         if (target.isFile && target.length() > 1000) return@doLast
         target.parentFile.mkdirs()
-        try {
-            val conn = URL(url).openConnection()
-            conn.setConnectTimeout(15_000)
-            conn.setReadTimeout(30_000)
-            val bytes = conn.getInputStream().use { stream -> stream.readBytes() }
-            check(bytes.size > 1000 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()) { "не JPEG" }
-            target.writeBytes(bytes)
-            logger.lifecycle("Портрет Светланы: ${bytes.size} байт")
-        } catch (e: Exception) {
-            logger.warn("Портрет Светланы не скачан (${e.message}) — в приложении будет шар")
+        var lastError: Exception? = null
+        for (attempt in 1..3) {
+            try {
+                val conn = URL(url).openConnection()
+                conn.setConnectTimeout(15_000)
+                conn.setReadTimeout(30_000)
+                val bytes = conn.getInputStream().use { stream -> stream.readBytes() }
+                check(bytes.size > 1000 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()) { "не JPEG" }
+                target.writeBytes(bytes)
+                logger.lifecycle("Портрет Светланы: ${bytes.size} байт")
+                return@doLast
+            } catch (e: Exception) {
+                lastError = e
+                Thread.sleep(2_000L * attempt)
+            }
         }
+        throw GradleException("Портрет Светланы не скачан: ${lastError?.message}", lastError)
     }
 }
 
