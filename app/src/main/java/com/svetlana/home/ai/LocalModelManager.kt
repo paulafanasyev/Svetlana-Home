@@ -7,20 +7,18 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Управление установленными локальными моделями.
  *
  * КРИТИЧЕСКОЕ ПРАВИЛО (ТЗ §32, §33, §87):
  * Локальная модель НИКОГДА не скачивается автоматически.
- * Даже если найдена идеально совместимая модель.
- *
- * Только после явного решения пользователя:
- *   Предложить → Показать размер → Показать требования → Решение → Скачать
  *
  * Целостность: любая модель скачивается только по https, не больше [maxDownloadBytes], и
- * устанавливается только при совпадении с доверенным SHA-256 из реестра. Перед загрузкой
- * в нативный runtime файл снова сверяется с доверенным хешем ([verifyIntegrity]).
+ * устанавливается только при совпадении с доверенным SHA-256 из реестра. Перед КАЖДОЙ
+ * загрузкой в нативный runtime файл заново хешируется и сверяется с хешем из реестра (сохранённый
+ * на диске хеш не считается доверенным).
  */
 @Serializable
 data class InstalledModel(
@@ -48,10 +46,6 @@ data class BenchmarkResult(
     val status: String
 )
 
-/**
- * open — чтобы unit-тесты могли подставлять предустановленный список моделей,
- * не вызывая реальную загрузку файлов (аудит п.6: проверка выбора модели).
- */
 open class LocalModelManager(
     private val context: Context,
     private val registry: AIModelRegistry = AIModelRegistry()
@@ -60,6 +54,9 @@ open class LocalModelManager(
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private val storeFile: File by lazy { File(context.filesDir, "local_models.json") }
     private val modelsDir: File by lazy { File(context.filesDir, "models").apply { mkdirs() } }
+
+    /** Успешные проверки: modelId → «путь|размер|время|хеш». Только для быстрых проверок готовности. */
+    private val integrityCache = ConcurrentHashMap<String, String>()
 
     @Volatile
     private var installed: List<InstalledModel> = load()
@@ -74,27 +71,30 @@ open class LocalModelManager(
 
     fun freeSpaceBytes(): Long = modelsDir.usableSpace
 
-    /** Предел размера скачивания: заявленный размер + 25% (но не меньше 64 МБ). Защита от забивания памяти. */
     private fun maxDownloadBytes(model: AIModel): Long =
         maxOf(model.sizeMb.toLong() * 1024L * 1024L * 5L / 4L, 64L * 1024L * 1024L)
 
     /**
-     * Файл модели не изменён после установки: лежит в нашей папке моделей и его SHA-256 совпадает
-     * с доверенным (из реестра, а если там нет — с проверенным при установке). Вызывается перед
-     * каждой загрузкой модели в нативную память.
+     * Файл модели не изменён: лежит в нашей папке моделей и его SHA-256 совпадает с доверенным
+     * хешем ИЗ РЕЕСТРА. Модель без доверенного хеша не проходит проверку никогда.
+     * @param fresh true (по умолчанию) — всегда заново хешировать файл (перед загрузкой в память);
+     *   false — для проверок готовности можно взять недавний успешный результат для того же файла.
      */
-    open fun verifyIntegrity(modelId: String): Boolean {
+    open fun verifyIntegrity(modelId: String, fresh: Boolean = true): Boolean {
         val m = byId(modelId) ?: return false
         return try {
             val f = File(m.filePath)
             if (!f.isFile) return false
-            val dir = modelsDir.canonicalPath + File.separator
-            if (!f.canonicalPath.startsWith(dir)) return false
-            val trusted = registry.byId(modelId)?.expectedSha256?.takeIf { it.length == 64 }
-                ?: m.sha256?.takeIf { it.length == 64 }
-                ?: return false
+            val canonical = f.canonicalPath
+            if (!canonical.startsWith(modelsDir.canonicalPath + File.separator)) return false
+            val trusted = registry.byId(modelId)?.expectedSha256?.takeIf { it.length == 64 } ?: return false
+            val stamp = "$canonical|${f.length()}|${f.lastModified()}|${trusted.lowercase()}"
+            if (!fresh && integrityCache[modelId] == stamp) return true
             val ok = sha256(f).equals(trusted, ignoreCase = true)
-            if (!ok) Log.w(TAG, "Контрольная сумма модели $modelId не совпадает — файл изменён или повреждён")
+            if (ok) integrityCache[modelId] = stamp else {
+                integrityCache.remove(modelId)
+                Log.w(TAG, "Контрольная сумма модели $modelId не совпадает с реестром — файл изменён или повреждён")
+            }
             ok
         } catch (t: Throwable) { false }
     }
@@ -107,6 +107,7 @@ open class LocalModelManager(
         val target = File(modelsDir, "${model.id}.$ext")
         val temp = File(modelsDir, ".${model.id}.$ext.part")
         val backup = File(modelsDir, ".${model.id}.$ext.previous")
+        integrityCache.remove(model.id)
 
         return try {
             if (!model.runtimeImplemented) {
@@ -218,6 +219,7 @@ open class LocalModelManager(
 
     fun uninstall(modelId: String): Boolean {
         val model = byId(modelId) ?: return false
+        integrityCache.remove(modelId)
         val deleted = try { File(model.filePath).delete() } catch (t: Throwable) { false }
         installed = installed.filterNot { it.modelId == modelId }
         save()

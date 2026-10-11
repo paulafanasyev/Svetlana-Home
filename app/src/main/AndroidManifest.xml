@@ -135,7 +135,7 @@
             android:label="@string/title_history"
             android:theme="@style/Theme.SvetlanaHome" />
 
-        <!-- Hands: сервис специальных возможностей -->
+        <!-- Hands: сервис специальных возможностей (привязаться может только система) -->
         <service
             android:name=".hands.SvetlanaAccessibilityService"
             android:exported="true"
@@ -148,23 +148,16 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
-            <!-- Audit p.23: для foregroundServiceType="specialUse" Android
-                 требует явного описания подтипа через <property>. -->
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="svetlana_hands_accessibility_ui_automation" />
         </service>
 
-        <!-- Фоновый голосовой ассистент: слушает wake word и исполняет
-             команды, когда приложение свёрнуто. Foreground-сервис с типом
-             microphone — виден пользователю через постоянное уведомление. -->
         <service
             android:name=".voice.VoiceAssistantService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
-        <!-- Значки уведомлений на иконках launcher. Работает только после того,
-             как пользователь сам выдал доступ; читаются лишь пакеты и количество. -->
         <service
             android:name=".ui.launcher.NotificationDotsService"
             android:exported="true"
@@ -175,9 +168,11 @@
             </intent-filter>
         </service>
 
+        <!-- Приёмник загрузки не экспортирован: BOOT_COMPLETED доставляет система,
+             другие приложения отправить ему ничего не могут (см. ManifestExposureTest). -->
         <receiver
             android:name=".core.BootCompletedReceiver"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
