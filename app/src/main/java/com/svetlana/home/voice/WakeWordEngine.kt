@@ -125,6 +125,10 @@ class WakeWordEngine(
                     // Любая ошибка после старта STT не должна оставлять
                     // VoiceSessionStateMachine в STOPPED/PROCESSING.
                     recognizer.finishSession()
+                    if (t is kotlinx.coroutines.CancellationException) {
+                        consumeDetection()
+                        throw t
+                    }
                     Log.w(TAG, "Цикл wake word прерван", t)
                     delay(2000)
                 }
@@ -150,8 +154,17 @@ class WakeWordEngine(
         _detection.value = command
     }
 
+    /** Ждём, пока сервис обработает команду, но не вечно: потом команда и аудио стираются. */
     private suspend fun waitForDetectionConsumption() {
-        while (_detection.value != null) delay(100)
+        val deadline = System.currentTimeMillis() + MAX_COMMAND_MS
+        while (_detection.value != null) {
+            if (System.currentTimeMillis() > deadline) {
+                Log.w(TAG, "Команда не обработана вовремя, сбрасываем")
+                consumeDetection()
+                break
+            }
+            delay(100)
+        }
     }
 
     /** Аудио обнаруженной команды для проверки владельца. Отдаётся один раз. */
@@ -174,6 +187,8 @@ class WakeWordEngine(
         job?.cancel()
         job = null
         _state.value = State.IDLE
+        // Необработанная команда и её аудио не переживают остановку.
+        consumeDetection()
         recognizer.stopListening()
         recognizer.finishSession()
     }
@@ -205,5 +220,6 @@ class WakeWordEngine(
     companion object {
         private const val TAG = "WakeWord"
         private const val TTS_TAIL_MS = 700L
+        private const val MAX_COMMAND_MS = 120_000L
     }
 }
