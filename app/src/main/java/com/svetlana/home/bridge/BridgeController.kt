@@ -22,7 +22,8 @@ import kotlin.concurrent.thread
  * Starts the bridge that lets the Svetlana 2.0 core (Windows app) use this
  * phone: http://<phone-ip>:8080, protected by a pairing code shown on the home
  * screen and in a notification. Opt-in: off until the user enables it; every
- * enable generates a fresh code. Plain HTTP: use only on a trusted home Wi-Fi.
+ * enable generates a fresh code. The code itself never goes over the network: requests and
+ * replies are encrypted and authenticated with a key derived from it (protocol v2, [BridgeSecure]).
  */
 object BridgeController {
     const val PORT = 8080
@@ -87,6 +88,8 @@ object BridgeController {
             tokenCheck = { BridgeToken.matches(currentCode ?: code, it) },
             handlers = AndroidBridgeHandlers(context),
             version = BuildConfig.VERSION_NAME,
+            // Protocol v2: plain Bearer requests are refused, the code never travels in clear.
+            secure = BridgeSecure(code = { currentCode ?: code }),
         )
         val candidate = BridgeServer(PORT, router)
         try {

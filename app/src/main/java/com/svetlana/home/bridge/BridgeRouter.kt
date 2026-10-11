@@ -10,8 +10,13 @@ import kotlinx.serialization.json.put
 
 /**
  * HTTP routes of the Svetlana bridge. Matches the HTTPHands transport of the
- * Svetlana 2.0 core: GET /health, POST /api/<route> with body {"params": {...}}.
+ * Svetlana 2.0 core: GET /health, POST /api/<route>.
  * Successful replies: {"success": true, "data": ..., "timestamp": ...}.
+ *
+ * With [secure] (production) every /api request and reply is encrypted and authenticated
+ * (protocol v2, see [BridgeSecure]); the pairing code is never sent over the network and
+ * plain Bearer requests are refused with 426. Without [secure] (legacy tests) the code is
+ * checked as a Bearer token.
  *
  * Browser protection:
  * - only allow-listed origins (Tauri desktop app, localhost dev) get CORS headers;
@@ -25,6 +30,7 @@ class BridgeRouter(
     private val version: String = "1",
     private val clock: () -> Long = System::currentTimeMillis,
     private val limiter: BridgeRateLimiter = BridgeRateLimiter(clock),
+    private val secure: BridgeSecure? = null,
 ) {
     fun handle(request: HttpRequest): HttpResponse {
         val origin = request.headers["origin"]
@@ -43,9 +49,12 @@ class BridgeRouter(
         val path = request.path.substringBefore('?')
         if (path == "/health") {
             if (request.method != "GET") return error(405, "METHOD_NOT_ALLOWED", "Use GET", cors)
+            val salt = secure?.salt()
             val body = buildJsonObject {
                 put("ok", true)
                 put("service", "svetlana-home")
+                if (secure != null) put("v", BridgeSecure.PROTOCOL)
+                if (salt != null) put("salt", salt)
             }
             return HttpResponse(200, body.toString(), cors)
         }
@@ -57,15 +66,52 @@ class BridgeRouter(
         if (limiter.isLocked(client)) {
             return error(429, "TOO_MANY_ATTEMPTS", "Слишком много неверных кодов, подождите 10 минут", cors)
         }
+        val route = path.removePrefix("/api/")
+        if (secure != null) return handleSecure(secure, route, request.body, client, cors)
+
         if (!tokenCheck(extractToken(request.headers))) {
             limiter.recordFailure(client)
             return error(401, "UNAUTHORIZED", "Нужен код подключения с главного экрана Светланы", cors)
         }
         limiter.recordSuccess(client)
         val params = parseParams(request.body) ?: return error(400, "BAD_JSON", "Body must be a JSON object", cors)
+        val (status, body) = respond(route, params)
+        return HttpResponse(status, body, cors)
+    }
 
+    private fun handleSecure(
+        s: BridgeSecure,
+        route: String,
+        body: String,
+        client: String,
+        cors: Map<String, String>,
+    ): HttpResponse {
+        val opened = s.open(route, body)
+        if (opened is BridgeSecure.Opened.Fail) {
+            if (opened.code == "UNAUTHORIZED") limiter.recordFailure(client)
+            val status = when (opened.code) {
+                "UNAUTHORIZED" -> 401
+                "UPGRADE_REQUIRED" -> 426
+                "REPLAY", "STALE" -> 409
+                else -> 400
+            }
+            return error(status, opened.code, opened.message, cors)
+        }
+        val ok = opened as BridgeSecure.Opened.Ok
+        limiter.recordSuccess(client)
+        val params = parseParams(ok.plaintext)
+        val (status, reply) = if (params == null) {
+            400 to errorBody("BAD_JSON", "Body must be a JSON object")
+        } else {
+            respond(route, params)
+        }
+        // Errors after authentication are encrypted too, so the PC can trust them.
+        return HttpResponse(status, s.seal(ok, route, reply), cors)
+    }
+
+    private fun respond(route: String, params: JsonObject): Pair<Int, String> {
         val result = try {
-            dispatch(path.removePrefix("/api/"), params)
+            dispatch(route, params)
         } catch (e: Exception) {
             BridgeResult.Error("INTERNAL", e.message ?: e.javaClass.simpleName)
         }
@@ -76,9 +122,9 @@ class BridgeRouter(
                     result.data?.let { put("data", it) }
                     put("timestamp", clock())
                 }
-                HttpResponse(200, body.toString(), cors)
+                200 to body.toString()
             }
-            is BridgeResult.Error -> error(statusFor(result.code), result.code, result.message, cors)
+            is BridgeResult.Error -> statusFor(result.code) to errorBody(result.code, result.message)
         }
     }
 
@@ -101,15 +147,15 @@ class BridgeRouter(
         else -> BridgeResult.Error("UNKNOWN_METHOD", "Unknown method: $route")
     }
 
-    private fun error(status: Int, code: String, message: String, headers: Map<String, String>): HttpResponse {
-        val body = buildJsonObject {
-            put("success", false)
-            put("error", code)
-            put("message", message)
-            put("timestamp", clock())
-        }
-        return HttpResponse(status, body.toString(), headers)
-    }
+    private fun errorBody(code: String, message: String): String = buildJsonObject {
+        put("success", false)
+        put("error", code)
+        put("message", message)
+        put("timestamp", clock())
+    }.toString()
+
+    private fun error(status: Int, code: String, message: String, headers: Map<String, String>): HttpResponse =
+        HttpResponse(status, errorBody(code, message), headers)
 
     companion object {
         const val DEFAULT_LIMIT = 500
