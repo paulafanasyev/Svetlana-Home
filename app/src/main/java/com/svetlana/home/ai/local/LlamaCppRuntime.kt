@@ -19,9 +19,9 @@ import java.io.File
  *
  * Это единственная реализация InferenceRuntime в проекте. Она:
  *  - работает с GGUF-моделями, которые пользователь установил сам (ТЗ §87);
- *  - загружает модель в нативную память только по явному запросу;
- *  - никогда не скачивает модели сама (за это отвечает LocalModelManager и
- *    только после решения пользователя);
+ *  - загружает модель в нативную память только по явному запросу и только после
+ *    повторной проверки SHA-256 файла ([LocalModelManager.verifyIntegrity]);
+ *  - никогда не скачивает модели сама;
  *  - честно сообщает о состоянии, вместо того чтобы симулировать результат.
  *
  * Потокобезопасность: LlamaModel не потокобезопасен, поэтому все вызовы
@@ -31,11 +31,6 @@ class LlamaCppRuntime(
     private val context: Context,
     private val modelManager: LocalModelManager,
     private val registry: AIModelRegistry,
-    /**
-     * Идентификатор модели, выбранной пользователем основной. Без этого
-     * runtime грузил первую установленную, игнорируя выбор пользователя
-     * (аудит п.6).
-     */
     private val activeModelId: () -> String? = { null }
 ) : InferenceRuntime {
 
@@ -48,7 +43,6 @@ class LlamaCppRuntime(
     private val lock = Any()
 
     init {
-        // Нативные библиотеки загружаются AAR автоматически при первом обращении.
         Log.i(TAG, "Llama.cpp runtime инициализирован. System: ${trySystemInfo()}")
     }
 
@@ -58,10 +52,6 @@ class LlamaCppRuntime(
         "unavailable: ${t.message}"
     }
 
-    /**
-     * Runtime считается готовым, если установлена хотя бы одна совместимая
-     * модель И нативный слой llama.cpp доступен в этой сборке.
-     */
     override fun isReady(): Boolean = activeInstalled() != null && isNativeAvailable()
 
     override fun supportedModelIds(): List<String> = try {
@@ -71,18 +61,16 @@ class LlamaCppRuntime(
         emptyList()
     }
 
-    /**
-     * Синхронная генерация. ВАЖНО: вызов блокирующий — llama.cpp работает на
-     * Dispatchers.Default внутри, поэтому runBlocking здесь безопасен только
-     * если вызывающий уже не в main-потоке. AppControlEngine/AIRouter вызывает
-     * это из корутины на фоновом потоке.
-     */
     override fun generate(modelId: String, prompt: String, maxTokens: Int): String = synchronized(lock) {
         val installed = modelManager.byId(modelId)
             ?: throw IllegalStateException("Модель $modelId не установлена")
         val file = File(installed.filePath)
         if (!file.exists() || file.length() == 0L) {
             throw IllegalStateException("Файл модели отсутствует или пуст: ${file.absolutePath}")
+        }
+        // Перед загрузкой в нативную память файл сверяется с доверенным SHA-256.
+        if (loadedModelId != installed.modelId && !modelManager.verifyIntegrity(installed.modelId)) {
+            throw IllegalStateException("Файл модели изменён или повреждён — переустановите модель")
         }
         ensureLoaded(installed.modelId, file)
         val model = loaded ?: throw IllegalStateException("Модель не загружена")
@@ -98,8 +86,6 @@ class LlamaCppRuntime(
                 "${result.tokensPerSecond} ток/с, задержка ${lastLatencyMs}мс")
             result.text
         } catch (e: LlamaException.InferenceFailed) {
-            // Модель могла быть повреждена — выгружаем, чтобы следующий вызов
-            // попробовал загрузить заново.
             releaseInternal()
             throw IllegalStateException("Inference не удался: ${e.message}", e)
         }
@@ -124,10 +110,7 @@ class LlamaCppRuntime(
             LlamaConfig(
                 contextSize = model.context.coerceAtMost(MAX_CONTEXT),
                 threads = optimalThreads(),
-                gpuLayers = 0, // CPU-only: bundled llama-android собран без
-                              // Vulkan/OpenCL backends. Метаданные моделей
-                              // (gpuSupport=false) согласованы с этим (аудит 7.1):
-                              // мы не заявляем GPU там, где его нет.
+                gpuLayers = 0,
                 temperature = 0.7f,
                 topP = 0.9f,
                 topK = 40,
@@ -152,17 +135,12 @@ class LlamaCppRuntime(
         loadedModelId = null
     }
 
-    /**
-     * Явная выгрузка модели — вызывается из Model Manager («Остановить»).
-     */
     fun unload() = synchronized(lock) {
         releaseInternal()
         Log.i(TAG, "Модель выгружена пользователем")
     }
 
     private fun activeInstalled(): InstalledModel? {
-        // Только модель, выбранную пользователем; если такой нет — первую
-        // установленную (значение по умолчанию).
         val selected = activeModelId()
         return selected?.let { modelManager.byId(it) }
             ?: modelManager.list().firstOrNull()
@@ -173,10 +151,6 @@ class LlamaCppRuntime(
         (cores - 1).coerceIn(2, 8)
     } catch (t: Throwable) { 4 }
 
-    /**
-     * Проверка доступности нативного слоя без загрузки модели.
-     * Если llama.cpp не собран для текущего ABI — вернёт false.
-     */
     private fun isNativeAvailable(): Boolean = try {
         Llama.getSystemInfo().isNotBlank()
     } catch (t: UnsatisfiedLinkError) {

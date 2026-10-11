@@ -28,10 +28,10 @@ import java.io.File
  *  - текущая реализация использует CPU backend; GPU/NPU не включаются
  *    до появления фактического backend implementation и device proof.
  *
- * llama.cpp остаётся text-fallback для GGUF-моделей.
+ * Безопасность: перед загрузкой в Engine файл сверяется с доверенным SHA-256
+ * ([LocalModelManager.verifyIntegrity]); изменённый файл не загружается.
  *
- * Принцип ТЗ §33: библиотека не скачивает модели. Пользователь сам
- * выбирает и скачивает .litertlm файл.
+ * Принцип ТЗ §33: библиотека не скачивает модели.
  */
 class LiteRtLmRuntime(
     private val context: Context,
@@ -51,10 +51,6 @@ class LiteRtLmRuntime(
 
     private val lock = Any()
 
-    /**
-     * Backend: пока только CPU. GPU/NPU намеренно не выбираются без
-     * фактической backend-реализации и device proof.
-     */
     private fun chooseBackend(): Backend = Backend.CPU()
 
     override fun isReady(): Boolean {
@@ -70,13 +66,6 @@ class LiteRtLmRuntime(
             installed.filePath.endsWith(".litertlm", ignoreCase = true)
     }
 
-    /**
-     * Модели, которые этот runtime может загрузить.
-     *
-     * Критерий — LiteRT-совместимая архитектура/квантование (.litertlm).
-     * Реальную поддержку vision сообщает сама модель
-     * (Capabilities.inputModalities) — см. supportsVision().
-     */
     override fun supportedModelIds(): List<String> = try {
         registry.all()
             .filter { isLitertlmModel(it) && it.runtimeImplemented }
@@ -86,18 +75,10 @@ class LiteRtLmRuntime(
         emptyList()
     }
 
-    /**
-     * Признак LiteRT-модели: architecture/backend litertlm.
-     */
     private fun isLitertlmModel(model: com.svetlana.home.ai.AIModel): Boolean =
         model.architecture.equals(FORMAT_LITERTLM, ignoreCase = true) ||
             model.backend.equals(FORMAT_LITERTLM, ignoreCase = true)
 
-    /**
-     * Vision-поддержка определяется самой моделью (аудит §12) —
-     * [Capabilities.inputModalities].vision возвращает реальное
-     * значение, а не наш оптимистичный default.
-     */
     override fun supportsVision(modelId: String): Boolean {
         if (loadedModelId != modelId) return false
         return cachedVisionSupport
@@ -114,13 +95,6 @@ class LiteRtLmRuntime(
         }
     }
 
-    /**
-     * Multimodal inference: текст + JPEG (аудит §12).
-     *
-     * Главное: изображение РЕАЛЬНО передаётся в модель через
-     * Content.ImageBytes. Это и было ядром BLOCKED Vision —
-     * раньше вызывался text-only chat.
-     */
     override fun vision(
         modelId: String,
         prompt: String,
@@ -146,9 +120,6 @@ class LiteRtLmRuntime(
         }
     }
 
-    /**
-     * Стриминг ответа — для мгновенного голосового отклика.
-     */
     fun streamGenerate(modelId: String, prompt: String): kotlinx.coroutines.flow.Flow<String> =
         kotlinx.coroutines.flow.flow {
             val conversation = ensureConversation(modelId) ?: return@flow
@@ -173,6 +144,10 @@ class LiteRtLmRuntime(
         if (!file.exists()) {
             throw IllegalStateException("Файл модели не найден: ${installed.filePath}")
         }
+        if (!modelManager.verifyIntegrity(modelId)) {
+            Log.w(TAG, "Модель $modelId не прошла проверку контрольной суммы — не загружаю")
+            return null
+        }
         releaseInternal()
         return try {
             val config = EngineConfig(
@@ -184,7 +159,6 @@ class LiteRtLmRuntime(
             engine.initialize()
             this.engine = engine
             this.loadedModelId = modelId
-            // Реальные модальности модели — главный источник правды.
             this.cachedVisionSupport = try {
                 com.google.ai.edge.litertlm.Capabilities(file.absolutePath).use { caps ->
                     caps.inputModalities().vision
@@ -201,7 +175,6 @@ class LiteRtLmRuntime(
         }
     }
 
-    /** Извлекает текст из Message (у Message нет прямого .text). */
     private fun Message.toText(): String {
         return try {
             contents.contents
