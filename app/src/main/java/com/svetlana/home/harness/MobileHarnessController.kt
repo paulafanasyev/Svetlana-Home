@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.util.Log
 import com.svetlana.home.apps.AppRegistry
+import com.svetlana.home.control.ActionRiskPolicy
 import com.svetlana.home.control.IntentResolver
 import com.svetlana.home.core.ProofStage
 import com.svetlana.home.core.ProofStep
@@ -24,6 +25,11 @@ import kotlinx.coroutines.delay
  * Mobile Harness — это тестовое приложение с известными элементами интерфейса.
  * Светлана работает с ним как с обычным Android-приложением: сначала Intent,
  * потом Hands.
+ *
+ * Безопасность: действия выполняются только когда на экране ДЕЙСТВИТЕЛЬНО
+ * Mobile Harness (иначе — отказ), и даже там не нажимаются необратимые кнопки
+ * и не заполняются поля паролей/карт — для этого есть ActionRouter с
+ * подтверждением пользователя.
  */
 class MobileHarnessController(
     private val context: Context,
@@ -142,21 +148,26 @@ class MobileHarnessController(
         return hands.findElement(text)
     }
 
+    private fun labelOf(node: UiNode) = "${node.text} ${node.contentDescription} ${node.id}"
+
     suspend fun tapElement(text: String): Boolean {
         ensureHarnessInForeground() ?: return false
         val node = hands.findElement(text) ?: return false
+        if (ActionRiskPolicy.isDangerousLabel(labelOf(node))) return false
         return hands.clickNode(node)
     }
 
     suspend fun longPressElement(text: String): Boolean {
         ensureHarnessInForeground() ?: return false
         val node = hands.findElement(text) ?: return false
+        if (ActionRiskPolicy.isDangerousLabel(labelOf(node))) return false
         return hands.longClick(node)
     }
 
     suspend fun typeIntoField(fieldHint: String, value: String): Boolean {
         ensureHarnessInForeground() ?: return false
         val node = hands.findElement(fieldHint) ?: return false
+        if (node.isPassword || ActionRiskPolicy.isSensitiveFieldLabel(labelOf(node))) return false
         return hands.inputText(node, value)
     }
 
@@ -207,7 +218,8 @@ class MobileHarnessController(
             }
             hands.waitForPackage(pkg, timeoutMs = WAIT_PKG_MS)
         }
-        return pkg
+        // Fail closed: never act on whatever other app happens to be in front.
+        return pkg.takeIf { hands.currentPackage().equals(it, ignoreCase = true) }
     }
 
     private fun ok(v: Boolean): StepStatus = if (v) StepStatus.OK else StepStatus.FAILED

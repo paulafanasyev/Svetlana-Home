@@ -32,4 +32,16 @@ class SensitiveTextTest {
         assertThat(SensitiveText.redact("Заказ 1234567890123", false, "", "")).isEqualTo("Заказ 1234567890123")
         assertThat(SensitiveText.redact("", true, "", "")).isEqualTo("")
     }
+
+    @Test
+    fun oneTimeCodesInMessagesAreMasked() {
+        assertThat(SensitiveText.maskSecrets("Ваш код подтверждения: 482913. Никому не сообщайте"))
+            .isEqualTo("Ваш код подтверждения: ${SensitiveText.MASK}. Никому не сообщайте")
+        assertThat(SensitiveText.maskSecrets("Your code is 1234")).isEqualTo("Your code is ${SensitiveText.MASK}")
+        assertThat(SensitiveText.maskSecrets("PIN 4321")).isEqualTo("PIN ${SensitiveText.MASK}")
+        // No false positives on ordinary words and numbers.
+        assertThat(SensitiveText.maskSecrets("Пинск 2024")).isEqualTo("Пинск 2024")
+        assertThat(SensitiveText.maskSecrets("Barcode 12345")).isEqualTo("Barcode 12345")
+        assertThat(SensitiveText.maskSecrets("Встреча в 12:30")).isEqualTo("Встреча в 12:30")
+    }
 }

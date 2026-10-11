@@ -21,6 +21,11 @@ object SensitiveText {
     /** Card-like digit runs (13–19 digits, optional spaces/dashes) that pass the Luhn check. */
     private val CARD_RE = Regex("(?<![0-9])(?:[0-9][ -]?){12,18}[0-9](?![0-9])")
 
+    /** One-time codes next to a keyword: «Ваш код: 482913», «OTP 1234», «PIN 4321». */
+    private val OTP_RE = Regex(
+        "(?iu)(?<!\\p{L})(код[а-яё]*|парол[а-яё]*|code|otp|password|passcode|pin|пин)(?!\\p{L})([^0-9\\n]{0,25})([0-9](?:[ -]?[0-9]){3,7})(?![0-9])",
+    )
+
     /** True if the node is a password field or is labelled as a PIN / OTP / card field. */
     fun isSensitiveField(isPassword: Boolean, id: String, contentDescription: String, hint: String = ""): Boolean {
         if (isPassword) return true
@@ -28,11 +33,18 @@ object SensitiveText {
         return SENSITIVE_MARKERS.any { label.contains(it) }
     }
 
-    /** Text safe to expose: masked for sensitive fields, card numbers masked elsewhere. */
+    /** Text safe to expose: masked for sensitive fields, cards and one-time codes masked elsewhere. */
     fun redact(text: String, isPassword: Boolean, id: String, contentDescription: String, hint: String = ""): String {
         if (text.isEmpty()) return text
         if (isSensitiveField(isPassword, id, contentDescription, hint)) return MASK
-        return maskCardNumbers(text)
+        return maskSecrets(text)
+    }
+
+    /** Card numbers and one-time codes masked in free text (messages, notifications, descriptions). */
+    fun maskSecrets(text: String): String = maskOtpCodes(maskCardNumbers(text))
+
+    fun maskOtpCodes(text: String): String = OTP_RE.replace(text) { m ->
+        m.groupValues[1] + m.groupValues[2] + MASK
     }
 
     fun maskCardNumbers(text: String): String = CARD_RE.replace(text) { m ->

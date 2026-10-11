@@ -5,14 +5,16 @@ package com.svetlana.home.bridge
  *
  * - Per client IP: [perClientLimit] failed decryptions inside [windowMs] lock that
  *   client for [lockMs].
- * - Global budget: more than [globalLimit] failures from all clients inside
- *   [windowMs] lock every client that has not authenticated successfully in the
- *   last [trustMs]. This stops address-rotating attackers while the already
- *   paired PC keeps working (no lock-out of the owner).
+ * - Global budget: after [globalLimit] failures from all clients inside [windowMs],
+ *   every client that has itself already failed (and has not authenticated in the
+ *   last [trustMs]) is locked. Address-rotating attackers get at most one guess per
+ *   address, while a PC that pairs for the first time (no failures yet) and the
+ *   already paired PC keep working: a LAN attacker cannot block the owner's pairing.
  * - Memory is bounded (LRU, [maxTracked] entries per table).
  *
- * The code itself has 16 symbols from a 32-letter alphabet (80 bits), so even an
- * unthrottled attacker could not guess it; the limiter is defence in depth.
+ * The code itself has 16 symbols from a 32-letter alphabet (80 bits) and the key is
+ * PBKDF2-stretched, so even an unthrottled attacker could not guess it; the limiter is
+ * defence in depth.
  */
 class BridgeRateLimiter(
     private val clock: () -> Long = System::currentTimeMillis,
@@ -34,7 +36,8 @@ class BridgeRateLimiter(
         if (now < (lockedUntil[client] ?: 0L)) return true
         trimGlobal(now)
         val trusted = now < (trustedUntil[client] ?: 0L)
-        return globalFailures.size >= globalLimit && !trusted
+        val hasFailed = failures[client]?.isNotEmpty() == true
+        return globalFailures.size >= globalLimit && hasFailed && !trusted
     }
 
     @Synchronized
@@ -49,6 +52,7 @@ class BridgeRateLimiter(
         if (list.size >= perClientLimit) {
             lockedUntil[client] = now + lockMs
             list.clear()
+            list.add(now)
         }
     }
 

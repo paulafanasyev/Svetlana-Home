@@ -42,14 +42,17 @@ class BridgeRateLimiterTest {
     }
 
     @Test
-    fun globalBudgetStopsAddressRotationButNotThePairedPc() {
+    fun globalBudgetStopsAddressRotationButNotTheOwner() {
         val global = BridgeRateLimiter(clock = { now }, perClientLimit = 5, windowMs = 1_000, lockMs = 10_000, globalLimit = 10)
         global.recordSuccess("owner-pc")
         (1..10).forEach { global.recordFailure("10.0.0.$it") }
-        assertThat(global.isLocked("10.0.0.99")).isTrue()
+        // Addresses that already guessed wrong are stopped...
+        assertThat(global.isLocked("10.0.0.1")).isTrue()
+        // ...but a PC pairing for the first time and the paired PC are not (no LAN DoS of the owner).
+        assertThat(global.isLocked("192.168.1.50")).isFalse()
         assertThat(global.isLocked("owner-pc")).isFalse()
         now = 1_001
-        assertThat(global.isLocked("10.0.0.99")).isFalse()
+        assertThat(global.isLocked("10.0.0.1")).isFalse()
     }
 
     @Test
