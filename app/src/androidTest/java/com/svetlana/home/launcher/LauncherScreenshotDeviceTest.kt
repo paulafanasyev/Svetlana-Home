@@ -57,20 +57,26 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
     }
 
     /**
-     * Эмулятор CI показывает «Process system isn't responding» поверх всего.
-     * Если такой диалог в фокусе — «Назад» (= «Подождать»), затем закрываем системные диалоги.
+     * Эмулятор CI иногда показывает ANR-диалог («Settings/System isn't responding») поверх всего.
+     * Ищем окно диалога во всём списке окон: виновный процесс (кроме system) останавливаем —
+     * тогда диалог закрывается сам; если диалог в фокусе — «Назад» (= «Подождать»).
      */
     private fun closeSystemDialogs() {
-        for (attempt in 0 until 4) {
-            val focus = shellOut("dumpsys window").lineSequence()
+        for (attempt in 0 until 5) {
+            val windows = shellOut("dumpsys window windows")
+            val culprit = Regex("Application (?:Not Responding|Error): ([A-Za-z0-9_.]+)")
+                .find(windows)?.groupValues?.get(1)
+            val focus = windows.lineSequence()
                 .filter { it.contains("mCurrentFocus") || it.contains("mFocusedWindow") }
                 .joinToString(" ")
-            if (focus.contains("Not Responding") || focus.contains("Application Error") || focus.contains("isn't responding")) {
-                shell("input keyevent KEYCODE_BACK")
-                Thread.sleep(700)
-            } else {
-                break
+            val focused = focus.contains("Not Responding") || focus.contains("Application Error") ||
+                focus.contains("isn't responding")
+            if (culprit == null && !focused) break
+            if (culprit != null && culprit != "system" && culprit != "android" && culprit != context.packageName) {
+                shell("am force-stop $culprit")
             }
+            if (focused) shell("input keyevent KEYCODE_BACK")
+            Thread.sleep(900)
         }
         shell("am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS")
         shell("input keyevent KEYCODE_WAKEUP")
@@ -117,6 +123,8 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
         shell("settings put secure immersive_mode_confirmations confirmed")
         // Даём system_server эмулятора «прогреться», чтобы не ловить ANR-диалог.
         Thread.sleep(15_000)
+        // Настройки эмулятора часто «висят» после первого запуска и дают ANR-диалог.
+        shell("am force-stop com.android.settings")
         closeSystemDialogs()
 
         val scenario = ActivityScenario.launch(HomeActivity::class.java)
