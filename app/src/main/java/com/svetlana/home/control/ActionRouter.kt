@@ -4,9 +4,20 @@ import android.content.Context
 import com.svetlana.home.R
 import com.svetlana.home.apps.launcher.AppResolver
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.hands.ScreenshotPolicy
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.memory.HistoryManager
 import com.svetlana.home.permissions.PermissionManager
+
+/**
+ * Право на выполнение действия движком ([AppControlEngine]). Выдаётся ТОЛЬКО ActionRouter:
+ * единственная реализация — приватный объект в этом файле. Код в обход роутера (а значит,
+ * в обход политики и подтверждений) не может вызвать опасные методы движка — он не
+ * скомпилируется.
+ */
+sealed interface ActionGrant
+
+private object RouterGrant : ActionGrant
 
 /**
  * ActionRouter — центральная маршрутизация команд.
@@ -56,6 +67,7 @@ class ActionRouter(
         val policyRisk = ActionRiskPolicy.requiresConfirmation(action) && !chainApproved
         // Клик/ввод: проверяем РЕАЛЬНЫЙ элемент на экране. «Кнопка» может
         // оказаться «Удалить», а «поле» — полем пароля (prompt injection).
+        // Скриншот чужого приложения — только с согласия пользователя на конкретное приложение.
         val target = screenTarget(action)
         val targetRisk = target != null && target.dangerous
         var approved = false
@@ -72,30 +84,34 @@ class ActionRouter(
                     way = if (target != null) "hands" else "unknown", requiresUserConfirmation = true)
             }
         }
+        // Одноразовое согласие на снимок именно того приложения, о котором спрашивали.
+        if (approved && action is SvetlanaAction.TakeScreenshot && target != null) {
+            ScreenshotPolicy.allowOnce(target.shown)
+        }
 
         val result = when (action) {
             is SvetlanaAction.OpenApp -> engine.openApp(action.target)
             is SvetlanaAction.OpenAppScreen -> engine.openApp(action.target)
-            is SvetlanaAction.Click -> engine.click(action.target, action.element)
-            is SvetlanaAction.LongClick -> engine.longClick(action.target, action.element)
-            is SvetlanaAction.Swipe -> engine.swipe(action.target, action.direction)
-            is SvetlanaAction.Scroll -> engine.scroll(action.target, action.direction)
-            is SvetlanaAction.TypeText -> engine.typeText(action.target, action.element, action.text)
-            is SvetlanaAction.ClearText -> engine.clearText(action.target, action.element)
-            is SvetlanaAction.ReadScreen -> engine.readScreen(action.target)
-            is SvetlanaAction.FindElement -> engine.readScreen(action.target)
-            is SvetlanaAction.TakeScreenshot -> engine.takeScreenshotAction(action.target)
-            SvetlanaAction.PressBack -> engine.pressBack()
-            SvetlanaAction.PressHome -> engine.pressHome()
-            SvetlanaAction.OpenRecents -> engine.openRecents()
+            is SvetlanaAction.Click -> engine.click(RouterGrant, action.target, action.element)
+            is SvetlanaAction.LongClick -> engine.longClick(RouterGrant, action.target, action.element)
+            is SvetlanaAction.Swipe -> engine.swipe(RouterGrant, action.target, action.direction)
+            is SvetlanaAction.Scroll -> engine.scroll(RouterGrant, action.target, action.direction)
+            is SvetlanaAction.TypeText -> engine.typeText(RouterGrant, action.target, action.element, action.text)
+            is SvetlanaAction.ClearText -> engine.clearText(RouterGrant, action.target, action.element)
+            is SvetlanaAction.ReadScreen -> engine.readScreen(RouterGrant, action.target)
+            is SvetlanaAction.FindElement -> engine.readScreen(RouterGrant, action.target)
+            is SvetlanaAction.TakeScreenshot -> engine.takeScreenshotAction(RouterGrant, action.target)
+            SvetlanaAction.PressBack -> engine.pressBack(RouterGrant)
+            SvetlanaAction.PressHome -> engine.pressHome(RouterGrant)
+            SvetlanaAction.OpenRecents -> engine.openRecents(RouterGrant)
             SvetlanaAction.OpenSettings -> engine.openSettings()
-            is SvetlanaAction.MakeCall -> engine.makeCall(action.contact)
-            is SvetlanaAction.SendMessage -> engine.sendMessage(action.contact, action.text)
-            is SvetlanaAction.Share -> engine.share(action.text)
+            is SvetlanaAction.MakeCall -> engine.makeCall(RouterGrant, action.contact)
+            is SvetlanaAction.SendMessage -> engine.sendMessage(RouterGrant, action.contact, action.text)
+            is SvetlanaAction.Share -> engine.share(RouterGrant, action.text)
             // Длинная многошаговая Hands-цепочка: открыть мессенджер →
             // найти контакт → напечатать → отправить → проверить.
             is SvetlanaAction.ComposeMessage ->
-                engine.composeMessage(action.appTarget, action.contact, action.text)
+                engine.composeMessage(RouterGrant, action.appTarget, action.contact, action.text)
             // Последовательность шагов: каждый выполняется только после
             // успеха предыдущего. Провал любого шага останавливает цепочку.
             is SvetlanaAction.Compound -> executeCompound(action, confirmed)
@@ -164,10 +180,16 @@ class ActionRouter(
     private var resumeChain: Pair<SvetlanaAction.Compound, Int>? = null
 
     /**
-     * Реальный элемент на экране для Click/LongClick/TypeText и его опасность:
-     * подпись «Удалить/Оплатить/…» или поле пароля/PIN/карты.
+     * Реальная цель действия на экране и её опасность:
+     * - Click/LongClick/TypeText: элемент с подписью «Удалить/Оплатить/…» или поле пароля/PIN/карты;
+     * - TakeScreenshot: приложение на экране не входит в доверенные ([ScreenshotPolicy]).
      */
     private fun screenTarget(action: SvetlanaAction): ScreenTarget? {
+        if (action is SvetlanaAction.TakeScreenshot) {
+            val pkg = currentPackageForScreenshot()
+            val trusted = ScreenshotPolicy.isTrusted(pkg, context.packageName)
+            return ScreenTarget("screenshot:$pkg", pkg, typing = false, dangerous = !trusted)
+        }
         val (element, typing) = when (action) {
             is SvetlanaAction.Click -> action.element to false
             is SvetlanaAction.LongClick -> action.element to false
