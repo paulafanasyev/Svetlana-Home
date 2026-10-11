@@ -18,8 +18,9 @@ import java.io.File
  * Только после явного решения пользователя:
  *   Предложить → Показать размер → Показать требования → Решение → Скачать
  *
- * Целостность: любая модель скачивается только по https и устанавливается только при совпадении
- * с доверенным SHA-256 из реестра; без доверенного хеша скачивание отключено для всех форматов.
+ * Целостность: любая модель скачивается только по https, не больше [maxDownloadBytes], и
+ * устанавливается только при совпадении с доверенным SHA-256 из реестра. Перед загрузкой
+ * в нативный runtime файл снова сверяется с доверенным хешем ([verifyIntegrity]).
  */
 @Serializable
 data class InstalledModel(
@@ -73,10 +74,31 @@ open class LocalModelManager(
 
     fun freeSpaceBytes(): Long = modelsDir.usableSpace
 
+    /** Предел размера скачивания: заявленный размер + 25% (но не меньше 64 МБ). Защита от забивания памяти. */
+    private fun maxDownloadBytes(model: AIModel): Long =
+        maxOf(model.sizeMb.toLong() * 1024L * 1024L * 5L / 4L, 64L * 1024L * 1024L)
+
     /**
-     * Запрос на загрузку модели. Этот метод только НАЧИНАЕТ загрузку после
-     * явного решения пользователя — вызывается из UI по тапу на «Скачать».
+     * Файл модели не изменён после установки: лежит в нашей папке моделей и его SHA-256 совпадает
+     * с доверенным (из реестра, а если там нет — с проверенным при установке). Вызывается перед
+     * каждой загрузкой модели в нативную память.
      */
+    open fun verifyIntegrity(modelId: String): Boolean {
+        val m = byId(modelId) ?: return false
+        return try {
+            val f = File(m.filePath)
+            if (!f.isFile) return false
+            val dir = modelsDir.canonicalPath + File.separator
+            if (!f.canonicalPath.startsWith(dir)) return false
+            val trusted = registry.byId(modelId)?.expectedSha256?.takeIf { it.length == 64 }
+                ?: m.sha256?.takeIf { it.length == 64 }
+                ?: return false
+            val ok = sha256(f).equals(trusted, ignoreCase = true)
+            if (!ok) Log.w(TAG, "Контрольная сумма модели $modelId не совпадает — файл изменён или повреждён")
+            ok
+        } catch (t: Throwable) { false }
+    }
+
     fun install(
         model: AIModel,
         progress: (percent: Int) -> Unit = {}
@@ -91,8 +113,6 @@ open class LocalModelManager(
                 return Result.failure(IllegalStateException(
                     "Для модели ${model.name} встроенный runtime ещё не реализован; скачивание отключено."))
             }
-            // Доверенный хеш обязателен для ЛЮБОГО формата: без него нельзя отличить
-            // настоящую модель от подменённой. Проверяем ДО скачивания.
             val expected = model.expectedSha256
             if (expected.isNullOrBlank() || expected.length != 64) {
                 return Result.failure(IllegalStateException(
@@ -104,10 +124,10 @@ open class LocalModelManager(
             if (!isSpaceEnough(model)) {
                 return Result.failure(IllegalStateException("Недостаточно свободного места"))
             }
+            val limit = maxDownloadBytes(model)
             Log.i(TAG, "Начинаю загрузку модели ${model.name} (${model.sizeMb}MB) по решению пользователя")
             temp.delete()
             backup.delete()
-            // Перенаправления https→https (CDN) разрешены, https→http — нет.
             val client = okhttp3.OkHttpClient.Builder().followSslRedirects(false).build()
             val request = okhttp3.Request.Builder().url(model.downloadUrl).build()
             client.newCall(request).execute().use { response ->
@@ -119,6 +139,9 @@ open class LocalModelManager(
                 }
                 val body = response.body ?: return Result.failure(IllegalStateException("Пустой ответ"))
                 val total = body.contentLength()
+                if (total > limit) {
+                    return Result.failure(IllegalStateException("Файл на сервере больше ожидаемого — загрузка отменена"))
+                }
                 var copied = 0L
                 body.byteStream().use { input ->
                     temp.outputStream().use { output ->
@@ -126,8 +149,13 @@ open class LocalModelManager(
                         while (true) {
                             val n = input.read(buffer)
                             if (n <= 0) break
-                            output.write(buffer, 0, n)
                             copied += n
+                            if (copied > limit) {
+                                output.close()
+                                temp.delete()
+                                return Result.failure(IllegalStateException("Файл больше ожидаемого — загрузка отменена"))
+                            }
+                            output.write(buffer, 0, n)
                             if (total > 0) progress(((copied * 100) / total).toInt())
                         }
                     }

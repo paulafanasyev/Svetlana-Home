@@ -12,8 +12,9 @@ import java.net.UnknownHostException
  * - только http/https, без логина/пароля в адресе;
  * - запрещены сам телефон (localhost/127.x/::1), link-local (169.254.x — в т.ч. облачные metadata),
  *   0.0.0.0, multicast и служебные имена metadata;
- * - http без шифрования — только в домашней сети (10.x, 172.16–31.x, 192.168.x, fc00::/7, *.local);
- *   сервер в интернете — только https.
+ * - http без шифрования — только на IP-адрес домашней сети (10.x, 172.16–31.x, 192.168.x, fc00::/7).
+ *   Имена (в т.ч. *.local) по http не принимаются: DNS мог бы увести незашифрованный
+ *   запрос с токеном в интернет. Сервер в интернете — только https.
  * Имя хоста дополнительно проверяется после DNS ([safeDns]): имя, указывающее на запрещённый адрес
  * (DNS rebinding), отклоняется.
  */
@@ -31,7 +32,9 @@ object ServerUrlPolicy {
         }
         val ip = ipLiteral(host)
         if (ip != null && isBlocked(ip)) return "Этот адрес запрещён: служебный или сам телефон"
-        if (u.scheme == "http" && !isPrivateLan(host, ip)) return "Для сервера в интернете нужен защищённый адрес https://"
+        if (u.scheme == "http" && !isPrivateLan(ip)) {
+            return "Без https можно подключиться только к IP-адресу домашней сети (например http://192.168.1.10:8000)"
+        }
         return null
     }
 
@@ -39,8 +42,7 @@ object ServerUrlPolicy {
     fun isBlocked(addr: InetAddress): Boolean =
         addr.isLoopbackAddress || addr.isLinkLocalAddress || addr.isAnyLocalAddress || addr.isMulticastAddress
 
-    private fun isPrivateLan(host: String, ip: InetAddress?): Boolean {
-        if (host.endsWith(".local")) return true
+    private fun isPrivateLan(ip: InetAddress?): Boolean {
         if (ip == null) return false
         if (ip is Inet4Address) return ip.isSiteLocalAddress
         if (ip is Inet6Address) return (ip.address[0].toInt() and 0xFE) == 0xFC

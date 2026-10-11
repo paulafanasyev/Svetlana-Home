@@ -6,11 +6,17 @@ import java.net.InetAddress
 
 class ServerUrlPolicyTest {
     @Test
-    fun homeLanAndPublicHttpsAreAllowed() {
+    fun homeLanIpAndPublicHttpsAreAllowed() {
         assertThat(ServerUrlPolicy.check("http://192.168.1.10:8000")).isNull()
         assertThat(ServerUrlPolicy.check("http://10.0.0.5")).isNull()
-        assertThat(ServerUrlPolicy.check("http://my-pc.local:11434")).isNull()
         assertThat(ServerUrlPolicy.check("https://gpu.example.com")).isNull()
+        assertThat(ServerUrlPolicy.check("https://my-pc.local:11434")).isNull()
+    }
+
+    @Test
+    fun plainHttpByNameIsRejectedEvenForLocal() {
+        assertThat(ServerUrlPolicy.check("http://my-pc.local:11434")).isNotNull()
+        assertThat(ServerUrlPolicy.check("http://gpu.example.com")).isNotNull()
     }
 
     @Test
@@ -25,7 +31,6 @@ class ServerUrlPolicyTest {
 
     @Test
     fun plainHttpToInternetAndCredentialsAreRejected() {
-        assertThat(ServerUrlPolicy.check("http://gpu.example.com")).isNotNull()
         assertThat(ServerUrlPolicy.check("http://8.8.8.8")).isNotNull()
         assertThat(ServerUrlPolicy.check("https://user:pass@gpu.example.com")).isNotNull()
         assertThat(ServerUrlPolicy.check("ftp://gpu.example.com")).isNotNull()
