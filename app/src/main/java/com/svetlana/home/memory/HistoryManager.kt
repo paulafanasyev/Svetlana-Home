@@ -13,9 +13,10 @@ import java.util.UUID
  *
  * Приватность: история (команды, контакты, результаты) на диске только зашифрована
  * ключом из Android Keystore ([HistoryCipher]). Старый незашифрованный history.json читается
- * один раз, пересохраняется зашифрованно и удаляется только после успешной записи (иначе
- * попытка повторится при следующей записи или запуске). Если шифрование недоступно —
- * новая история живёт только в памяти, в открытом виде на диск не пишется никогда.
+ * один раз, пересохраняется зашифрованно и удаляется только после успешной записи. Если
+ * удалить его не удалось, флаг [legacyPending] остаётся и удаление повторяется при каждой
+ * записи и запуске (с записью в лог). Если шифрование недоступно — новая история живёт
+ * только в памяти, в открытом виде на диск не пишется никогда.
  * Удаление (clear/clearCategory) надёжно: если перезаписать файл не удалось, старый зашифрованный
  * файл удаляется целиком (удалённые записи не остаются на диске).
  */
@@ -30,18 +31,29 @@ class HistoryManager(context: Context) {
     @Volatile
     private var entries: List<HistoryEntry> = load()
 
+    /** Старый открытый файл ещё лежит на диске (ждёт удаления). */
+    @Volatile
+    var legacyPending: Boolean = false
+        private set
+
     init {
         tmp.delete()
-        if (legacy.exists()) migrateLegacy()
+        if (legacy.exists()) {
+            if (save()) dropLegacy()
+            else {
+                legacyPending = true
+                Log.w(TAG, "Шифрование недоступно — перенос старой истории отложен")
+            }
+        }
     }
 
-    /** Старый открытый файл удаляется только после того, как зашифрованная копия записана. */
-    private fun migrateLegacy() {
-        if (save()) {
-            if (!legacy.delete()) Log.w(TAG, "Не удалось удалить старую незашифрованную историю")
-        } else {
-            Log.w(TAG, "Шифрование недоступно — перенос старой истории отложен")
-        }
+    /** Удаляет старый открытый файл и проверяет, что его больше нет; иначе оставляет флаг и пишет в лог. */
+    private fun dropLegacy(): Boolean {
+        if (legacy.exists()) legacy.delete()
+        val gone = !legacy.exists()
+        legacyPending = !gone
+        if (!gone) Log.w(TAG, "Не удалось удалить старую незашифрованную историю — повторю при следующей записи")
+        return gone
     }
 
     private fun decode(text: String): List<HistoryEntry> =
@@ -86,7 +98,7 @@ class HistoryManager(context: Context) {
     fun record(category: HistoryCategory, title: String, detail: String = "") {
         entries = (entries + HistoryEntry(UUID.randomUUID().toString(), category, title, detail,
             System.currentTimeMillis())).takeLast(MAX_ENTRIES)
-        if (save() && legacy.exists()) legacy.delete()
+        if (save() && (legacyPending || legacy.exists())) dropLegacy()
     }
 
     fun all(): List<HistoryEntry> = entries.sortedByDescending { it.timestampMs }
@@ -96,14 +108,14 @@ class HistoryManager(context: Context) {
 
     fun clear() {
         entries = emptyList()
-        legacy.delete()
+        dropLegacy()
         saveAfterRemoval()
     }
 
     fun clearCategory(category: HistoryCategory) {
         entries = entries.filterNot { it.category == category }
         // Старый открытый файл тоже содержит удалённую категорию.
-        legacy.delete()
+        dropLegacy()
         saveAfterRemoval()
     }
 
