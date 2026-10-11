@@ -84,9 +84,9 @@ class ActionRouter(
                     way = if (target != null) "hands" else "unknown", requiresUserConfirmation = true)
             }
         }
-        // Одноразовое согласие на снимок именно того приложения, о котором спрашивали.
+        // Одноразовое согласие на снимок именно того приложения и того окна, о которых спрашивали.
         if (approved && action is SvetlanaAction.TakeScreenshot && target != null) {
-            ScreenshotPolicy.allowOnce(target.shown)
+            ScreenshotPolicy.allowOnce(target.shown, ScreenshotPolicy.windowKeyOf(ServiceLocator.hands.uiTree()))
         }
 
         val result = when (action) {
@@ -108,12 +108,8 @@ class ActionRouter(
             is SvetlanaAction.MakeCall -> engine.makeCall(RouterGrant, action.contact)
             is SvetlanaAction.SendMessage -> engine.sendMessage(RouterGrant, action.contact, action.text)
             is SvetlanaAction.Share -> engine.share(RouterGrant, action.text)
-            // Длинная многошаговая Hands-цепочка: открыть мессенджер →
-            // найти контакт → напечатать → отправить → проверить.
             is SvetlanaAction.ComposeMessage ->
                 engine.composeMessage(RouterGrant, action.appTarget, action.contact, action.text)
-            // Последовательность шагов: каждый выполняется только после
-            // успеха предыдущего. Провал любого шага останавливает цепочку.
             is SvetlanaAction.Compound -> executeCompound(action, confirmed)
         }
 
@@ -215,10 +211,6 @@ class ActionRouter(
     suspend fun route(command: String, confirmed: Boolean = false): ActionResult? {
         val action = CommandParser.parse(command)
         if (action != null) return execute(action, confirmed)
-
-        // Аудит §7: декларативный каталог системных команд.
-        // «Открой настройки Wi-Fi», «открой камеру» и т.д. — это не приложения,
-        // а системные intent. CommandParser их не разбирает, здесь — fallback.
         val systemIntent = ServiceLocator.appResolver.resolveSystem(command)
         if (systemIntent is AppResolver.ResolveResult.SystemAction) {
             return engine.openSystemIntent(systemIntent.intent)
@@ -236,7 +228,6 @@ class ActionRouter(
             is SvetlanaAction.SendMessage -> needed.add(android.Manifest.permission.SEND_SMS)
             is SvetlanaAction.TypeText, is SvetlanaAction.Click, is SvetlanaAction.Swipe,
             is SvetlanaAction.Scroll, is SvetlanaAction.TakeScreenshot, is SvetlanaAction.ReadScreen,
-            // Длинные Hands-цепочки требуют активного Accessibility
             is SvetlanaAction.ComposeMessage, is SvetlanaAction.Compound -> {
                 if (!permissionManager.accessibilityEnabled()) needed.add("hands")
             }
@@ -266,15 +257,9 @@ class ActionRouter(
     }
 
     /**
-     * Выполнение последовательности действий (Compound).
-     *
-     * Каждый шаг выполняется только после успеха предыдущего — это
-     * ключевое правило для длинных запросов: нельзя нажимать «Отправить»,
-     * если текст не введён. Доказательная цепочка объединяет все шаги.
-     *
-     * Если шаг потребовал подтверждения (опасный элемент появился на экране),
-     * после ответа пользователя цепочка продолжается С ЭТОГО шага: уже
-     * выполненные шаги не повторяются (иначе «Удалить» нажали бы дважды).
+     * Выполнение последовательности действий (Compound). Каждый шаг — только после успеха
+     * предыдущего. Если шаг потребовал подтверждения, после ответа цепочка продолжается
+     * С ЭТОГО шага: уже выполненные шаги не повторяются.
      */
     private suspend fun executeCompound(action: SvetlanaAction.Compound, confirmed: Boolean): ActionResult {
         val resume = resumeChain
@@ -290,13 +275,9 @@ class ActionRouter(
         val messages = mutableListOf<String>()
         for (index in start until action.steps.size) {
             val step = action.steps[index]
-            // Цепочка целиком уже показана и подтверждена (или в ней нет опасных
-            // по политике шагов), но элемент на экране проверяется в каждом шаге.
             val stepResult = executeInternal(step, confirmed, chainApproved = true)
             allProof += stepResult.proof
             if (stepResult.requiresUserConfirmation) {
-                // Опасный элемент обнаружился только на экране: спрашиваем пользователя
-                // и запоминаем место, с которого продолжить после ответа.
                 resumeChain = action to index
                 if (ActionRiskPolicy.requiresConfirmation(action)) rememberApproval(Approval(action, null))
                 return ActionResult(action, false, stepResult.message, allProof, stepResult.way,
