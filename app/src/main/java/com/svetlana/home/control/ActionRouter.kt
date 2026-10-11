@@ -73,16 +73,14 @@ class ActionRouter(
             }
         }
 
-        // Движок повторно проверяет элемент (защита в глубину); подтверждение,
-        // которое пользователь только что дал на ЭТОТ элемент, передаём ему явно.
         val result = when (action) {
             is SvetlanaAction.OpenApp -> engine.openApp(action.target)
             is SvetlanaAction.OpenAppScreen -> engine.openApp(action.target)
-            is SvetlanaAction.Click -> engine.click(action.target, action.element, confirmed = approved)
-            is SvetlanaAction.LongClick -> engine.longClick(action.target, action.element, confirmed = approved)
+            is SvetlanaAction.Click -> engine.click(action.target, action.element)
+            is SvetlanaAction.LongClick -> engine.longClick(action.target, action.element)
             is SvetlanaAction.Swipe -> engine.swipe(action.target, action.direction)
             is SvetlanaAction.Scroll -> engine.scroll(action.target, action.direction)
-            is SvetlanaAction.TypeText -> engine.typeText(action.target, action.element, action.text, confirmed = approved)
+            is SvetlanaAction.TypeText -> engine.typeText(action.target, action.element, action.text)
             is SvetlanaAction.ClearText -> engine.clearText(action.target, action.element)
             is SvetlanaAction.ReadScreen -> engine.readScreen(action.target)
             is SvetlanaAction.FindElement -> engine.readScreen(action.target)
