@@ -184,7 +184,9 @@ class HomeViewModel : ViewModel() {
         }
     }
 
+    /** Отмена отзывает и ожидающее согласие в роутере: поздний «Подтвердить» уже ничего не выполнит. */
     fun cancelPendingAction() {
+        ServiceLocator.actionRouter.cancelPendingConfirmations()
         _state.value = _state.value.copy(pendingConfirmation = null, lastReply = "Отменено")
     }
 
