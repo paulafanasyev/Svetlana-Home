@@ -9,7 +9,7 @@ class ConfirmationTextTest {
     @Test
     fun dangerousActionsShowExactParameters() {
         assertThat(ConfirmationText.question(SvetlanaAction.MakeCall("Мама")))
-            .isEqualTo("Подтвердите: позвонить «Мама»?")
+            .isEqualTo("Подтвердите: открыть набор номера «Мама»?")
         val sms = ConfirmationText.question(SvetlanaAction.SendMessage("+79001234567", "Переведи 5000"))
         assertThat(sms).contains("«+79001234567»")
         assertThat(sms).contains("«Переведи 5000»")
@@ -34,7 +34,7 @@ class ConfirmationTextTest {
             SvetlanaAction.SendMessage("Иван", "код 1234"),
         )))
         assertThat(q).contains("1) OpenApp")
-        assertThat(q).contains("2) отправить SMS «Иван» с текстом «код 1234»")
+        assertThat(q).contains("2) подготовить SMS «Иван» с текстом «код 1234»")
     }
 
     @Test
