@@ -26,7 +26,27 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Living Orb — световой AI-шар Светланы.
+ * Образ Светланы. Если в сборке есть портрет из Svetlana 2.0 — показываем
+ * живой портрет ([SvetlanaPortrait]); иначе — прежний световой шар.
+ */
+@Composable
+fun LivingOrb(
+    modifier: Modifier = Modifier,
+    size: Dp = 220.dp,
+    level: AvatarLevel = AvatarLevel.L0_LIVING_ORB,
+    active: Boolean = true,
+    speaking: Boolean = false
+) {
+    val avatar = rememberSvetlanaAvatar()
+    if (avatar != null) {
+        SvetlanaPortrait(avatar = avatar, modifier = modifier, size = size, active = active, speaking = speaking)
+    } else {
+        LegacyLivingOrb(modifier = modifier, size = size, level = level, active = active, speaking = speaking)
+    }
+}
+
+/**
+ * Living Orb — световой AI-шар Светланы (запасной вид без портрета).
  *
  * Стиль: Premium AI / Dark Glass / Liquid Light.
  * Лёгкие частицы и мягкие анимации на Canvas, без тяжёлой 3D-графики.
@@ -34,11 +54,10 @@ import kotlin.math.sin
  * Визуальное состояние зависит от режима:
  *  - L0 Living Orb — пульсирующий шар с частицами;
  *  - L1 Light Avatar — шар + мягкий силуэт;
- *  - L2/L3 — шар + расходящееся свечение (av realistic render подключается
- *    отдельным движком при наличии ресурсов).
+ *  - L2/L3 — шар + расходящееся свечение.
  */
 @Composable
-fun LivingOrb(
+private fun LegacyLivingOrb(
     modifier: Modifier = Modifier,
     size: Dp = 220.dp,
     level: AvatarLevel = AvatarLevel.L0_LIVING_ORB,
@@ -183,7 +202,7 @@ fun LivingOrb(
                 )
             }
 
-            // Уровни 2-3: расходящееся свечение "реального" аватара
+            // Уровни 2-3: расходящееся свечение
             if (level.level >= 2) {
                 for (ring in 0..1) {
                     drawCircle(
