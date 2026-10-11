@@ -39,6 +39,11 @@ data class UiTree(
  * HandsController — единая точка управления другими приложениями.
  * Делегирует реальные действия SvetlanaAccessibilityService и всегда
  * проверяет наличие системного доступа перед выполнением.
+ *
+ * Безопасность: нажатие/ввод/очистка выполняются ТОЛЬКО на том живом элементе, который
+ * точно совпадает со снимком ([findExactNode]: класс, границы, id и текст). Если за это время
+ * элемент сдвинули или подменили похожим (другая строка списка с тем же id, кнопка с тем же
+ * текстом) — действие не выполняется.
  */
 class HandsController(private val context: Context) {
 
@@ -62,7 +67,8 @@ class HandsController(private val context: Context) {
 
     /**
      * Поиск «живого» AccessibilityNodeInfo, соответствующего UiNode из снапшота:
-     * id → текст → contentDescription → класс + bounds (аудит п.12).
+     * id → текст → contentDescription → класс + bounds (аудит п.12). Только для ПРОВЕРОК после
+     * действия (текст поля уже изменился); для самих действий — [findExactNode].
      */
     private fun findLiveNode(node: UiNode): AccessibilityNodeInfo? {
         val svc = service() ?: return null
@@ -75,6 +81,30 @@ class HandsController(private val context: Context) {
         }
         if (byText != null) return byText
         return findByClassAndBounds(root, node)
+    }
+
+    /** Живой элемент, совпадающий со снимком во всём: класс, границы, id, текст, описание, пароль. */
+    private fun findExactNode(node: UiNode): AccessibilityNodeInfo? {
+        val svc = service() ?: return null
+        val root = svc.rootInActiveWindow ?: return null
+        return findExact(root, node, 0)
+    }
+
+    private fun findExact(n: AccessibilityNodeInfo, target: UiNode, depth: Int): AccessibilityNodeInfo? {
+        if (depth > MAX_DEPTH) return null
+        val bounds = Rect().also { n.getBoundsInScreen(it) }
+        if (bounds == target.bounds &&
+            n.className?.toString().orEmpty() == target.className &&
+            n.viewIdResourceName.orEmpty() == target.id &&
+            n.text?.toString().orEmpty() == target.text &&
+            n.contentDescription?.toString().orEmpty() == target.contentDescription &&
+            n.isPassword == target.isPassword
+        ) return n
+        for (i in 0 until n.childCount) {
+            val child = n.getChild(i) ?: continue
+            findExact(child, target, depth + 1)?.let { return it }
+        }
+        return null
     }
 
     private fun findByText(node: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
@@ -101,25 +131,25 @@ class HandsController(private val context: Context) {
 
     fun clickNode(node: UiNode): Boolean {
         val svc = service() ?: return false
-        val live = findLiveNode(node) ?: return false
+        val live = findExactNode(node) ?: return false
         return svc.click(live)
     }
 
     fun longClick(node: UiNode): Boolean {
         val svc = service() ?: return false
-        val live = findLiveNode(node) ?: return false
+        val live = findExactNode(node) ?: return false
         return svc.longClick(live)
     }
 
     fun inputText(node: UiNode, text: String): Boolean {
         val svc = service() ?: return false
-        val live = findLiveNode(node) ?: return false
+        val live = findExactNode(node) ?: return false
         return svc.inputText(live, text)
     }
 
     fun clearText(node: UiNode): Boolean {
         val svc = service() ?: return false
-        val live = findLiveNode(node) ?: return false
+        val live = findExactNode(node) ?: return false
         return svc.clearText(live)
     }
 
@@ -331,4 +361,6 @@ class HandsController(private val context: Context) {
     }
 
     fun nodeCount(): Int = uiTree()?.nodes?.size ?: -1
+
+    private companion object { const val MAX_DEPTH = 60 }
 }
