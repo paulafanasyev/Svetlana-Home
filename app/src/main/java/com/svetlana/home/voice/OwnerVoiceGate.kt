@@ -152,6 +152,10 @@ object OwnerVoiceGate {
         val ch = LivenessChallenge.generate()
         challengeActive = true
         try {
+            // Распознаватель один на всё приложение: ждём, пока фоновое окно wake word его отпустит.
+            val wake = runCatching { ServiceLocator.wakeWord }.getOrNull()
+            withTimeoutOrNull(7_000L) { while (wake?.windowActive == true) delay(100) }
+            if (wake?.windowActive == true) return Live.Failed(DIGITS_UNHEARD, countsAsFailure = false)
             tts.speak("Для подтверждения скажите цифры: ${ch.spoken}.")
             waitTts(tts)
             recognizer.finishSession()
