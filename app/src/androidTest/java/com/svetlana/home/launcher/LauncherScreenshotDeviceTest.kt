@@ -58,8 +58,8 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
 
     /**
      * Эмулятор CI иногда показывает ANR-диалог («Settings/System isn't responding») поверх всего.
-     * Ищем окно диалога во всём списке окон: виновный процесс (кроме system) останавливаем —
-     * тогда диалог закрывается сам; если диалог в фокусе — «Назад» (= «Подождать»).
+     * Ищем окно диалога во всём списке окон: если виноваты «Настройки» — останавливаем их,
+     * диалог закрывается сам; если диалог в фокусе — «Назад» (= «Подождать»).
      */
     private fun closeSystemDialogs() {
         for (attempt in 0 until 5) {
@@ -72,9 +72,9 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
             val focused = focus.contains("Not Responding") || focus.contains("Application Error") ||
                 focus.contains("isn't responding")
             if (culprit == null && !focused) break
-            if (culprit != null && culprit != "system" && culprit != "android" && culprit != context.packageName) {
-                shell("am force-stop $culprit")
-            }
+            // Останавливаем только «Настройки» эмулятора: остальные системные процессы
+            // (systemui и т.п.) трогать нельзя — это роняет весь прогон.
+            if (culprit == "com.android.settings") shell("am force-stop com.android.settings")
             if (focused) shell("input keyevent KEYCODE_BACK")
             Thread.sleep(900)
         }
