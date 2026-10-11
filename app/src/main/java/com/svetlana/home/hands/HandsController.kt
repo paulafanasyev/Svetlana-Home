@@ -46,8 +46,10 @@ data class UiTree(
  * (пакет проверяется на самом живом элементе прямо перед действием: оверлей, выскочивший
  * между проверкой экрана и нажатием, не получит действие). Если элемент сдвинули или
  * подменили похожим — действие не выполняется. Ввод идёт прямо в этот элемент
- * (ACTION_SET_TEXT), а не «куда сейчас фокус», поэтому смена фокуса не перенаправляет текст.
- * Проверка результата ввода/очистки читает поле только из того же приложения, в котором было действие.
+ * (ACTION_SET_TEXT) и только когда фокус ввода именно в нём ([focusedExactNode]): текст не уйдёт ни
+ * «куда сейчас фокус», ни в поле без фокуса.
+ * Проверка результата ввода/очистки читает то же самое поле ([findSameField]: класс, id, положение)
+ * и только из того же приложения, в котором было действие.
  */
 class HandsController(private val context: Context) {
 
@@ -78,8 +80,8 @@ class HandsController(private val context: Context) {
 
     /**
      * Поиск «живого» AccessibilityNodeInfo, соответствующего UiNode из снапшота:
-     * id → текст → contentDescription → класс + bounds (аудит п.12). Только для ПРОВЕРОК после
-     * действия (текст поля уже изменился); для самих действий — [findExactNode].
+     * id → текст → contentDescription → класс + bounds (аудит п.12). Только для прокрутки;
+     * для самих действий — [findExactNode], для проверки ввода — [findSameField].
      * Если задан [inPackage] — окно и найденный элемент должны принадлежать этому приложению.
      */
     private fun findLiveNode(node: UiNode, inPackage: String? = null): AccessibilityNodeInfo? {
@@ -106,6 +108,46 @@ class HandsController(private val context: Context) {
         if (!inPkg(root, inPackage)) return null
         val live = findExact(root, node, 0) ?: return null
         return live.takeIf { inPkg(it, inPackage) }
+    }
+
+    /**
+     * Точный живой элемент ([findExactNode]), в котором стоит фокус ввода. Если фокуса в нём нет —
+     * ставим его сами (ACTION_FOCUS) и перечитываем состояние: элемент должен остаться тем же
+     * (снимок, пакет) и действительно получить фокус. Иначе — ничего не вводим.
+     */
+    private fun focusedExactNode(node: UiNode, inPackage: String?): AccessibilityNodeInfo? {
+        val live = findExactNode(node, inPackage) ?: return null
+        if (live.isFocused) return live
+        if (!live.performAction(AccessibilityNodeInfo.ACTION_FOCUS)) return null
+        if (!live.refresh()) return null
+        return live.takeIf { it.isFocused && inPkg(it, inPackage) && sameAsSnapshot(it, node) }
+    }
+
+    /**
+     * Живое поле для ПРОВЕРКИ после ввода/очистки: тот же класс и id и те же левая/правая
+     * границы (поле может вырасти по высоте от длинного текста), а без id — те же класс и
+     * границы целиком. Текст не сравнивается (он уже изменился). Окно и поле — из [inPackage].
+     */
+    private fun findSameField(node: UiNode, inPackage: String?): AccessibilityNodeInfo? {
+        val svc = service() ?: return null
+        val root = svc.rootInActiveWindow ?: return null
+        if (!inPkg(root, inPackage)) return null
+        return findField(root, node, 0)?.takeIf { inPkg(it, inPackage) }
+    }
+
+    private fun findField(n: AccessibilityNodeInfo, target: UiNode, depth: Int): AccessibilityNodeInfo? {
+        if (depth > MAX_DEPTH) return null
+        if (n.className?.toString().orEmpty() == target.className && (n.viewIdResourceName ?: "") == target.id) {
+            val b = Rect().also { n.getBoundsInScreen(it) }
+            val samePlace = if (target.id.isNotBlank()) b.left == target.bounds.left && b.right == target.bounds.right
+                else b == target.bounds
+            if (samePlace) return n
+        }
+        for (i in 0 until n.childCount) {
+            val child = n.getChild(i) ?: continue
+            findField(child, target, depth + 1)?.let { return it }
+        }
+        return null
     }
 
     /** Сравнение в том же виде, что и в снимке (текст паролей/кодов вычищен одинаково). */
@@ -170,7 +212,7 @@ class HandsController(private val context: Context) {
     fun inputText(node: UiNode, text: String, inPackage: String? = null): Boolean {
         lastInputPackage = inPackage
         val svc = service() ?: return false
-        val live = findExactNode(node, inPackage) ?: return false
+        val live = focusedExactNode(node, inPackage) ?: return false
         return svc.inputText(live, text)
     }
 
@@ -352,16 +394,16 @@ class HandsController(private val context: Context) {
         }
     }
 
-    /** Текст действительно в поле — читается только из того приложения, в котором был ввод. */
+    /** Текст действительно в ТОМ ЖЕ поле — читается только из того приложения, в котором был ввод. */
     fun verifyTextEntered(node: UiNode, text: String, inPackage: String? = lastInputPackage): Boolean {
-        val live = findLiveNode(node, inPackage) ?: return false
+        val live = findSameField(node, inPackage) ?: return false
         val current = live.text?.toString() ?: live.contentDescription?.toString().orEmpty()
         return current.contains(text)
     }
 
-    /** Поле пусто — читается только из того приложения, в котором была очистка. */
+    /** ТО ЖЕ поле пусто — читается только из того приложения, в котором была очистка. */
     fun verifyTextEmpty(node: UiNode, inPackage: String? = lastInputPackage): Boolean {
-        val live = findLiveNode(node, inPackage) ?: return false
+        val live = findSameField(node, inPackage) ?: return false
         return live.text?.toString().isNullOrBlank()
     }
 
