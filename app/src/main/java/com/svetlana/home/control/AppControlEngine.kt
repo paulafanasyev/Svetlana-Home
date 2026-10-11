@@ -4,6 +4,7 @@ package com.svetlana.home.control
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Rect
 import com.svetlana.home.R
 import com.svetlana.home.apps.AppModel
 import com.svetlana.home.core.ProofStage
@@ -23,12 +24,14 @@ import com.svetlana.home.permissions.PermissionManager
  * - каждое действие на экране (нажатие, ввод, очистка, прокрутка, свайп, чтение)
  *   «прикалывается» к пакету целевого приложения ([guard]): неизвестное приложение = отказ,
  *   а пакет проверяется ещё раз НЕПОСРЕДСТВЕННО перед действием — оверлей или переключение
- *   приложения отменяет действие;
+ *   приложения отменяет действие; для нажатия/ввода/очистки пакет сверяется ещё и на самом
+ *   живом элементе, на который идёт действие (HandsController, inPackage);
  * - нажатие/ввод/очистка выполняются только на том элементе, который роутер оценил и пользователь
  *   подтвердил ([targetLabel]); другая кнопка на его месте или сдвиг = отказ;
  * - сообщение в мессенджере уходит только в чат, в ШАПКЕ которого именно этот собеседник, текст
  *   вводится в то же поле, а нажимается та же кнопка «Отправить» (каждый шаг перепроверяется
- *   перед действием); имя в тексте сообщения ниже шапки не считается;
+ *   перед действием); имя в тексте сообщения ниже шапки не считается; если на экране несколько
+ *   чатов с таким именем (два «Алекса»), чат не открывается — нужно точное имя ([ambiguousContact]);
  * - звонок только через набор номера, SMS — только черновик.
  *
  * Запрещено: произвольные shell-команды, root, Termux, скрытое управление, автонабор звонка.
@@ -108,6 +111,26 @@ class AppControlEngine(
         return shown == want || shown.startsWith("$want ")
     }
 
+    /**
+     * На экране несколько РАЗНЫХ строк, подходящих под это имя (два «Алекса» или «Алекс» и
+     * «Алекс Иванов» — шапка любого из них пройдёт [recipientShown]): кому писать — неизвестно,
+     * первую попавшуюся не выбираем. Поля ввода (поиск с тем же текстом) не считаются,
+     * вложенные элементы одной строки (перекрывающиеся границы) считаются одной строкой.
+     */
+    private fun ambiguousContact(contact: String): Boolean {
+        val want = contact.trim().lowercase()
+        if (want.isEmpty()) return true
+        val tree = hands.uiTree() ?: return true
+        val rows = mutableListOf<Rect>()
+        for (n in tree.nodes) {
+            if (n.bounds.isEmpty || n.className.lowercase().contains("edittext")) continue
+            val t = n.visibleText.trim().lowercase()
+            if (t != want && !t.startsWith("$want ")) continue
+            if (rows.none { Rect.intersects(it, n.bounds) }) rows += Rect(n.bounds)
+        }
+        return rows.size > 1
+    }
+
     suspend fun openApp(target: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=OPEN_APP target=$target")
         val resolved = intentResolver.resolveApp(target)
@@ -173,7 +196,7 @@ class AppControlEngine(
         if (differs(expected, hands.currentPackage(), node)) return changedTarget(action, proof)
         val before = hands.treeFingerprint()
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
-        val ok = hands.clickNode(node)
+        val ok = hands.clickNode(node, pkg)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "click performed" else "click failed")
         val changed = ok && verifyScreenChanged(before, 700)
@@ -201,7 +224,7 @@ class AppControlEngine(
         if (differs(expected, hands.currentPackage(), node)) return changedTarget(action, proof)
         val before = hands.treeFingerprint()
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
-        val ok = hands.longClick(node)
+        val ok = hands.longClick(node, pkg)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "long click performed" else "long click failed")
         val verified = ok && verifyScreenChanged(before, 800)
@@ -228,7 +251,7 @@ class AppControlEngine(
             ?: return ActionResult(action, false, "Поле ввода не найдено", proof.failed("input field not found"))
         if (differs(expected, hands.currentPackage(), node)) return changedTarget(action, proof)
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
-        val ok = hands.inputText(node, text)
+        val ok = hands.inputText(node, text, pkg)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "input performed" else "input failed")
         val entered = ok && hands.verifyTextEntered(node, text)
@@ -256,7 +279,7 @@ class AppControlEngine(
         // Очищается только то поле, которое пользователь подтвердил.
         if (differs(expected, hands.currentPackage(), node)) return changedTarget(action, proof)
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
-        val ok = hands.clearText(node)
+        val ok = hands.clearText(node, pkg)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "clear performed" else "clear failed")
         val cleared = ok && hands.verifyTextEmpty(node)
@@ -525,7 +548,7 @@ class AppControlEngine(
         if (!sameSpot(field, hands.findEditableField())) return changed("поле ввода изменилось")
         if (!recipientShown(contact, field)) return changed("собеседник не подтверждён")
         if (!onScreen(appPkg)) return moved(hands.currentPackage())
-        val typed = hands.inputText(field, text)
+        val typed = hands.inputText(field, text, appPkg)
         steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "текст введён: «${text.take(32)}»")
         val textEntered = typed && hands.verifyTextEntered(field, text)
         steps += ProofStep(ProofStage.ACTION_PERFORMED,
@@ -548,7 +571,7 @@ class AppControlEngine(
         if (!sameSpot(field, hands.findEditableField())) return changed("поле ввода изменилось")
         if (!recipientShown(contact, field)) return changed("собеседник не подтверждён")
         if (!onScreen(appPkg)) return moved(hands.currentPackage())
-        val sent = hands.clickNode(send)
+        val sent = hands.clickNode(send, appPkg)
         steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "нажата кнопка отправки")
 
         kotlinx.coroutines.delay(UI_SETTLE_MS)
@@ -571,13 +594,19 @@ class AppControlEngine(
         steps += ProofStep(ProofStage.TARGET_APP_IDENTIFIED, StepStatus.OK, "контакт: $contact app=$appPkg")
         val away = StepResult(false, "На экране другое приложение — действие отменено")
         val swapped = StepResult(false, "Строка чата изменилась перед нажатием — действие отменено для безопасности")
+        val ambiguous = {
+            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "несколько чатов подходят под имя")
+            StepResult(false, "Нашла несколько чатов «${contact.take(40)}» — назовите полное имя, чтобы не ошибиться собеседником")
+        }
 
         val direct = hands.findElement(contact)
         if (direct != null && direct.isClickable) {
+            // Два подходящих чата — не выбираем первый попавшийся.
+            if (ambiguousContact(contact)) return ambiguous()
             // Строка чата ищется ещё раз прямо перед нажатием: подмена или сдвиг = отказ.
             if (!sameTarget(appPkg, direct, hands.findElement(contact))) return swapped
             if (!onScreen(appPkg)) return away
-            val clicked = hands.clickNode(direct)
+            val clicked = hands.clickNode(direct, appPkg)
             kotlinx.coroutines.delay(UI_SETTLE_MS)
             val input = if (onScreen(appPkg)) hands.findEditableField() else null
             val opened = input != null && recipientShown(contact, input)
@@ -596,7 +625,7 @@ class AppControlEngine(
             return StepResult(false, "Не нашла чат с $contact")
         }
         if (!onScreen(appPkg)) return away
-        hands.clickNode(searchEntry)
+        hands.clickNode(searchEntry, appPkg)
         kotlinx.coroutines.delay(UI_SETTLE_MS)
         val searchField = hands.findEditableField()
             ?: run {
@@ -604,16 +633,17 @@ class AppControlEngine(
                 return StepResult(false, "Не удалось открыть поиск контакта")
             }
         if (!onScreen(appPkg)) return away
-        hands.inputText(searchField, contact)
+        hands.inputText(searchField, contact, appPkg)
         kotlinx.coroutines.delay(UI_SETTLE_MS)
         val found = hands.findElement(contact)
         if (found == null || !found.isClickable) {
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "контакт не найден в результатах поиска")
             return StepResult(false, "Контакт $contact не найден")
         }
+        if (ambiguousContact(contact)) return ambiguous()
         if (!sameTarget(appPkg, found, hands.findElement(contact))) return swapped
         if (!onScreen(appPkg)) return away
-        val clicked = hands.clickNode(found)
+        val clicked = hands.clickNode(found, appPkg)
         kotlinx.coroutines.delay(UI_SETTLE_MS)
         val input = if (onScreen(appPkg)) hands.findEditableField() else null
         val opened = input != null && recipientShown(contact, input)

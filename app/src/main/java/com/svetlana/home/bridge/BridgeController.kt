@@ -28,7 +28,8 @@ import kotlin.concurrent.thread
  * the home screen, so the code never travels over Wi-Fi; nonces + timestamps block replay.
  * The socket is bound to the phone's Wi-Fi (site-local IPv4) address only, never to
  * mobile data or VPN interfaces. Every enable generates a fresh code, and codes expire
- * after [CODE_TTL_MS].
+ * after [CODE_TTL_MS] — also while the bridge keeps running: the router asks [liveCode]
+ * on every request, and an expired code is rotated (old pairings stop working).
  */
 object BridgeController {
     const val PORT = 8080
@@ -48,6 +49,10 @@ object BridgeController {
 
     @Volatile
     private var currentCode: String? = null
+
+    /** When [currentCode] was created (ms); used to expire it without reading secure storage per request. */
+    @Volatile
+    private var currentCreated: Long = 0L
 
     /** The bridge is opt-in: off until the user turns it on from the home screen. */
     fun isEnabled(context: Context): Boolean =
@@ -101,9 +106,11 @@ object BridgeController {
             Log.w(TAG, "No Wi-Fi address, bridge not started")
             return
         }
-        val code = pairingCode(context)
+        val app = context.applicationContext
+        val code = pairingCode(app)
         val router = BridgeRouter(
-            keyring = BridgeKeyring(code = { currentCode ?: code }),
+            // Every request asks for the live code: an expired code is rotated, never accepted.
+            keyring = BridgeKeyring(code = { liveCode(app) }),
             handlers = AndroidBridgeHandlers(context),
             version = BuildConfig.VERSION_NAME,
         )
@@ -125,12 +132,34 @@ object BridgeController {
         server = null
     }
 
+    /**
+     * The code the running bridge accepts right now. A code older than [CODE_TTL_MS] is never
+     * returned: it is rotated (and the notification updated). If secure storage fails, null —
+     * the router then rejects every request (fail closed).
+     */
+    fun liveCode(context: Context): String? {
+        val code = currentCode
+        val age = System.currentTimeMillis() - currentCreated
+        if (code != null && age in 0..CODE_TTL_MS) return code
+        return try {
+            val fresh = pairingCode(context)
+            if (fresh != code) showNotification(context, fresh)
+            fresh
+        } catch (e: Exception) {
+            Log.w(TAG, "Pairing code unavailable, bridge requests rejected", e)
+            currentCode = null
+            null
+        }
+    }
+
     fun pairingCode(context: Context): String {
         val prefs = securePrefs(context)
         val stored = prefs.getString(KEY_CODE, null)
-        val age = System.currentTimeMillis() - prefs.getLong(KEY_CODE_CREATED, 0L)
+        val created = prefs.getLong(KEY_CODE_CREATED, 0L)
+        val age = System.currentTimeMillis() - created
         // Old 8-symbol codes (protocol v1) and expired codes are replaced.
         if (stored != null && BridgeToken.isCurrentFormat(stored) && age in 0..CODE_TTL_MS) {
+            currentCreated = created
             currentCode = stored
             return stored
         }
@@ -140,11 +169,13 @@ object BridgeController {
     /** New code; the running server picks it up on the next request. Fails closed if it can't be saved. */
     fun rotatePairingCode(context: Context): String {
         val code = BridgeToken.generate()
+        val now = System.currentTimeMillis()
         val saved = securePrefs(context).edit()
             .putString(KEY_CODE, code)
-            .putLong(KEY_CODE_CREATED, System.currentTimeMillis())
+            .putLong(KEY_CODE_CREATED, now)
             .commit()
         check(saved) { "Не удалось сохранить код подключения" }
+        currentCreated = now
         currentCode = code
         return code
     }
