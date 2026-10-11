@@ -24,8 +24,10 @@ import com.svetlana.home.permissions.PermissionManager
  *   «прикалывается» к пакету целевого приложения ([guard]): неизвестное приложение = отказ,
  *   а пакет проверяется ещё раз НЕПОСРЕДСТВЕННО перед действием — оверлей или переключение
  *   приложения отменяет действие;
- * - нажатие/ввод выполняются только на том элементе, который роутер оценил и пользователь подтвердил
- *   ([targetLabel]); другая кнопка на его месте или сдвиг = отказ;
+ * - нажатие/ввод/очистка выполняются только на том элементе, который роутер оценил и пользователь
+ *   подтвердил ([targetLabel]); другая кнопка на его месте или сдвиг = отказ;
+ * - сообщение в мессенджере уходит только в чат, где виден именно этот собеседник, текст вводится
+ *   в то же поле, а нажимается та же кнопка «Отправить» (каждый шаг перепроверяется перед действием);
  * - звонок только через набор номера, SMS — только черновик.
  *
  * Запрещено: произвольные shell-команды, root, Termux, скрытое управление, автонабор звонка.
@@ -80,6 +82,20 @@ class AppControlEngine(
 
     private fun differs(expected: String?, pkg: String, node: UiNode): Boolean =
         expected != null && targetLabel(pkg, node) != expected
+
+    /** То же поле/элемент: совпадают id и границы (текст в поле меняется при вводе). */
+    private fun sameSpot(a: UiNode, b: UiNode?): Boolean =
+        b != null && a.id == b.id && a.bounds == b.bounds
+
+    /** Тот же элемент целиком (пакет, текст, описание, id, границы). */
+    private fun sameTarget(pkg: String, a: UiNode, b: UiNode?): Boolean =
+        b != null && targetLabel(pkg, a) == targetLabel(pkg, b)
+
+    /** Открыт чат именно с этим собеседником: его имя видно на экране, и это не само поле ввода. */
+    private fun recipientShown(contact: String, input: UiNode): Boolean {
+        val n = hands.findElement(contact) ?: return false
+        return !sameSpot(input, n)
+    }
 
     suspend fun openApp(target: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=OPEN_APP target=$target")
@@ -215,7 +231,7 @@ class AppControlEngine(
             else "Не удалось ввести текст", proof.build(), "hands")
     }
 
-    suspend fun clearText(grant: ActionGrant, target: String, element: String): ActionResult {
+    suspend fun clearText(grant: ActionGrant, target: String, element: String, expected: String? = null): ActionResult {
         val action = SvetlanaAction.ClearText(target, element)
         val proof = proofBuilder.start("PLAN0_TARGET=CLEAR_TEXT app=$target element=$element")
         if (!hands.isActive) return handsOff(action, proof)
@@ -226,6 +242,8 @@ class AppControlEngine(
         proof.ok(ProofStage.ACTION_ATTEMPTED, "find element: $element")
         val node = hands.findElement(element)
             ?: return ActionResult(action, false, "Поле ввода не найдено", proof.failed("input field not found"))
+        // Очищается только то поле, которое пользователь подтвердил.
+        if (differs(expected, hands.currentPackage(), node)) return changedTarget(action, proof)
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
         val ok = hands.clearText(node)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
@@ -464,6 +482,10 @@ class AppControlEngine(
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED foreground=$current")
             ActionResult(action, false, "На экране другое приложение — сообщение не отправлено", steps, "hands")
         }
+        val changed = { why: String ->
+            steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED: $why")
+            ActionResult(action, false, "Экран чата изменился после проверки — сообщение не отправлено для безопасности", steps, "hands")
+        }
 
         val appName = if (appTarget.isBlank()) DEFAULT_MESSENGER else appTarget
         val appPkg = (pin(appName) as? Pin.To)?.pkg
@@ -488,6 +510,9 @@ class AppControlEngine(
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED")
             return ActionResult(action, false, "Не нашла поле ввода для сообщения", steps, "hands")
         }
+        // Перед вводом: то же поле и тот же собеседник на экране.
+        if (!sameSpot(field, hands.findEditableField())) return changed("поле ввода изменилось")
+        if (!recipientShown(contact, field)) return changed("собеседник не подтверждён")
         if (!onScreen(appPkg)) return moved(hands.currentPackage())
         val typed = hands.inputText(field, text)
         steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "текст введён: «${text.take(32)}»")
@@ -507,6 +532,10 @@ class AppControlEngine(
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED")
             return ActionResult(action, false, "Не нашла кнопку отправки сообщения", steps, "hands")
         }
+        // Перед отправкой: та же кнопка, то же поле с текстом и тот же собеседник.
+        if (!sameTarget(appPkg, send, hands.findSendButton())) return changed("кнопка отправки изменилась")
+        if (!sameSpot(field, hands.findEditableField())) return changed("поле ввода изменилось")
+        if (!recipientShown(contact, field)) return changed("собеседник не подтверждён")
         if (!onScreen(appPkg)) return moved(hands.currentPackage())
         val sent = hands.clickNode(send)
         steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "нажата кнопка отправки")
@@ -530,16 +559,20 @@ class AppControlEngine(
     private suspend fun openChatWithContact(contact: String, appPkg: String, steps: MutableList<ProofStep>): StepResult {
         steps += ProofStep(ProofStage.TARGET_APP_IDENTIFIED, StepStatus.OK, "контакт: $contact app=$appPkg")
         val away = StepResult(false, "На экране другое приложение — действие отменено")
+        val swapped = StepResult(false, "Строка чата изменилась перед нажатием — действие отменено для безопасности")
 
         val direct = hands.findElement(contact)
         if (direct != null && direct.isClickable) {
+            // Строка чата ищется ещё раз прямо перед нажатием: подмена или сдвиг = отказ.
+            if (!sameTarget(appPkg, direct, hands.findElement(contact))) return swapped
             if (!onScreen(appPkg)) return away
             val clicked = hands.clickNode(direct)
             kotlinx.coroutines.delay(UI_SETTLE_MS)
-            val hasInput = onScreen(appPkg) && hands.findEditableField() != null
+            val input = if (onScreen(appPkg)) hands.findEditableField() else null
+            val opened = input != null && recipientShown(contact, input)
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "чат найден в списке, нажатие")
-            steps += stepPerformed(hasInput, "PLAN_STEP2=OPEN_CHAT")
-            if (clicked && hasInput) return StepResult(true, "Чат с $contact открыт")
+            steps += stepPerformed(opened, "PLAN_STEP2=OPEN_CHAT")
+            if (clicked && opened) return StepResult(true, "Чат с $contact открыт")
         }
 
         val searchEntry = hands.findElement("поиск")
@@ -567,12 +600,14 @@ class AppControlEngine(
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "контакт не найден в результатах поиска")
             return StepResult(false, "Контакт $contact не найден")
         }
+        if (!sameTarget(appPkg, found, hands.findElement(contact))) return swapped
         if (!onScreen(appPkg)) return away
         val clicked = hands.clickNode(found)
         kotlinx.coroutines.delay(UI_SETTLE_MS)
-        val hasInput = onScreen(appPkg) && hands.findEditableField() != null
-        steps += stepPerformed(clicked && hasInput, "PLAN_STEP2=OPEN_CHAT")
-        return if (clicked && hasInput) StepResult(true, "Чат с $contact открыт")
+        val input = if (onScreen(appPkg)) hands.findEditableField() else null
+        val opened = input != null && recipientShown(contact, input)
+        steps += stepPerformed(clicked && opened, "PLAN_STEP2=OPEN_CHAT")
+        return if (clicked && opened) StepResult(true, "Чат с $contact открыт")
         else StepResult(false, "Не удалось открыть чат с $contact")
     }
 

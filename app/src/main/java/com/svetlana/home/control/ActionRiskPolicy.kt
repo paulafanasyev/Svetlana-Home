@@ -10,6 +10,9 @@ package com.svetlana.home.control
  * Отправить / Установить» и ввод в поле пароля/карты — DANGEROUS, хотя это
  * «просто клик». Иначе подсказка с чужого экрана (prompt injection) могла бы
  * провести необратимое действие без подтверждения.
+ *
+ * Очистка поля (ClearText) стирает чужой текст без возможности вернуть — всегда MODERATE,
+ * то есть только после подтверждения и только для подтверждённого поля.
  */
 object ActionRiskPolicy {
 
@@ -18,6 +21,7 @@ object ActionRiskPolicy {
         is SvetlanaAction.MakeCall -> ActionRisk.DANGEROUS
         is SvetlanaAction.ComposeMessage -> ActionRisk.DANGEROUS
         is SvetlanaAction.Share -> ActionRisk.MODERATE
+        is SvetlanaAction.ClearText -> ActionRisk.MODERATE
         is SvetlanaAction.Click ->
             if (isDangerousLabel(action.element)) ActionRisk.DANGEROUS else ActionRisk.SAFE
         is SvetlanaAction.LongClick ->
