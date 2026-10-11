@@ -6,6 +6,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.svetlana.home.ai.LocalModelManager
 import com.svetlana.home.bridge.BridgeController
+import com.svetlana.home.voice.OwnerVoiceStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -90,12 +91,13 @@ object CabinetClient {
     }
 
     /**
-     * Флаги защиты — честно: голосовой отпечаток владельца на телефоне пока не реализован (false),
-     * секреты зашифрованы (EncryptedSharedPreferences), опасные действия идут через ActionRiskPolicy.
+     * Флаги защиты, честно: voiceEnrolled = есть записанный шаблон голоса владельца
+     * (тогда голосовые команды идут через OwnerVoiceGate), секреты зашифрованы
+     * (EncryptedSharedPreferences), опасные действия идут через ActionRiskPolicy.
      */
     fun collectStatus(context: Context): CabinetProtocol.Status = CabinetProtocol.Status(
         bridgeV2 = runCatching { BridgeController.isEnabled(context) }.getOrDefault(false),
-        voiceEnrolled = false,
+        voiceEnrolled = runCatching { OwnerVoiceStore.isEnrolled(context) }.getOrDefault(false),
         secretsEncrypted = true,
         confirmGate = true,
         pairedWithWindows = false,

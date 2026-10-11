@@ -96,8 +96,10 @@ class HomeViewModel : ViewModel() {
      * Делегирует в VoiceAgent — единое ядро диалога, которое используется
      * и главным экраном, и фоновым голосовым сервисом. Поэтому поведение
      * диалога одинаково, где бы пользователь ни обратился к Светлане.
+     *
+     * @param voice не null для голосового ввода: VoiceAgent сначала проверит голос владельца.
      */
-    fun handleInput(context: Context, text: String) {
+    fun handleInput(context: Context, text: String, voice: VoiceAgent.VoiceInput? = null) {
         if (text.isBlank()) return
         _state.value = _state.value.copy(isThinking = true, lastReply = context.getString(R.string.home_thinking))
 
@@ -110,7 +112,8 @@ class HomeViewModel : ViewModel() {
                     // Ответ ИИ стримится: пользователь сразу видит текст,
                     // не дожидаясь полного ответа.
                     _state.value = _state.value.copy(lastReply = partial)
-                }
+                },
+                voice = voice
             )
             when (outcome) {
                 is VoiceAgent.Outcome.Replied -> _state.value = _state.value.copy(
@@ -151,7 +154,7 @@ class HomeViewModel : ViewModel() {
                     }
                     is com.svetlana.home.voice.SvetlanaSpeechRecognizer.SttResult.Success -> {
                         _state.value = _state.value.copy(isListening = false, orbActive = false)
-                        handleInput(context, result.text)
+                        handleInput(context, result.text, VoiceAgent.VoiceInput(result.ownerAudio))
                     }
                     null -> {
                         ServiceLocator.speechRecognizer.stopListening()
