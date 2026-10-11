@@ -1,6 +1,8 @@
 package com.svetlana.home.launcher
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.os.ParcelFileDescriptor
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.longClick
@@ -57,12 +59,39 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
     }
 
     /**
-     * Эмулятор CI иногда показывает ANR-диалог («Settings/System isn't responding») поверх всего.
-     * Ищем окно диалога во всём списке окон: если виноваты «Настройки» — останавливаем их,
-     * диалог закрывается сам; если диалог в фокусе — «Назад» (= «Подождать»).
+     * Нажимает «Подождать» в системном ANR-диалоге («System UI/Settings isn't responding»).
+     * Диалог — отдельное системное окно (пакет android), поэтому ищем его через список
+     * всех интерактивных окон UiAutomation, а не через фокус.
+     */
+    private fun tapAnrWait(): Boolean {
+        val ua = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val info = ua.serviceInfo
+        if ((info.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) == 0) {
+            info.flags = info.flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            ua.serviceInfo = info
+        }
+        var clicked = false
+        for (window in ua.windows) {
+            val root = window.root ?: continue
+            if (root.packageName?.toString() != "android") continue
+            val nodes = root.findAccessibilityNodeInfosByViewId("android:id/aerr_wait") +
+                root.findAccessibilityNodeInfosByText("Wait") +
+                root.findAccessibilityNodeInfosByText("Подождать")
+            for (node in nodes) {
+                val target = if (node.isClickable) node else node.parent
+                if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) clicked = true
+            }
+        }
+        return clicked
+    }
+
+    /**
+     * Эмулятор CI иногда показывает ANR-диалог поверх всего. Жмём «Подождать»; если виноваты
+     * «Настройки» — останавливаем их; если диалог в фокусе — «Назад».
      */
     private fun closeSystemDialogs() {
         for (attempt in 0 until 5) {
+            val tapped = try { tapAnrWait() } catch (t: Throwable) { false }
             val windows = shellOut("dumpsys window windows")
             val culprit = Regex("Application (?:Not Responding|Error): ([A-Za-z0-9_.]+)")
                 .find(windows)?.groupValues?.get(1)
@@ -71,9 +100,9 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
                 .joinToString(" ")
             val focused = focus.contains("Not Responding") || focus.contains("Application Error") ||
                 focus.contains("isn't responding")
-            if (culprit == null && !focused) break
-            // Останавливаем только «Настройки» эмулятора: остальные системные процессы
-            // (systemui и т.п.) трогать нельзя — это роняет весь прогон.
+            if (!tapped && culprit == null && !focused) break
+            // Останавливаем только «Настройки» эмулятора: systemui и прочие системные
+            // процессы трогать нельзя — это роняет весь прогон.
             if (culprit == "com.android.settings") shell("am force-stop com.android.settings")
             if (focused) shell("input keyevent KEYCODE_BACK")
             Thread.sleep(900)
