@@ -36,11 +36,16 @@ import kotlinx.coroutines.flow.asSharedFlow
  * никогда не попадает в снимок экрана ([SensitiveText]) — ни в модель, ни в
  * историю, ни в логи. Это касается и contentDescription (например, всплывающее
  * уведомление «Код: 123456»).
+ *
+ * Приложение на экране ([currentPackage]) и пакет снимка берутся из ЖИВОГО активного окна,
+ * а не из запомненного события: после перезапуска сервиса старое значение не выдаётся
+ * за текущее приложение (кеш очищается при подключении и отключении сервиса).
  */
 class SvetlanaAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        lastPackage = null
         instance = this
         startForegroundNotification()
         Log.i(TAG, "Hands активирован пользователем")
@@ -59,15 +64,16 @@ class SvetlanaAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         instance = null
+        lastPackage = null
         return super.onUnbind(intent)
     }
 
     // ---------- API, доступное HandsController ----------
 
-    /** Снимок UI tree текущего окна (секреты уже вычищены). */
+    /** Снимок UI tree текущего окна (секреты уже вычищены). Пакет — из самого корня этого окна. */
     fun snapshotUiTree(): UiTree {
-        val root = rootInActiveWindow ?: return UiTree(currentPackage(), null, emptyList())
-        return UiTree(currentPackage(), mapNode(root), flatten(root))
+        val root = rootInActiveWindow ?: return UiTree("", null, emptyList())
+        return UiTree(root.packageName?.toString() ?: "", mapNode(root), flatten(root))
     }
 
     private fun mapNode(node: AccessibilityNodeInfo, depth: Int = 0): UiNode {
@@ -102,7 +108,14 @@ class SvetlanaAccessibilityService : AccessibilityService() {
         return out
     }
 
-    fun currentPackage(): String = lastPackage ?: ""
+    /**
+     * Приложение на экране: пакет живого активного окна; последнее событие — только если
+     * окна нет (и только если оно пришло после подключения сервиса).
+     */
+    fun currentPackage(): String {
+        val live = try { rootInActiveWindow?.packageName?.toString() } catch (_: Throwable) { null }
+        return live?.takeIf { it.isNotBlank() } ?: lastPackage ?: ""
+    }
 
     /** Клик по элементу. Возвращает true, только если действие реально выполнено. */
     fun click(node: AccessibilityNodeInfo): Boolean {
