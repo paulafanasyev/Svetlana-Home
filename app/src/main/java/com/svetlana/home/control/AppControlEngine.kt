@@ -24,8 +24,8 @@ import com.svetlana.home.permissions.PermissionManager
  * - каждое действие на экране (нажатие, ввод, очистка, прокрутка, свайп, чтение)
  *   «прикалывается» к пакету целевого приложения ([guard]): неизвестное приложение = отказ,
  *   а пакет проверяется ещё раз НЕПОСРЕДСТВЕННО перед действием — оверлей или переключение
- *   приложения отменяет действие; для нажатия/ввода/очистки пакет сверяется ещё и на самом
- *   живом элементе, на который идёт действие (HandsController, inPackage);
+ *   приложения отменяет действие; для нажатия/ввода/очистки/прокрутки пакет сверяется
+ *   ещё и на самом живом элементе и активном окне (HandsController, inPackage);
  * - нажатие/ввод/очистка выполняются только на том элементе, который роутер оценил и пользователь
  *   подтвердил ([targetLabel]); другая кнопка на его месте или сдвиг = отказ;
  * - сообщение в мессенджере уходит только в чат, в ШАПКЕ которого именно этот собеседник, текст
@@ -304,7 +304,8 @@ class AppControlEngine(
         val before = hands.treeFingerprint()
         val down = direction.equals("down", ignoreCase = true) || direction == "вниз"
         if (!onScreen(pkg)) return wrongAppResult(action, proof, hands.currentPackage(), pkg)
-        val ok = if (down) hands.scrollForward() else hands.scrollBackward()
+        // Прокручиваем только закреплённое приложение: пакет не выводится заново в момент действия.
+        val ok = if (down) hands.scrollForward(pkg) else hands.scrollBackward(pkg)
         proof.add(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             if (ok) "scroll performed" else "scroll failed")
         val changed = ok && verifyScreenChanged(before, 600)
