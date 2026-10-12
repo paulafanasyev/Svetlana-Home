@@ -49,7 +49,9 @@ data class UiTree(
  * действие). Если элемент сдвинули или подменили похожим — действие не выполняется.
  * Если сам элемент не нажимается, нажатие получает ближайший нажимаемый родитель ([clickTarget])
  * — только из того же приложения и только если его собственная подпись не опаснее проверенной
- * (иначе риск оценивали по одной подписи, а нажатие ушло бы другой кнопке). Ввод и очистка
+ * (иначе риск оценивали по одной подписи, а нажатие ушло бы другой кнопке). Цель нажатия
+ * перечитывается прямо перед нажатием ([NodeIdentity]): если между выбором и нажатием она
+ * изменилась (другой класс, id, границы, подпись, перестала нажиматься) — отказ. Ввод и очистка
  * идут прямо в этот элемент (ACTION_SET_TEXT) и только когда фокус ввода именно в нём
  * ([focusedExactNode]): текст не уйдёт ни «куда сейчас фокус», ни в поле без фокуса.
  * Прокрутка привязана к приложению и к точному элементу ([findScrollable]: единственный
@@ -160,13 +162,56 @@ class HandsController(private val context: Context) {
             target = target.parent
         }
         if (target == null || !inPkg(target, inPackage)) return null
-        val escalates = ActionRiskPolicy.isDangerousLabel(labelOf(target)) &&
-            !ActionRiskPolicy.isDangerousLabel(labelOf(live))
-        return target.takeIf { !escalates }
+        return target.takeIf { !escalates(live, it) }
     }
+
+    /** Нажатие ушло бы элементу с опасной подписью, хотя проверяли безопасную. */
+    private fun escalates(checked: AccessibilityNodeInfo, target: AccessibilityNodeInfo): Boolean =
+        ActionRiskPolicy.isDangerousLabel(labelOf(target)) &&
+            !ActionRiskPolicy.isDangerousLabel(labelOf(checked))
 
     private fun labelOf(n: AccessibilityNodeInfo): String =
         "${n.text ?: ""} ${n.contentDescription ?: ""} ${n.viewIdResourceName ?: ""}"
+
+    /** Чем элемент был в момент выбора цели: с этим сравнивается перечитанное состояние. */
+    private data class NodeIdentity(
+        val className: String,
+        val id: String,
+        val bounds: Rect,
+        val label: String,
+        val packageName: String
+    )
+
+    private fun identityOf(n: AccessibilityNodeInfo): NodeIdentity = NodeIdentity(
+        className = n.className?.toString().orEmpty(),
+        id = n.viewIdResourceName ?: "",
+        bounds = Rect().also { n.getBoundsInScreen(it) },
+        label = labelOf(n),
+        packageName = n.packageName?.toString().orEmpty()
+    )
+
+    /**
+     * Перечитывает цель нажатия ([AccessibilityNodeInfo.refresh]) и проверяет, что это всё ещё
+     * тот же элемент (класс, id, границы, подпись, пакет), что он нажимается и включён, а
+     * проверенный элемент — по-прежнему совпадает со снимком. Для родителя ещё раз проверяется,
+     * что его подпись не опаснее проверенной.
+     */
+    private fun stillSameTarget(
+        live: AccessibilityNodeInfo,
+        target: AccessibilityNodeInfo,
+        identity: NodeIdentity,
+        node: UiNode,
+        inPackage: String?
+    ): Boolean {
+        if (!target.refresh()) return false
+        if (!target.isClickable || !target.isEnabled || !inPkg(target, inPackage)) return false
+        if (identityOf(target) != identity) return false
+        if (target !== live) {
+            if (!live.refresh() || !sameAsSnapshot(live, node) || !inPkg(live, inPackage)) return false
+            if (escalates(live, target)) return false
+        } else if (!sameAsSnapshot(target, node)) return false
+        return true
+    }
 
     /**
      * Живое поле для ПРОВЕРКИ после ввода/очистки: тот же класс и id и те же левая/правая
@@ -230,6 +275,8 @@ class HandsController(private val context: Context) {
         val svc = service() ?: return false
         val live = findExactNode(node, inPackage) ?: return false
         val target = clickTarget(live, inPackage) ?: return false
+        val identity = identityOf(target)
+        if (!stillSameTarget(live, target, identity, node, inPackage)) return false
         if (!foregroundIs(inPackage)) return false
         return svc.click(target)
     }
@@ -237,6 +284,7 @@ class HandsController(private val context: Context) {
     fun longClick(node: UiNode, inPackage: String? = null): Boolean {
         val svc = service() ?: return false
         val live = findExactNode(node, inPackage) ?: return false
+        if (!live.refresh() || !sameAsSnapshot(live, node) || !inPkg(live, inPackage)) return false
         if (!foregroundIs(inPackage)) return false
         return svc.longClick(live)
     }
