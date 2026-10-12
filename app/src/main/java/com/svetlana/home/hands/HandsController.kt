@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
+import com.svetlana.home.control.ActionRiskPolicy
 import com.svetlana.home.permissions.PermissionManager
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -43,12 +44,14 @@ data class UiTree(
  * Безопасность: нажатие/ввод/очистка выполняются ТОЛЬКО на том живом элементе, который точно
  * совпадает со снимком ([findExactNode]: класс, границы, id, текст, описание — в том
  * же виде, что и в снимке, с вычищенными секретами) и принадлежит ожидаемому приложению
- * (пакет проверяется на самом живом элементе прямо перед действием: оверлей, выскочивший
- * между проверкой экрана и нажатием, не получит действие). Если элемент сдвинули или
- * подменили похожим — действие не выполняется. Ввод и очистка идут прямо в этот элемент
- * (ACTION_SET_TEXT) и только когда фокус ввода именно в нём ([focusedExactNode]): текст не уйдёт ни
- * «куда сейчас фокус», ни в поле без фокуса; после постановки фокуса заново проверяется,
- * что на переднем плане всё ещё то же приложение.
+ * (пакет проверяется на самом живом элементе, а передний план — ещё раз непосредственно
+ * перед самим действием: оверлей, выскочивший между проверкой и нажатием, не получит
+ * действие). Если элемент сдвинули или подменили похожим — действие не выполняется.
+ * Если сам элемент не нажимается, нажатие получает ближайший нажимаемый родитель ([clickTarget])
+ * — только из того же приложения и только если его собственная подпись не опаснее проверенной
+ * (иначе риск оценивали по одной подписи, а нажатие ушло бы другой кнопке). Ввод и очистка
+ * идут прямо в этот элемент (ACTION_SET_TEXT) и только когда фокус ввода именно в нём
+ * ([focusedExactNode]): текст не уйдёт ни «куда сейчас фокус», ни в поле без фокуса.
  * Прокрутка привязана к приложению: и действие на элементе, и запасной свайп — только если
  * на экране именно ожидаемое приложение.
  * Проверка результата ввода/очистки читает то же самое поле ([findSameField]: класс, id, положение;
@@ -137,6 +140,30 @@ class HandsController(private val context: Context) {
     }
 
     /**
+     * Что реально получит нажатие: сам проверенный элемент или, если он не нажимается,
+     * ближайший нажимаемый родитель (не дальше [MAX_CLICK_HOPS] уровней). Родитель должен быть
+     * из того же приложения, а его собственная подпись (текст, описание, id) — не опасной,
+     * если подпись проверенного элемента безопасна: иначе риск и согласие считались по
+     * безобидной подписи, а нажатие ушло бы «опасной» кнопке — отказ.
+     */
+    private fun clickTarget(live: AccessibilityNodeInfo, inPackage: String?): AccessibilityNodeInfo? {
+        if (live.isClickable) return live
+        var target: AccessibilityNodeInfo? = live.parent
+        var hops = 1
+        while (target != null && !target.isClickable) {
+            if (++hops > MAX_CLICK_HOPS) return null
+            target = target.parent
+        }
+        if (target == null || !inPkg(target, inPackage)) return null
+        val escalates = ActionRiskPolicy.isDangerousLabel(labelOf(target)) &&
+            !ActionRiskPolicy.isDangerousLabel(labelOf(live))
+        return target.takeIf { !escalates }
+    }
+
+    private fun labelOf(n: AccessibilityNodeInfo): String =
+        "${n.text ?: ""} ${n.contentDescription ?: ""} ${n.viewIdResourceName ?: ""}"
+
+    /**
      * Живое поле для ПРОВЕРКИ после ввода/очистки: тот же класс и id и те же левая/правая
      * границы (поле может вырасти по высоте от длинного текста), а без id — те же класс и
      * границы целиком. Текст не сравнивается (он уже изменился). Подходящее поле должно
@@ -213,15 +240,21 @@ class HandsController(private val context: Context) {
         return null
     }
 
+    // Каждое действие ниже: поиск точного живого элемента → проверка переднего плана прямо перед
+    // вызовом сервиса (между ними больше ничего не делается) → действие.
+
     fun clickNode(node: UiNode, inPackage: String? = null): Boolean {
         val svc = service() ?: return false
         val live = findExactNode(node, inPackage) ?: return false
-        return svc.click(live)
+        val target = clickTarget(live, inPackage) ?: return false
+        if (!foregroundIs(inPackage)) return false
+        return svc.click(target)
     }
 
     fun longClick(node: UiNode, inPackage: String? = null): Boolean {
         val svc = service() ?: return false
         val live = findExactNode(node, inPackage) ?: return false
+        if (!foregroundIs(inPackage)) return false
         return svc.longClick(live)
     }
 
@@ -229,6 +262,7 @@ class HandsController(private val context: Context) {
         lastInputPackage = inPackage
         val svc = service() ?: return false
         val live = focusedExactNode(node, inPackage) ?: return false
+        if (!foregroundIs(inPackage)) return false
         return svc.inputText(live, text)
     }
 
@@ -236,12 +270,13 @@ class HandsController(private val context: Context) {
         lastInputPackage = inPackage
         val svc = service() ?: return false
         val live = focusedExactNode(node, inPackage) ?: return false
+        if (!foregroundIs(inPackage)) return false
         return svc.clearText(live)
     }
 
     /**
-     * Прокрутка только в [inPackage]; без него — в приложении, которое было на экране в момент
-     * вызова (вызывающие проверяют пакет непосредственно перед вызовом).
+     * Прокрутка только в [inPackage] (вызывающие передают закреплённый пакет); без него — в
+     * приложении, которое было на экране в момент вызова.
      */
     fun scrollForward(inPackage: String? = null): Boolean = scroll(inPackage, forward = true)
 
@@ -249,7 +284,7 @@ class HandsController(private val context: Context) {
 
     /**
      * Снимок должен быть из того же приложения, живой прокручиваемый элемент и окно — тоже;
-     * слепой свайп-запаска — только если на переднем плане всё ещё это приложение.
+     * передний план проверяется прямо перед прокруткой и перед слепым свайпом-запаской.
      */
     private fun scroll(inPackage: String?, forward: Boolean): Boolean {
         val svc = service() ?: return false
@@ -259,8 +294,8 @@ class HandsController(private val context: Context) {
         if (tree != null && tree.packageName.isNotBlank() && !tree.packageName.equals(pkg, ignoreCase = true)) return false
         val scrollable = tree?.nodes?.lastOrNull { it.isScrollable }
         val live = scrollable?.let { findLiveNode(it, pkg) }
-        if (live != null) return if (forward) svc.scrollForward(live) else svc.scrollBackward(live)
         if (!foregroundIs(pkg)) return false
+        if (live != null) return if (forward) svc.scrollForward(live) else svc.scrollBackward(live)
         return if (forward) svc.swipe(540f, 1400f, 540f, 400f) else svc.swipe(540f, 400f, 540f, 1400f)
     }
 
@@ -461,5 +496,9 @@ class HandsController(private val context: Context) {
 
     fun nodeCount(): Int = uiTree()?.nodes?.size ?: -1
 
-    private companion object { const val MAX_DEPTH = 60 }
+    private companion object {
+        const val MAX_DEPTH = 60
+        /** Насколько высоко можно подняться к нажимаемому родителю от проверенного элемента. */
+        const val MAX_CLICK_HOPS = 8
+    }
 }
