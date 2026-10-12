@@ -54,9 +54,10 @@ data class UiTree(
  * изменилась (другой класс, id, границы, подпись, перестала нажиматься) — отказ. Ввод и очистка
  * идут прямо в этот элемент (ACTION_SET_TEXT) и только когда фокус ввода именно в нём
  * ([focusedExactNode]): текст не уйдёт ни «куда сейчас фокус», ни в поле без фокуса.
- * Прокрутка привязана к приложению и к точному элементу ([findScrollable]: единственный
- * прокручиваемый элемент с теми же классом, id и границами), запасной свайп — только
- * если на экране именно ожидаемое приложение и прокручиваемого элемента в снимке нет.
+ * Прокрутка привязана к приложению и к однозначному элементу: в снимке выбирается единственный
+ * прокручиваемый элемент или единственный самый большой ([mainScrollable]; ничья — отказ), а в
+ * живом окне он должен найтись ровно один раз с теми же классом, id и границами ([findScrollable]).
+ * Запасной свайп — только если на экране именно ожидаемое приложение и прокручиваемого элемента в снимке нет.
  * Проверка результата ввода/очистки читает то же самое поле ([findSameField]: класс, id, положение;
  * если таких полей несколько — не подтверждено) и только из того же приложения, в котором было действие.
  */
@@ -93,6 +94,19 @@ class HandsController(private val context: Context) {
         if (!currentPackage().equals(pkg, ignoreCase = true)) return false
         val root = service()?.rootInActiveWindow ?: return false
         return inPkg(root, pkg)
+    }
+
+    /**
+     * Какой прокручиваемый элемент снимка прокручивать: единственный, а если их несколько
+     * (список и карусель внутри) — единственный самый большой по площади. Несколько
+     * одинаково больших — нельзя сказать, какой имелся в виду, — null (отказ).
+     */
+    private fun mainScrollable(scrollables: List<UiNode>): UiNode? {
+        scrollables.singleOrNull()?.let { return it }
+        fun area(n: UiNode): Long = n.bounds.width().toLong() * n.bounds.height().toLong()
+        val max = scrollables.maxOfOrNull { area(it) } ?: return null
+        if (max <= 0L) return null
+        return scrollables.filter { area(it) == max }.singleOrNull()
     }
 
     /**
@@ -314,10 +328,10 @@ class HandsController(private val context: Context) {
     fun scrollBackward(inPackage: String? = null): Boolean = scroll(inPackage, forward = false)
 
     /**
-     * Снимок должен быть из того же приложения; прокручивается только точный и единственный
-     * элемент из снимка ([findScrollable]). Если в снимке прокручиваемый элемент есть, но он
-     * изменился или не единственный — отказ; слепой свайп — только когда прокручиваемого
-     * элемента нет вообще. Передний план проверяется прямо перед действием.
+     * Снимок должен быть из того же приложения. В снимке цель должна быть однозначной
+     * ([mainScrollable]), а в живом окне — найтись ровно один раз ([findScrollable]); иначе отказ.
+     * Слепой свайп — только когда прокручиваемого элемента нет вообще. Передний план проверяется
+     * прямо перед действием.
      */
     private fun scroll(inPackage: String?, forward: Boolean): Boolean {
         val svc = service() ?: return false
@@ -325,8 +339,9 @@ class HandsController(private val context: Context) {
         if (!foregroundIs(pkg)) return false
         val tree = svc.snapshotUiTree()
         if (tree.packageName.isNotBlank() && !tree.packageName.equals(pkg, ignoreCase = true)) return false
-        val scrollable = tree.nodes.lastOrNull { it.isScrollable }
-        if (scrollable != null) {
+        val scrollables = tree.nodes.filter { it.isScrollable }
+        if (scrollables.isNotEmpty()) {
+            val scrollable = mainScrollable(scrollables) ?: return false
             val live = findScrollable(scrollable, pkg) ?: return false
             if (!foregroundIs(pkg)) return false
             return if (forward) svc.scrollForward(live) else svc.scrollBackward(live)
@@ -347,9 +362,9 @@ class HandsController(private val context: Context) {
      *
      * Приватность (default-deny, [ScreenshotPolicy]):
      * - снимается только доверенное приложение (своё, настройки, Mobile Harness) или
-     *   то окно, на снимок которого пользователь только что дал одноразовое согласие;
+     *   тот самый экран, на снимок которого пользователь только что дал одноразовое согласие;
      * - банки, платёжки и менеджеры паролей не снимаются никогда;
-     * - если за время снимка сменилось приложение или окно, либо прочитанный экран
+     * - если за время снимка сменилось приложение или экран, либо прочитанный экран
      *   принадлежит другому пакету — снимок не отдаётся;
      * - поля паролей/PIN/кодов/карт закрашиваются; если закрасить нельзя — не отдаётся.
      * Окна с FLAG_SECURE Android и так отдаёт чёрными.
