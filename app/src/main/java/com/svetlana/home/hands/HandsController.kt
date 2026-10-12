@@ -56,9 +56,9 @@ data class UiTree(
  * ([focusedExactNode]): текст не уйдёт ни «куда сейчас фокус», ни в поле без фокуса.
  * Прокрутка привязана к приложению и к однозначному элементу: в снимке выбирается единственный
  * прокручиваемый элемент или единственный самый большой ([mainScrollable]; ничья или нулевая
- * площадь — отказ), а в живом окне он должен найтись ровно один раз с теми же классом, id
- * и границами ([findScrollable]). Запасной свайп — только если на экране именно ожидаемое приложение
- * и прокручиваемого элемента в снимке нет.
+ * площадь — отказ), в живом окне он должен найтись ровно один раз с теми же классом, id и
+ * границами ([findScrollable]) и перечитывается прямо перед прокруткой ([stillSameScrollable]). Запасной
+ * свайп — только если на экране именно ожидаемое приложение и прокручиваемого элемента в снимке нет.
  * Проверка результата ввода/очистки читает то же самое поле ([findSameField]: класс, id, положение;
  * если таких полей несколько — не подтверждено) и только из того же приложения, в котором было действие.
  */
@@ -122,11 +122,23 @@ class HandsController(private val context: Context) {
         return found.singleOrNull()?.takeIf { inPkg(it, inPackage) }
     }
 
+    private fun isSameScrollable(n: AccessibilityNodeInfo, target: UiNode): Boolean =
+        n.isScrollable && n.className?.toString().orEmpty() == target.className &&
+            (n.viewIdResourceName ?: "") == target.id &&
+            Rect().also { n.getBoundsInScreen(it) } == target.bounds
+
+    /**
+     * Перечитывает найденный прокручиваемый элемент ([AccessibilityNodeInfo.refresh]) прямо перед
+     * прокруткой: он должен остаться прокручиваемым, с теми же классом, id, границами и пакетом.
+     */
+    private fun stillSameScrollable(live: AccessibilityNodeInfo, target: UiNode, inPackage: String): Boolean {
+        if (!live.refresh()) return false
+        return inPkg(live, inPackage) && isSameScrollable(live, target)
+    }
+
     private fun collectScrollables(n: AccessibilityNodeInfo, target: UiNode, depth: Int, out: MutableList<AccessibilityNodeInfo>) {
         if (depth > MAX_DEPTH || out.size > 1) return
-        if (n.isScrollable && n.className?.toString().orEmpty() == target.className &&
-            (n.viewIdResourceName ?: "") == target.id &&
-            Rect().also { n.getBoundsInScreen(it) } == target.bounds) out += n
+        if (isSameScrollable(n, target)) out += n
         for (i in 0 until n.childCount) {
             val child = n.getChild(i) ?: continue
             collectScrollables(child, target, depth + 1, out)
@@ -329,7 +341,8 @@ class HandsController(private val context: Context) {
 
     /**
      * Снимок должен быть из того же приложения. В снимке цель должна быть однозначной
-     * ([mainScrollable]), а в живом окне — найтись ровно один раз ([findScrollable]); иначе отказ.
+     * ([mainScrollable]), в живом окне — найтись ровно один раз ([findScrollable]), а прямо перед
+     * прокруткой — перечитаться и остаться тем же ([stillSameScrollable]); иначе отказ.
      * Слепой свайп — только когда прокручиваемого элемента нет вообще. Передний план проверяется
      * прямо перед действием.
      */
@@ -343,6 +356,7 @@ class HandsController(private val context: Context) {
         if (scrollables.isNotEmpty()) {
             val scrollable = mainScrollable(scrollables) ?: return false
             val live = findScrollable(scrollable, pkg) ?: return false
+            if (!stillSameScrollable(live, scrollable, pkg)) return false
             if (!foregroundIs(pkg)) return false
             return if (forward) svc.scrollForward(live) else svc.scrollBackward(live)
         }
