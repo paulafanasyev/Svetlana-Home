@@ -37,9 +37,9 @@ import kotlinx.coroutines.flow.asSharedFlow
  * историю, ни в логи. Это касается и contentDescription (например, всплывающее
  * уведомление «Код: 123456»).
  *
- * Приложение на экране ([currentPackage]) и пакет снимка берутся из ЖИВОГО активного окна,
- * а не из запомненного события: после перезапуска сервиса старое значение не выдаётся
- * за текущее приложение (кеш очищается при подключении и отключении сервиса).
+ * Приложение на экране ([currentPackage]) и пакет снимка берутся ТОЛЬКО из живого активного
+ * окна. Запомненное событие за текущее приложение не выдаётся никогда: нет окна —
+ * пустая строка, и все проверки «то ли приложение» закрываются отказом.
  */
 class SvetlanaAccessibilityService : AccessibilityService() {
 
@@ -108,14 +108,12 @@ class SvetlanaAccessibilityService : AccessibilityService() {
         return out
     }
 
-    /**
-     * Приложение на экране: пакет живого активного окна; последнее событие — только если
-     * окна нет (и только если оно пришло после подключения сервиса).
-     */
-    fun currentPackage(): String {
-        val live = try { rootInActiveWindow?.packageName?.toString() } catch (_: Throwable) { null }
-        return live?.takeIf { it.isNotBlank() } ?: lastPackage ?: ""
-    }
+    /** Приложение на экране: только пакет живого активного окна; нет окна — пустая строка (fail closed). */
+    fun currentPackage(): String =
+        try { rootInActiveWindow?.packageName?.toString() } catch (_: Throwable) { null } ?: ""
+
+    /** Пакет последнего события — только для диагностики, НЕ для решений о безопасности. */
+    fun lastEventPackage(): String? = lastPackage
 
     /** Клик по элементу. Возвращает true, только если действие реально выполнено. */
     fun click(node: AccessibilityNodeInfo): Boolean {

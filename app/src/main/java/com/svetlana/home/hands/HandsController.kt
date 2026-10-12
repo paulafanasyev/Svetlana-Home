@@ -49,12 +49,16 @@ data class UiTree(
  * действие). Если элемент сдвинули или подменили похожим — действие не выполняется.
  * Если сам элемент не нажимается, нажатие получает ближайший нажимаемый родитель ([clickTarget])
  * — только из того же приложения и только если его собственная подпись не опаснее проверенной
- * (иначе риск оценивали по одной подписи, а нажатие ушло бы другой кнопке). Ввод и очистка
+ * (иначе риск оценивали по одной подписи, а нажатие ушло бы другой кнопке). Цель нажатия
+ * перечитывается прямо перед нажатием ([NodeIdentity]): если между выбором и нажатием она
+ * изменилась (другой класс, id, границы, подпись, перестала нажиматься) — отказ. Ввод и очистка
  * идут прямо в этот элемент (ACTION_SET_TEXT) и только когда фокус ввода именно в нём
  * ([focusedExactNode]): текст не уйдёт ни «куда сейчас фокус», ни в поле без фокуса.
- * Прокрутка привязана к приложению и к точному элементу ([findScrollable]: единственный
- * прокручиваемый элемент с теми же классом, id и границами), запасной свайп — только
- * если на экране именно ожидаемое приложение и прокручиваемого элемента в снимке нет.
+ * Прокрутка привязана к приложению и к однозначному элементу: в снимке выбирается единственный
+ * прокручиваемый элемент или единственный самый большой ([mainScrollable]; ничья или нулевая
+ * площадь — отказ), а в живом окне он должен найтись ровно один раз с теми же классом, id
+ * и границами ([findScrollable]). Запасной свайп — только если на экране именно ожидаемое приложение
+ * и прокручиваемого элемента в снимке нет.
  * Проверка результата ввода/очистки читает то же самое поле ([findSameField]: класс, id, положение;
  * если таких полей несколько — не подтверждено) и только из того же приложения, в котором было действие.
  */
@@ -91,6 +95,18 @@ class HandsController(private val context: Context) {
         if (!currentPackage().equals(pkg, ignoreCase = true)) return false
         val root = service()?.rootInActiveWindow ?: return false
         return inPkg(root, pkg)
+    }
+
+    /**
+     * Какой прокручиваемый элемент снимка прокручивать: единственный самый большой по площади
+     * (если он один — он сам; если список и карусель внутри — список). Нулевая площадь
+     * (невидимый элемент) или несколько одинаково больших — null (отказ), даже если кандидат один.
+     */
+    private fun mainScrollable(scrollables: List<UiNode>): UiNode? {
+        fun area(n: UiNode): Long = n.bounds.width().toLong() * n.bounds.height().toLong()
+        val max = scrollables.maxOfOrNull { area(it) } ?: return null
+        if (max <= 0L) return null
+        return scrollables.filter { area(it) == max }.singleOrNull()
     }
 
     /**
@@ -160,13 +176,56 @@ class HandsController(private val context: Context) {
             target = target.parent
         }
         if (target == null || !inPkg(target, inPackage)) return null
-        val escalates = ActionRiskPolicy.isDangerousLabel(labelOf(target)) &&
-            !ActionRiskPolicy.isDangerousLabel(labelOf(live))
-        return target.takeIf { !escalates }
+        return target.takeIf { !escalates(live, it) }
     }
+
+    /** Нажатие ушло бы элементу с опасной подписью, хотя проверяли безопасную. */
+    private fun escalates(checked: AccessibilityNodeInfo, target: AccessibilityNodeInfo): Boolean =
+        ActionRiskPolicy.isDangerousLabel(labelOf(target)) &&
+            !ActionRiskPolicy.isDangerousLabel(labelOf(checked))
 
     private fun labelOf(n: AccessibilityNodeInfo): String =
         "${n.text ?: ""} ${n.contentDescription ?: ""} ${n.viewIdResourceName ?: ""}"
+
+    /** Чем элемент был в момент выбора цели: с этим сравнивается перечитанное состояние. */
+    private data class NodeIdentity(
+        val className: String,
+        val id: String,
+        val bounds: Rect,
+        val label: String,
+        val packageName: String
+    )
+
+    private fun identityOf(n: AccessibilityNodeInfo): NodeIdentity = NodeIdentity(
+        className = n.className?.toString().orEmpty(),
+        id = n.viewIdResourceName ?: "",
+        bounds = Rect().also { n.getBoundsInScreen(it) },
+        label = labelOf(n),
+        packageName = n.packageName?.toString().orEmpty()
+    )
+
+    /**
+     * Перечитывает цель нажатия ([AccessibilityNodeInfo.refresh]) и проверяет, что это всё ещё
+     * тот же элемент (класс, id, границы, подпись, пакет), что он нажимается и включён, а
+     * проверенный элемент — по-прежнему совпадает со снимком. Для родителя ещё раз проверяется,
+     * что его подпись не опаснее проверенной.
+     */
+    private fun stillSameTarget(
+        live: AccessibilityNodeInfo,
+        target: AccessibilityNodeInfo,
+        identity: NodeIdentity,
+        node: UiNode,
+        inPackage: String?
+    ): Boolean {
+        if (!target.refresh()) return false
+        if (!target.isClickable || !target.isEnabled || !inPkg(target, inPackage)) return false
+        if (identityOf(target) != identity) return false
+        if (target !== live) {
+            if (!live.refresh() || !sameAsSnapshot(live, node) || !inPkg(live, inPackage)) return false
+            if (escalates(live, target)) return false
+        } else if (!sameAsSnapshot(target, node)) return false
+        return true
+    }
 
     /**
      * Живое поле для ПРОВЕРКИ после ввода/очистки: тот же класс и id и те же левая/правая
@@ -230,6 +289,8 @@ class HandsController(private val context: Context) {
         val svc = service() ?: return false
         val live = findExactNode(node, inPackage) ?: return false
         val target = clickTarget(live, inPackage) ?: return false
+        val identity = identityOf(target)
+        if (!stillSameTarget(live, target, identity, node, inPackage)) return false
         if (!foregroundIs(inPackage)) return false
         return svc.click(target)
     }
@@ -237,6 +298,7 @@ class HandsController(private val context: Context) {
     fun longClick(node: UiNode, inPackage: String? = null): Boolean {
         val svc = service() ?: return false
         val live = findExactNode(node, inPackage) ?: return false
+        if (!live.refresh() || !sameAsSnapshot(live, node) || !inPkg(live, inPackage)) return false
         if (!foregroundIs(inPackage)) return false
         return svc.longClick(live)
     }
@@ -266,10 +328,10 @@ class HandsController(private val context: Context) {
     fun scrollBackward(inPackage: String? = null): Boolean = scroll(inPackage, forward = false)
 
     /**
-     * Снимок должен быть из того же приложения; прокручивается только точный и единственный
-     * элемент из снимка ([findScrollable]). Если в снимке прокручиваемый элемент есть, но он
-     * изменился или не единственный — отказ; слепой свайп — только когда прокручиваемого
-     * элемента нет вообще. Передний план проверяется прямо перед действием.
+     * Снимок должен быть из того же приложения. В снимке цель должна быть однозначной
+     * ([mainScrollable]), а в живом окне — найтись ровно один раз ([findScrollable]); иначе отказ.
+     * Слепой свайп — только когда прокручиваемого элемента нет вообще. Передний план проверяется
+     * прямо перед действием.
      */
     private fun scroll(inPackage: String?, forward: Boolean): Boolean {
         val svc = service() ?: return false
@@ -277,8 +339,9 @@ class HandsController(private val context: Context) {
         if (!foregroundIs(pkg)) return false
         val tree = svc.snapshotUiTree()
         if (tree.packageName.isNotBlank() && !tree.packageName.equals(pkg, ignoreCase = true)) return false
-        val scrollable = tree.nodes.lastOrNull { it.isScrollable }
-        if (scrollable != null) {
+        val scrollables = tree.nodes.filter { it.isScrollable }
+        if (scrollables.isNotEmpty()) {
+            val scrollable = mainScrollable(scrollables) ?: return false
             val live = findScrollable(scrollable, pkg) ?: return false
             if (!foregroundIs(pkg)) return false
             return if (forward) svc.scrollForward(live) else svc.scrollBackward(live)
@@ -299,9 +362,9 @@ class HandsController(private val context: Context) {
      *
      * Приватность (default-deny, [ScreenshotPolicy]):
      * - снимается только доверенное приложение (своё, настройки, Mobile Harness) или
-     *   то окно, на снимок которого пользователь только что дал одноразовое согласие;
+     *   тот самый экран, на снимок которого пользователь только что дал одноразовое согласие;
      * - банки, платёжки и менеджеры паролей не снимаются никогда;
-     * - если за время снимка сменилось приложение или окно, либо прочитанный экран
+     * - если за время снимка сменилось приложение или экран, либо прочитанный экран
      *   принадлежит другому пакету — снимок не отдаётся;
      * - поля паролей/PIN/кодов/карт закрашиваются; если закрасить нельзя — не отдаётся.
      * Окна с FLAG_SECURE Android и так отдаёт чёрными.

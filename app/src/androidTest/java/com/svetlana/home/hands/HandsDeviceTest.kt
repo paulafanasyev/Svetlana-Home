@@ -40,10 +40,22 @@ class HandsDeviceTest : SvetlanaDeviceTest() {
         }
     }
 
+    /**
+     * Пакет берётся только из живого активного окна (без кеша событий): сразу после
+     * смены экрана окна может не быть доли секунды, и тогда честный ответ — пустая строка.
+     * Поэтому ждём до 5 секунд, пока окно появится.
+     */
     @Test
-    fun currentPackageIsReportedOrEmpty() {
+    fun currentPackageIsReportedOrEmpty() = runBlocking {
         val hands = ServiceLocator.hands
-        val pkg = hands.currentPackage()
+        var pkg = hands.currentPackage()
+        if (hands.isActive) {
+            val deadline = System.currentTimeMillis() + 5_000L
+            while (pkg.isBlank() && System.currentTimeMillis() < deadline) {
+                kotlinx.coroutines.delay(200)
+                pkg = hands.currentPackage()
+            }
+        }
         println("CURRENT_PACKAGE=$pkg")
         // Если hands не активен, вернётся пустая строка — это валидный ответ.
         if (hands.isActive) {
