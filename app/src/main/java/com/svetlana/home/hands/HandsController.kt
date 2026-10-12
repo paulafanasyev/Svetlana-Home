@@ -47,7 +47,10 @@ data class UiTree(
  * между проверкой экрана и нажатием, не получит действие). Если элемент сдвинули или
  * подменили похожим — действие не выполняется. Ввод и очистка идут прямо в этот элемент
  * (ACTION_SET_TEXT) и только когда фокус ввода именно в нём ([focusedExactNode]): текст не уйдёт ни
- * «куда сейчас фокус», ни в поле без фокуса.
+ * «куда сейчас фокус», ни в поле без фокуса; после постановки фокуса заново проверяется,
+ * что на переднем плане всё ещё то же приложение.
+ * Прокрутка привязана к приложению: и действие на элементе, и запасной свайп — только если
+ * на экране именно ожидаемое приложение.
  * Проверка результата ввода/очистки читает то же самое поле ([findSameField]: класс, id, положение;
  * если таких полей несколько — не подтверждено) и только из того же приложения, в котором было действие.
  */
@@ -77,6 +80,14 @@ class HandsController(private val context: Context) {
 
     private fun inPkg(n: AccessibilityNodeInfo, pkg: String?): Boolean =
         pkg == null || n.packageName?.toString().equals(pkg, ignoreCase = true)
+
+    /** На переднем плане ожидаемое приложение (и по событиям сервиса, и по корню активного окна). */
+    private fun foregroundIs(pkg: String?): Boolean {
+        if (pkg == null) return true
+        if (!currentPackage().equals(pkg, ignoreCase = true)) return false
+        val root = service()?.rootInActiveWindow ?: return false
+        return inPkg(root, pkg)
+    }
 
     /**
      * Поиск «живого» AccessibilityNodeInfo, соответствующего UiNode из снапшота:
@@ -113,14 +124,16 @@ class HandsController(private val context: Context) {
     /**
      * Точный живой элемент ([findExactNode]), в котором стоит фокус ввода. Если фокуса в нём нет —
      * ставим его сами (ACTION_FOCUS) и перечитываем состояние: элемент должен остаться тем же
-     * (снимок, пакет) и действительно получить фокус. Иначе — ничего не вводим и не очищаем.
+     * (снимок, пакет) и действительно получить фокус, а на переднем плане должно остаться
+     * то же приложение (корень активного окна перечитывается заново). Иначе — ничего не вводим.
      */
     private fun focusedExactNode(node: UiNode, inPackage: String?): AccessibilityNodeInfo? {
         val live = findExactNode(node, inPackage) ?: return null
-        if (live.isFocused) return live
+        if (live.isFocused) return live.takeIf { foregroundIs(inPackage) }
         if (!live.performAction(AccessibilityNodeInfo.ACTION_FOCUS)) return null
         if (!live.refresh()) return null
-        return live.takeIf { it.isFocused && inPkg(it, inPackage) && sameAsSnapshot(it, node) }
+        if (!(live.isFocused && inPkg(live, inPackage) && sameAsSnapshot(live, node))) return null
+        return live.takeIf { foregroundIs(inPackage) }
     }
 
     /**
@@ -226,18 +239,29 @@ class HandsController(private val context: Context) {
         return svc.clearText(live)
     }
 
-    fun scrollForward(): Boolean {
-        val svc = service() ?: return false
-        val scrollable = svc.snapshotUiTree()?.nodes?.lastOrNull { it.isScrollable }
-        val live = scrollable?.let { findLiveNode(it) }
-        return if (live != null) svc.scrollForward(live) else svc.swipe(540f, 1400f, 540f, 400f)
-    }
+    /**
+     * Прокрутка только в [inPackage]; без него — в приложении, которое было на экране в момент
+     * вызова (вызывающие проверяют пакет непосредственно перед вызовом).
+     */
+    fun scrollForward(inPackage: String? = null): Boolean = scroll(inPackage, forward = true)
 
-    fun scrollBackward(): Boolean {
+    fun scrollBackward(inPackage: String? = null): Boolean = scroll(inPackage, forward = false)
+
+    /**
+     * Снимок должен быть из того же приложения, живой прокручиваемый элемент и окно — тоже;
+     * слепой свайп-запаска — только если на переднем плане всё ещё это приложение.
+     */
+    private fun scroll(inPackage: String?, forward: Boolean): Boolean {
         val svc = service() ?: return false
-        val scrollable = svc.snapshotUiTree()?.nodes?.lastOrNull { it.isScrollable }
-        val live = scrollable?.let { findLiveNode(it) }
-        return if (live != null) svc.scrollBackward(live) else svc.swipe(540f, 400f, 540f, 1400f)
+        val pkg = inPackage ?: currentPackage().takeIf { it.isNotBlank() } ?: return false
+        if (!foregroundIs(pkg)) return false
+        val tree = svc.snapshotUiTree()
+        if (tree != null && tree.packageName.isNotBlank() && !tree.packageName.equals(pkg, ignoreCase = true)) return false
+        val scrollable = tree?.nodes?.lastOrNull { it.isScrollable }
+        val live = scrollable?.let { findLiveNode(it, pkg) }
+        if (live != null) return if (forward) svc.scrollForward(live) else svc.scrollBackward(live)
+        if (!foregroundIs(pkg)) return false
+        return if (forward) svc.swipe(540f, 1400f, 540f, 400f) else svc.swipe(540f, 400f, 540f, 1400f)
     }
 
     fun swipe(startX: Float, startY: Float, endX: Float, endY: Float): Boolean =
