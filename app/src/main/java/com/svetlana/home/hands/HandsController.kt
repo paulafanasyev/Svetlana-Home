@@ -52,8 +52,9 @@ data class UiTree(
  * (иначе риск оценивали по одной подписи, а нажатие ушло бы другой кнопке). Ввод и очистка
  * идут прямо в этот элемент (ACTION_SET_TEXT) и только когда фокус ввода именно в нём
  * ([focusedExactNode]): текст не уйдёт ни «куда сейчас фокус», ни в поле без фокуса.
- * Прокрутка привязана к приложению: и действие на элементе, и запасной свайп — только если
- * на экране именно ожидаемое приложение.
+ * Прокрутка привязана к приложению и к точному элементу ([findScrollable]: единственный
+ * прокручиваемый элемент с теми же классом, id и границами), запасной свайп — только
+ * если на экране именно ожидаемое приложение и прокручиваемого элемента в снимке нет.
  * Проверка результата ввода/очистки читает то же самое поле ([findSameField]: класс, id, положение;
  * если таких полей несколько — не подтверждено) и только из того же приложения, в котором было действие.
  */
@@ -84,7 +85,7 @@ class HandsController(private val context: Context) {
     private fun inPkg(n: AccessibilityNodeInfo, pkg: String?): Boolean =
         pkg == null || n.packageName?.toString().equals(pkg, ignoreCase = true)
 
-    /** На переднем плане ожидаемое приложение (и по событиям сервиса, и по корню активного окна). */
+    /** На переднем плане ожидаемое приложение (и по сервису, и по корню активного окна). */
     private fun foregroundIs(pkg: String?): Boolean {
         if (pkg == null) return true
         if (!currentPackage().equals(pkg, ignoreCase = true)) return false
@@ -93,23 +94,27 @@ class HandsController(private val context: Context) {
     }
 
     /**
-     * Поиск «живого» AccessibilityNodeInfo, соответствующего UiNode из снапшота:
-     * id → текст → contentDescription → класс + bounds (аудит п.12). Только для прокрутки;
-     * для самих действий — [findExactNode], для проверки ввода — [findSameField].
-     * Если задан [inPackage] — окно и найденный элемент должны принадлежать этому приложению.
+     * Живой прокручиваемый элемент, совпадающий со снимком: тот же класс, id и границы, и такой
+     * элемент ЕДИНСТВЕННЫЙ (иначе нельзя сказать, какой из них прокручивать). Окно и элемент —
+     * из [inPackage].
      */
-    private fun findLiveNode(node: UiNode, inPackage: String? = null): AccessibilityNodeInfo? {
-        val svc = service() ?: return null
-        val root = svc.rootInActiveWindow ?: return null
+    private fun findScrollable(node: UiNode, inPackage: String): AccessibilityNodeInfo? {
+        val root = service()?.rootInActiveWindow ?: return null
         if (!inPkg(root, inPackage)) return null
-        val found = run {
-            if (node.id.isNotBlank()) {
-                findByViewId(root, node.id)?.let { return@run it }
-            }
-            node.visibleText.takeIf { it.isNotBlank() }?.let { text -> findByText(root, text) }
-                ?: findByClassAndBounds(root, node)
-        } ?: return null
-        return found.takeIf { inPkg(it, inPackage) }
+        val found = mutableListOf<AccessibilityNodeInfo>()
+        collectScrollables(root, node, 0, found)
+        return found.singleOrNull()?.takeIf { inPkg(it, inPackage) }
+    }
+
+    private fun collectScrollables(n: AccessibilityNodeInfo, target: UiNode, depth: Int, out: MutableList<AccessibilityNodeInfo>) {
+        if (depth > MAX_DEPTH || out.size > 1) return
+        if (n.isScrollable && n.className?.toString().orEmpty() == target.className &&
+            (n.viewIdResourceName ?: "") == target.id &&
+            Rect().also { n.getBoundsInScreen(it) } == target.bounds) out += n
+        for (i in 0 until n.childCount) {
+            val child = n.getChild(i) ?: continue
+            collectScrollables(child, target, depth + 1, out)
+        }
     }
 
     /**
@@ -218,28 +223,6 @@ class HandsController(private val context: Context) {
         return null
     }
 
-    private fun findByText(node: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
-        val nodeText = node.text?.toString().orEmpty()
-        val nodeDesc = node.contentDescription?.toString().orEmpty()
-        if (nodeText == text || nodeDesc == text) return node
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            findByText(child, text)?.let { return it }
-        }
-        return null
-    }
-
-    private fun findByClassAndBounds(node: AccessibilityNodeInfo, target: UiNode): AccessibilityNodeInfo? {
-        val bounds = android.graphics.Rect().also { node.getBoundsInScreen(it) }
-        val sameClass = node.className?.toString().orEmpty() == target.className
-        if (sameClass && bounds == target.bounds) return node
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            findByClassAndBounds(child, target)?.let { return it }
-        }
-        return null
-    }
-
     // Каждое действие ниже: поиск точного живого элемента → проверка переднего плана прямо перед
     // вызовом сервиса (между ними больше ничего не делается) → действие.
 
@@ -283,19 +266,24 @@ class HandsController(private val context: Context) {
     fun scrollBackward(inPackage: String? = null): Boolean = scroll(inPackage, forward = false)
 
     /**
-     * Снимок должен быть из того же приложения, живой прокручиваемый элемент и окно — тоже;
-     * передний план проверяется прямо перед прокруткой и перед слепым свайпом-запаской.
+     * Снимок должен быть из того же приложения; прокручивается только точный и единственный
+     * элемент из снимка ([findScrollable]). Если в снимке прокручиваемый элемент есть, но он
+     * изменился или не единственный — отказ; слепой свайп — только когда прокручиваемого
+     * элемента нет вообще. Передний план проверяется прямо перед действием.
      */
     private fun scroll(inPackage: String?, forward: Boolean): Boolean {
         val svc = service() ?: return false
         val pkg = inPackage ?: currentPackage().takeIf { it.isNotBlank() } ?: return false
         if (!foregroundIs(pkg)) return false
         val tree = svc.snapshotUiTree()
-        if (tree != null && tree.packageName.isNotBlank() && !tree.packageName.equals(pkg, ignoreCase = true)) return false
-        val scrollable = tree?.nodes?.lastOrNull { it.isScrollable }
-        val live = scrollable?.let { findLiveNode(it, pkg) }
+        if (tree.packageName.isNotBlank() && !tree.packageName.equals(pkg, ignoreCase = true)) return false
+        val scrollable = tree.nodes.lastOrNull { it.isScrollable }
+        if (scrollable != null) {
+            val live = findScrollable(scrollable, pkg) ?: return false
+            if (!foregroundIs(pkg)) return false
+            return if (forward) svc.scrollForward(live) else svc.scrollBackward(live)
+        }
         if (!foregroundIs(pkg)) return false
-        if (live != null) return if (forward) svc.scrollForward(live) else svc.scrollBackward(live)
         return if (forward) svc.swipe(540f, 1400f, 540f, 400f) else svc.swipe(540f, 400f, 540f, 1400f)
     }
 
@@ -320,7 +308,10 @@ class HandsController(private val context: Context) {
      */
     suspend fun takeScreenshot(timeoutMs: Long = 8000L): Bitmap? {
         val pkg = currentPackage()
-        val window = ScreenshotPolicy.windowKeyOf(uiTree())
+        val before = uiTree()
+        // Пакет снимка (из живого окна) должен совпадать с приложением, которое проверяет политика.
+        if (before == null || !before.packageName.equals(pkg, ignoreCase = true)) return null
+        val window = ScreenshotPolicy.windowKeyOf(before)
         if (!ScreenshotPolicy.mayCapture(pkg, context.packageName, window)) return null
         val raw: Bitmap = withTimeoutOrNull(timeoutMs) {
             suspendCancellableCoroutine<Bitmap?> { cont ->
@@ -337,13 +328,14 @@ class HandsController(private val context: Context) {
         // Пока делали снимок, на экран могло выйти другое приложение или окно.
         if (!currentPackage().equals(pkg, ignoreCase = true)) return null
         val tree = uiTree() ?: return null
+        if (!tree.packageName.equals(pkg, ignoreCase = true)) return null
         if (ScreenshotPolicy.windowKeyOf(tree) != window) return null
         return redactSecrets(raw, pkg, tree)
     }
 
     private fun redactSecrets(raw: Bitmap, expectedPackage: String, tree: UiTree): Bitmap? {
         // Экран принадлежит другому приложению — неизвестно, где секреты.
-        if (tree.packageName.isNotBlank() && !tree.packageName.equals(expectedPackage, ignoreCase = true)) return null
+        if (!tree.packageName.equals(expectedPackage, ignoreCase = true)) return null
         val secretNodes = tree.nodes.filter {
             it.isPassword || it.text.contains(SensitiveText.MASK) ||
                 it.contentDescription.contains(SensitiveText.MASK)
