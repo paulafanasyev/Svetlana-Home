@@ -41,6 +41,11 @@ import org.junit.runner.RunWith
  * Реальные скриншоты launcher на эмуляторе CI. Каждый шаг проверяет,
  * что нужный экран действительно открылся; снимки кладутся в
  * /data/local/tmp/svetlana-shots и публикуются scripts/run_instrumentation.sh.
+ *
+ * Пока окно launcher в фокусе, в него не отправляются клавиши через shell (`input keyevent`):
+ * на медленном эмуляторе CI (программная графика) такая клавиша не успевает обработаться за 5 с
+ * (окно занято отрисовкой), и Android снимает весь прогон с keyDispatchingTimedOut. Экран держится
+ * включённым через `svc power stayon`, «Назад» нажимается только когда в фокусе системный диалог.
  */
 @RunWith(AndroidJUnit4::class)
 class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
@@ -68,7 +73,7 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
 
     /**
      * Эмулятор CI иногда показывает ANR-диалог поверх всего. Если виноваты «Настройки» —
-     * останавливаем их; если диалог в фокусе — «Назад».
+     * останавливаем их; если диалог в фокусе — «Назад» (клавиша уходит диалогу, а не launcher).
      */
     private fun closeSystemDialogs() {
         for (attempt in 0 until 5) {
@@ -88,7 +93,6 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
             Thread.sleep(900)
         }
         shell("am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS")
-        shell("input keyevent KEYCODE_WAKEUP")
     }
 
     private val shotErrors = mutableListOf<String>()
@@ -175,6 +179,10 @@ class LauncherScreenshotDeviceTest : SvetlanaDeviceTest() {
         shell("settings put global hide_error_dialogs 1")
         shell("settings put secure anr_show_background 0")
         shell("settings put secure immersive_mode_confirmations confirmed")
+        // Экран включён всё время прогона; «разбудить» — один раз ДО запуска launcher,
+        // чтобы клавиша не уходила в его окно.
+        shell("svc power stayon true")
+        shell("input keyevent KEYCODE_WAKEUP")
         // Даём system_server эмулятора «прогреться», чтобы не ловить ANR-диалог.
         Thread.sleep(15_000)
         // Настройки эмулятора часто «висят» после первого запуска и дают ANR-диалог.
