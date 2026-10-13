@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.svetlana.home.R
+import com.svetlana.home.ai.label
 import com.svetlana.home.avatar.AvatarLevel
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.core.Tr
@@ -107,7 +108,8 @@ class HomeViewModel : ViewModel() {
     }
 
     suspend fun refreshBackendLabel() {
-        val label = ServiceLocator.aiRouter.currentBackendLabel()
+        val backend = ServiceLocator.aiRouter.currentBackend()
+        val label = appCtx?.let { backend.label(it) } ?: backend.humanReadable
         _state.value = _state.value.copy(aiBackendLabel = label)
     }
 
