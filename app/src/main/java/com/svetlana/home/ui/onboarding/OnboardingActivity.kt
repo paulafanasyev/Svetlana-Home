@@ -33,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.svetlana.home.R
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.tr
 import com.svetlana.home.owner.OwnerIdentity
 import com.svetlana.home.ui.components.LivingOrb
 import com.svetlana.home.ui.launcher.HomeActivity
@@ -176,7 +177,10 @@ private fun IntroStage() {
         }
         Spacer(Modifier.height(16.dp))
         Text(
-            text = "Владелец: создаётся единый профиль. PIN и пароли не сохраняются.",
+            text = tr(
+                "Владелец: создаётся единый профиль. PIN и пароли не сохраняются.",
+                "Owner: a single profile is created. PINs and passwords are never stored."
+            ),
             style = MaterialTheme.typography.bodySmall
         )
     }
@@ -195,29 +199,39 @@ private fun OwnerCreateStage(
     var name by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val defaultName = tr("Владелец", "Owner")
+    val failedPrefix = tr("Не удалось создать профиль", "Couldn’t create the profile")
+    val failedHint = tr(
+        "Android Keystore недоступен — проверьте блокировку экрана.",
+        "Android Keystore is unavailable — check the screen lock."
+    )
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = "Создать профиль владельца",
+            text = tr("Создать профиль владельца", "Create owner profile"),
             style = MaterialTheme.typography.titleMedium
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "Имя используется только на этом устройстве. Ключ защиты " +
+            text = tr(
+                "Имя используется только на этом устройстве. Ключ защиты " +
                     "генерируется в Android Keystore; PIN и пароли не сохраняются.",
+                "The name is used only on this device. The protection key " +
+                    "is generated in Android Keystore; PINs and passwords are never stored."
+            ),
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Как вас зовут?") },
+            label = { Text(tr("Как вас зовут?", "What’s your name?")) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(12.dp))
         Button(
             onClick = {
-                val displayName = name.trim().ifBlank { "Владелец" }
+                val displayName = name.trim().ifBlank { defaultName }
                 scope.launch {
                     val result = ServiceLocator.ownerIdentity.createOwner(displayName)
                     when (result) {
@@ -227,8 +241,7 @@ private fun OwnerCreateStage(
                         }
                         is OwnerIdentity.Result.AlreadyExists -> onCreated()
                         is OwnerIdentity.Result.Failed -> {
-                            message = "Не удалось создать профиль: ${result.message}. " +
-                                    "Android Keystore недоступен — проверьте блокировку экрана."
+                            message = "$failedPrefix: ${result.message}. $failedHint"
                         }
                     }
                 }
@@ -237,11 +250,11 @@ private fun OwnerCreateStage(
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
-            Text(text = "Создать профиль", color = MaterialTheme.colorScheme.onPrimary)
+            Text(text = tr("Создать профиль", "Create profile"), color = MaterialTheme.colorScheme.onPrimary)
         }
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = onSkip, modifier = Modifier.fillMaxWidth()) {
-            Text(text = "Пропустить")
+            Text(text = tr("Пропустить", "Skip"))
         }
         if (message.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
