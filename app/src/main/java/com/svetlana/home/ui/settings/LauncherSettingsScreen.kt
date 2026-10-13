@@ -46,9 +46,12 @@ import com.svetlana.home.ui.theme.TextSecondary
  * Launcher (ТЗ §4): официальный механизм ROLE_HOME.
  *
  * Цепочка:
- *   Настройки Светланы → Главный экран →
- *   [Сделать Светлану главным экраном] →
- *   системный Android ROLE_HOME → подтверждение → Светлана становится Home.
+ * Настройки Светланы → Главный экран →
+ * [Сделать Светлану главным экраном] →
+ * системный Android ROLE_HOME → подтверждение → Светлана становится Home.
+ * Если системный диалог не показан или закрыт без назначения (на части телефонов
+ * и после двух отказов Android отклоняет запрос молча) — открываем системный
+ * выбор главного экрана.
  *
  * После назначения Home → Светлана и Home после перезагрузки → Светлана
  * сохраняются системой. BootCompletedReceiver не нужен для самого факта
@@ -60,12 +63,33 @@ fun LauncherSettingsScreen() {
     val pm = remember { ServiceLocator.permissionManager }
     var isHome by remember { mutableStateOf(pm.isHomeLauncher()) }
 
+    // Системный выбор главного экрана: после возврата перечитываем реальное состояние.
+    val homeSettingsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        isHome = pm.isHomeLauncher()
+    }
+
+    fun openHomeSettings() {
+        try {
+            homeSettingsLauncher.launch(Intent(Settings.ACTION_HOME_SETTINGS))
+        } catch (t: Throwable) {
+            try {
+                homeSettingsLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            } catch (t2: Throwable) {
+                isHome = pm.isHomeLauncher()
+            }
+        }
+    }
+
     // Запускает системный запрос ROLE_HOME и фиксирует результат.
     val roleLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
         // Проверяем реальное состояние после возврата из системного диалога.
         isHome = pm.isHomeLauncher()
+        // Диалог не показан или закрыт без назначения — системный выбор главного экрана.
+        if (!isHome) openHomeSettings()
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -75,8 +99,8 @@ fun LauncherSettingsScreen() {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = stringResource(R.string.launcher_status_current) + ": " +
-                            if (isHome) stringResource(R.string.launcher_already_home)
-                            else stringResource(R.string.launcher_not_home),
+                        if (isHome) stringResource(R.string.launcher_already_home)
+                        else stringResource(R.string.launcher_not_home),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (isHome) MintPrimary else TextSecondary
                 )
@@ -88,20 +112,13 @@ fun LauncherSettingsScreen() {
         if (!isHome) {
             Button(
                 onClick = {
-                    val intent = pm.homeRoleIntent()
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    // Без FLAG_ACTIVITY_NEW_TASK: с ним результат приходит сразу (отмена),
+                    // а системный диалог роли не показывается.
                     try {
-                        roleLauncher.launch(intent)
+                        roleLauncher.launch(pm.homeRoleIntent())
                     } catch (t: Throwable) {
-                        // Если RoleManager недоступен — открываем системные
-                        // настройки выбора launcher (запасной штатный путь).
-                        try {
-                            val fallback = Intent(Settings.ACTION_HOME_SETTINGS)
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            roleLauncher.launch(fallback)
-                        } catch (t2: Throwable) {
-                            isHome = pm.isHomeLauncher()
-                        }
+                        // RoleManager недоступен — штатный системный выбор launcher.
+                        openHomeSettings()
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -110,6 +127,11 @@ fun LauncherSettingsScreen() {
             ) {
                 Text(stringResource(R.string.launcher_make_home), color = MaterialTheme.colorScheme.onPrimary)
             }
+            // Прямой путь, если диалог роли на этом телефоне не появляется.
+            SystemSettingsRow(
+                label = "Открыть системный выбор главного экрана",
+                intent = Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
         } else {
             // Уже назначен: даём пользователю возможность вернуться к системному
             // выбору, не обходя Android.
