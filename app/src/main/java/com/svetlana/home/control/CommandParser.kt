@@ -11,6 +11,9 @@ import com.svetlana.home.apps.AppAliases
  * Язык определяется по тексту: есть кириллица — русский разбор (без изменений),
  * только латиница — сначала английский разбор, затем старые латинские формы.
  *
+ * Длинные цепочки: «открой Whatsapp, найди контакт Серый и напиши ему привет»,
+ * «открой Telegram, нажми поиск и введи Серый» — шаги через запятую и союзы.
+ *
  * Безопасность: английские команды дают те же типы [SvetlanaAction], поэтому звонок,
  * сообщение, «нажми Pay/Delete» и т.п. так же проходят через [ActionRiskPolicy] и
  * требуют подтверждения.
@@ -26,7 +29,7 @@ object CommandParser {
 
     /**
      * Главная точка разбора. Сначала пытается разобрать составную команду
-     * (действия, соединённые союзом «и» / «and»), затем — одиночную.
+     * (действия, соединённые союзом «и» / «and» / запятой), затем — одиночную.
      */
     fun parse(rawCommand: String): SvetlanaAction? {
         val c = rawCommand.trim()
@@ -154,6 +157,23 @@ object CommandParser {
         "what", "how", "why", "when", "where", "who", "something", "anything", "some", "more",
     )
 
+    /**
+     * «open WhatsApp, find the contact John and message him hello» →
+     * ComposeMessage(whatsapp, john, hello). Приложение необязательно.
+     */
+    private val EN_FIND_COMPOSE = Regex(
+        "(?:(?:open|launch|start|go to)\\s+(.+?)\\s*,?\\s+(?:and\\s+)?(?:then\\s+)?)?" +
+            "(?:find|open|select|search for|look for)\\s+(?:the\\s+|my\\s+)?(?:contact|chat|conversation)(?:\\s+with)?\\s+" +
+            "(.+?)\\s*,?\\s+(?:and\\s+)?(?:then\\s+)?" +
+            "(?:send\\s+(?:him|her|them)\\s+(?:a\\s+)?(?:message|text)|send\\s+(?:a\\s+)?(?:message|text)(?:\\s+to\\s+(?:him|her|them))?|" +
+            "message|text|write to|write|tell|send)" +
+            "(?:\\s+(?:him|her|them))?(?:\\s+(?:saying|that))?\\s+(.+)"
+    )
+
+    private val enConjunctions = listOf(
+        ", and then ", ", then ", ", and ", " and then ", " then ", " and ", ", "
+    )
+
     /** Убрать вежливые слова и знаки препинания по краям (результат — подстрока body). */
     private fun cleanEn(body: String): String {
         var s = body.trim().trimEnd('.', '!', '?', ',').trim()
@@ -263,91 +283,177 @@ object CommandParser {
         return SvetlanaAction.ComposeMessage(app, contact, cleanText)
     }
 
-    private val enConjunctions = listOf(" and then ", " then ", " and ")
+    private fun parseEnglishFindAndCompose(s: String, sOrig: String): SvetlanaAction? {
+        val m = EN_FIND_COMPOSE.matchEntire(s) ?: return null
+        val app = m.groups[1]?.value?.let { enTarget(it) } ?: ""
+        val contact = cleanContact(m.groupValues[2])
+        val textRange = m.groups[3]!!.range
+        val text = dropLead(slice(s, sOrig, textRange.first, textRange.last + 1).second)
+            .trim('"', '«', '»', '“', '”')
+        if (contact.isBlank() || text.isBlank()) return null
+        if (contact.substringBefore(' ') in EN_NOT_CONTACTS) return null
+        return SvetlanaAction.ComposeMessage(app, contact, text)
+    }
 
     private fun parseEnglishCompound(body: String, original: String): SvetlanaAction? {
         val s = cleanEn(body)
+        if (s.isEmpty()) return null
+        val sOrig = originalSubstring(original, body, s)
+        // «open WhatsApp, find contact John and message him hello»
+        parseEnglishFindAndCompose(s, sOrig)?.let { return it }
         // «open WhatsApp and message John hello there»
-        Regex("(?:open|launch|start|go to)\\s+(.+?)\\s+and\\s+(?:then\\s+)?($EN_COMPOSE_VERBS\\s+.+)").matchEntire(s)?.let {
+        Regex("(?:open|launch|start|go to)\\s+(.+?)\\s*,?\\s+(?:and\\s+)?(?:then\\s+)?($EN_COMPOSE_VERBS\\s+.+)").matchEntire(s)?.let {
             val app = enTarget(it.groupValues[1])
             val composePart = it.groupValues[2]
             if (app.isNotBlank()) {
                 parseEnglishCompose(composePart, body, original, app)?.let { action -> return action }
             }
         }
-        for (conj in enConjunctions) {
-            val idx = s.indexOf(conj)
-            if (idx <= 0) continue
-            val left = s.substring(0, idx).trim()
-            val right = s.substring(idx + conj.length).trim()
-            if (left.isEmpty() || right.isEmpty()) continue
-            val leftOrig = originalSubstring(original, body, left)
-            val rightOrig = originalSubstring(original, body, right)
-            val leftAction = parseEnglishSingle(left, leftOrig) ?: continue
-            val rightAction = parseEnglishSingle(right, rightOrig) ?: continue
-            return SvetlanaAction.Compound(listOf(leftAction, retarget(rightAction, leftAction)))
-        }
-        return null
+        return splitChain(s, sOrig, enConjunctions, ::parseEnglishSingle, ::parseEnglishCompound)
     }
 
     // ------------------------------------------------------------------
     // Составные команды (длинные Hands-цепочки)
     // ------------------------------------------------------------------
 
-    private val conjunctions = listOf(" и ", " затем ", " потом ", " а потом ")
+    private val conjunctions = listOf(
+        ", а потом ", ", затем ", ", потом ", ", и ",
+        " а потом ", " затем ", " потом ", " и ", ", "
+    )
+
+    /** «ему привет» — местоимение вместо имени, это не контакт. */
+    private val RU_PRONOUNS = setOf("ему", "ей", "им", "сообщение", "туда", "смс")
+
+    /**
+     * «[открой Whatsapp,] найди контакт Серый и напиши ему привет»
+     */
+    private val RU_FIND_COMPOSE = Regex(
+        "^(?:(?:открой|запусти|перейди в)\\s+(?:приложение\\s+)?(.+?)\\s*,?\\s+(?:и\\s+|а\\s+)?(?:потом\\s+|затем\\s+)?)?" +
+            "(?:(?:найди|выбери)\\s+(?:(?:контакт|чат|диалог|переписку)(?:\\s+с)?\\s+)?|" +
+            "открой\\s+(?:контакт|чат|диалог|переписку)(?:\\s+с)?\\s+)" +
+            "(.+?)\\s*,?\\s+(?:и\\s+|а\\s+)?(?:потом\\s+|затем\\s+)?" +
+            "(?:напиши|отправь)(?:\\s+(?:ему|ей|им|сообщение|туда))*\\s+(.+)$"
+    )
 
     /**
      * Разбор составной команды.
      *
      * Поддержанные формы:
+     *  - «открой Whatsapp, найди контакт Серый и напиши ему привет»
+     *    → ComposeMessage(app, contact, text)
      *  - «открой Whatsapp и напиши контакту Серый привет как дела»
      *    → ComposeMessage(app, contact, text)
      *  - «напиши контакту Серый привет как дела»
      *    → ComposeMessage(мессенджер по умолчанию, contact, text)
-     *  - «открой Telegram и нажми поиск»
-     *    → Compound([OpenApp, Click])
-     *  - «открой Telegram и введи привет»
-     *    → Compound([OpenApp, TypeText])
+     *  - «открой Telegram и нажми поиск» → Compound([OpenApp, Click])
+     *  - «открой Telegram, нажми поиск и введи Серый» → Compound из 3 шагов
      */
     private fun parseCompound(body: String, original: String): SvetlanaAction? {
+        // 0. «найди контакт X и напиши ему Y» (с приложением или без).
+        parseFindAndCompose(body, original)?.let { return it }
+
         // 1. Спецпаттерн: открыть приложение и написать контакту.
         parseComposeWithApp(body, original)?.let { return it }
 
         // 2. Написать контакту без явного приложения.
         parseComposeNoApp(body, original)?.let { return it }
 
-        // 3. Общий случай: две команды, соединённые союзом.
-        for (conj in conjunctions) {
-            val idx = body.indexOf(conj)
-            if (idx <= 0) continue
-            val left = body.substring(0, idx).trim()
-            val right = body.substring(idx + conj.length - 1).trim()
-            if (left.isEmpty() || right.isEmpty()) continue
-            val leftAction = parseSingle(left, originalSubstring(original, body, left)) ?: continue
-            val rightAction = parseSingle(right, originalSubstring(original, body, right)) ?: continue
+        // 3. Общий случай: цепочка команд через союзы и запятые.
+        return splitChain(body, original, conjunctions, ::parseSingle, ::parseCompound)
+    }
 
-            // Правая часть должна выполняться в контексте приложения из левой:
-            // «открой Telegram и нажми поиск» — поиск ищется в Telegram.
-            val retargeted = retarget(rightAction, leftAction)
-            return SvetlanaAction.Compound(listOf(leftAction, retargeted))
+    private fun parseFindAndCompose(body: String, original: String): SvetlanaAction? {
+        val m = RU_FIND_COMPOSE.matchEntire(body) ?: return null
+        val app = m.groups[1]?.value?.trim()?.trim(' ', '.', ',', '!', '?') ?: ""
+        val contact = cleanContact(m.groupValues[2])
+        val textRange = m.groups[3]!!.range
+        val text = slice(body, original, textRange.first, textRange.last + 1).second
+            .trim(' ', '.', ',', '!', '?').trim('"', '«', '»')
+        if (contact.isBlank() || text.isBlank() || contact in RU_PRONOUNS) return null
+        return SvetlanaAction.ComposeMessage(app, contact, text)
+    }
+
+    /**
+     * Разбить цепочку по самому левому союзу/запятой, при котором обе части
+     * разбираются. Правая часть сама может быть цепочкой — шаги «расплющиваются»
+     * и выполняются в приложении из первого шага.
+     */
+    private fun splitChain(
+        body: String,
+        original: String,
+        conjs: List<String>,
+        single: (String, String) -> SvetlanaAction?,
+        compound: (String, String) -> SvetlanaAction?,
+    ): SvetlanaAction? {
+        val points = mutableListOf<Pair<Int, String>>()
+        for (conj in conjs) {
+            var i = body.indexOf(conj)
+            while (i >= 0) {
+                points += i to conj
+                i = body.indexOf(conj, i + 1)
+            }
+        }
+        points.sortWith(compareBy<Pair<Int, String>>({ it.first }, { -it.second.length }))
+        for ((idx, conj) in points) {
+            if (idx <= 0) continue
+            val (left, leftOrig) = slice(body, original, 0, idx)
+            val (right, rightOrig) = slice(body, original, idx + conj.length, body.length)
+            if (left.isEmpty() || right.isEmpty()) continue
+            val leftAction = single(left, leftOrig) ?: continue
+            if (leftAction is SvetlanaAction.Compound) continue
+            val rightAction = compound(right, rightOrig) ?: single(right, rightOrig) ?: continue
+            return chain(leftAction, rightAction)
         }
         return null
     }
+
+    /**
+     * Склеить шаг и остаток цепочки. «открой X» + «напиши Y» без приложения
+     * превращается в одно ComposeMessage(X, …), остальные шаги перенаправляются
+     * на приложение из первого шага.
+     */
+    private fun chain(left: SvetlanaAction, right: SvetlanaAction): SvetlanaAction {
+        if (left is SvetlanaAction.OpenApp && right is SvetlanaAction.ComposeMessage && right.appTarget.isBlank()) {
+            return right.copy(appTarget = left.target)
+        }
+        val rest = if (right is SvetlanaAction.Compound) right.steps else listOf(right)
+        return SvetlanaAction.Compound(listOf(left) + rest.map { retarget(it, left) })
+    }
+
+    /**
+     * Срез body[start, end) и соответствующий кусок original без пробелов и
+     * запятых по краям.
+     */
+    private fun slice(body: String, original: String, start: Int, end: Int): Pair<String, String> {
+        var s = start.coerceIn(0, body.length)
+        var e = end.coerceIn(s, body.length)
+        while (s < e && (body[s].isWhitespace() || body[s] == ',')) s++
+        while (e > s && (body[e - 1].isWhitespace() || body[e - 1] == ',')) e--
+        val low = body.substring(s, e)
+        val orig = if (original.length == body.length) original.substring(s, e)
+        else originalSubstring(original, body, low)
+        return low to orig
+    }
+
+    private fun cleanContact(raw: String): String =
+        raw.trim().trim(' ', '.', ',', '!', '?').trim('"', '«', '»', '“', '”').trim()
 
     /**
      * «открой/запусти <app> и напиши [контакту] <contact> <text>»
      */
     private fun parseComposeWithApp(body: String, original: String): SvetlanaAction? {
         val regex = Regex(
-            "^(открой|запусти|перейди в|открой приложение|запусти приложение)\\s+(.+?)\\s+и\\s+" +
+            "^(открой|запусти|перейди в|открой приложение|запусти приложение)\\s+(.+?)\\s*,?\\s+и\\s+" +
                 "напиши\\s+(?:контакту\\s+)?(.+)$"
         )
         val m = regex.matchEntire(body) ?: return null
         val app = m.groupValues[2].trim().trim(' ', '.', ',', '!', '?')
+        // «открой X, найди Y и напиши» — это цепочка, а не имя приложения.
+        if (app.contains(',')) return null
         val restLow = m.groupValues[3].trim()
         val restOrig = originalSubstring(original, body, restLow)
         val (contact, text) = splitContactAndText(restLow, restOrig)
-        if (contact.isBlank() || text.isBlank()) return null
+        if (contact.isBlank() || text.isBlank() || contact in RU_PRONOUNS) return null
         return SvetlanaAction.ComposeMessage(app, contact, text)
     }
 
@@ -363,7 +469,7 @@ object CommandParser {
         val restLow = m.groupValues[1].trim()
         val restOrig = originalSubstring(original, body, restLow)
         val (contact, text) = splitContactAndText(restLow, restOrig)
-        if (contact.isBlank() || text.isBlank()) return null
+        if (contact.isBlank() || text.isBlank() || contact in RU_PRONOUNS) return null
         return SvetlanaAction.ComposeMessage("", contact, text)
     }
 
@@ -415,6 +521,8 @@ object CommandParser {
             is SvetlanaAction.TakeScreenshot -> action.copy(target = app)
             is SvetlanaAction.Scroll -> action.copy(target = app)
             is SvetlanaAction.Swipe -> action.copy(target = app)
+            is SvetlanaAction.ComposeMessage ->
+                if (action.appTarget.isBlank()) action.copy(appTarget = app) else action
             else -> action
         }
     }
