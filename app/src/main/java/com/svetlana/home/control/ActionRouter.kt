@@ -4,6 +4,7 @@ import android.content.Context
 import com.svetlana.home.R
 import com.svetlana.home.apps.launcher.AppResolver
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.Tr
 import com.svetlana.home.hands.ScreenshotPolicy
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.memory.HistoryManager
@@ -38,6 +39,8 @@ private object RouterGrant : ActionGrant
  * Нажатие/ввод/очистка выполняются только на том элементе, который был оценён и подтверждён:
  * движок получает его метку (пакет, текст, id, границы) и отказывает, если на экране уже другой элемент.
  *
+ * Вопросы-подтверждения задаются на языке интерфейса; журнал истории остаётся русским.
+ *
  * Здесь нет доступа к shell, root или скрытым командам.
  */
 class ActionRouter(
@@ -47,6 +50,8 @@ class ActionRouter(
     private val permissionManager: PermissionManager,
     private val historyManager: HistoryManager
 ) {
+
+    private fun english(): Boolean = runCatching { Tr.isEnglish(context) }.getOrDefault(false)
 
     private fun stripWakeWord(low: String): String {
         val words = listOf("света ", "светочка ", "светлана ", "свет,")
@@ -74,7 +79,8 @@ class ActionRouter(
                 rememberApproval(key)
                 historyManager.record(HistoryCategory.CONFIRMATIONS, "Запрошено подтверждение: ${action.name}")
                 val question = ConfirmationText.question(
-                    action, target?.shown, secretField = target != null && target.typing && target.dangerous)
+                    action, target?.shown, secretField = target != null && target.typing && target.dangerous,
+                    english = english())
                 return ActionResult(action, false,
                     "${context.getString(R.string.reply_confirm_dangerous)}\n$question",
                     way = if (target != null) "hands" else "unknown", requiresUserConfirmation = true)
@@ -205,7 +211,7 @@ class ActionRouter(
         if (systemIntent is AppResolver.ResolveResult.SystemAction) {
             if (unattendedVoice) {
                 historyManager.record(HistoryCategory.CONFIRMATIONS, "Голос из фона: системная команда не выполнена")
-                return ActionResult(SvetlanaAction.OpenSettings, false, VoicePolicy.SYSTEM_REFUSED, way = "voice")
+                return ActionResult(SvetlanaAction.OpenSettings, false, VoicePolicy.systemRefused(english()), way = "voice")
             }
             return engine.openSystemIntent(systemIntent.intent)
         }
@@ -224,8 +230,9 @@ class ActionRouter(
         if (!isScreenBound(action) && ActionRiskPolicy.requiresConfirmation(action)) {
             rememberApproval(Approval(action, null))
         }
-        val question = ConfirmationText.question(action, null, secretField = false)
-        return ActionResult(action, false, "${VoicePolicy.CONFIRM_IN_APP}\n$question",
+        val en = english()
+        val question = ConfirmationText.question(action, null, secretField = false, english = en)
+        return ActionResult(action, false, "${VoicePolicy.confirmInApp(en)}\n$question",
             way = "voice", requiresUserConfirmation = true)
     }
 
@@ -290,9 +297,9 @@ class ActionRouter(
                     "PLAN_RESULT=NOT VERIFIED: шаг ${index + 1} (${step.name}) провален")
                 historyManager.record(HistoryCategory.ERRORS,
                     "Compound прерван на шаге ${index + 1}: ${step.name}")
-                return ActionResult(action, false,
-                    "Цепочка прервана на шаге ${index + 1}: ${stepResult.message}",
-                    allProof, stepResult.way)
+                val failMsg = if (english()) "The chain stopped at step ${index + 1}: ${stepResult.message}"
+                else "Цепочка прервана на шаге ${index + 1}: ${stepResult.message}"
+                return ActionResult(action, false, failMsg, allProof, stepResult.way)
             }
             messages += stepResult.message
         }
