@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.svetlana.home.R
 import com.svetlana.home.avatar.AvatarLevel
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.tr
 import com.svetlana.home.device.DeviceCapabilityManager
 import com.svetlana.home.memory.MemoryMode
 import com.svetlana.home.permissions.PermissionItem
@@ -110,25 +111,33 @@ fun PermissionCenterScreen() {
                                 }
                                 Spacer(Modifier.height(6.dp))
                                 Text(
-                                    text = "Разрешение Светлане: ${if (diag.permissionGranted) "выдано" else "не выдано"}",
+                                    text = tr("Разрешение Светлане", "Permission for Svetlana") + ": " +
+                                        if (diag.permissionGranted) tr("выдано", "granted") else tr("не выдано", "not granted"),
                                     style = MaterialTheme.typography.bodySmall
                                 )
                                 Text(
-                                    text = "Системная геолокация: ${if (diag.locationServicesEnabled) "включена" else "выключена"}",
+                                    text = tr("Системная геолокация", "System location") + ": " +
+                                        if (diag.locationServicesEnabled) tr("включена", "on") else tr("выключена", "off"),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = if (diag.locationServicesEnabled) MintPrimary else WarnAmber
                                 )
                                 if (diag.locationServicesEnabled && !diag.permissionGranted) {
                                     Spacer(Modifier.height(4.dp))
                                     Text(
-                                        text = "Нажмите «Изменить», чтобы выдать разрешение Светлане",
+                                        text = tr(
+                                            "Нажмите «Изменить», чтобы выдать разрешение Светлане",
+                                            "Tap “Change” to grant the permission to Svetlana"
+                                        ),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 } else if (!diag.locationServicesEnabled && diag.permissionGranted) {
                                     Spacer(Modifier.height(4.dp))
                                     Text(
-                                        text = "Нажмите «Изменить», чтобы включить системную геолокацию Android",
+                                        text = tr(
+                                            "Нажмите «Изменить», чтобы включить системную геолокацию Android",
+                                            "Tap “Change” to turn on Android location"
+                                        ),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -159,7 +168,10 @@ fun PermissionCenterScreen() {
             }
             item {
                 Text(
-                    text = "Подтверждение опасных действий всегда запрашивается у пользователя.",
+                    text = tr(
+                        "Подтверждение опасных действий всегда запрашивается у пользователя.",
+                        "Dangerous actions always require your confirmation."
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(16.dp)
                 )
@@ -174,22 +186,28 @@ fun OwnerScreen() {
     var created by remember { mutableStateOf(owner.isOwnerCreated()) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val context = LocalContext.current
+    val ownerDefaultName = tr("Владелец", "Owner")
+    val unavailableHere = tr("Недоступно в этом контексте", "Not available here")
+    val authTitle = tr("Вход владельца Светланы", "Svetlana owner sign-in")
 
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column {
-                Text("Профиль владельца", style = MaterialTheme.typography.titleLarge)
+                Text(tr("Профиль владельца", "Owner profile"), style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(8.dp))
                 if (created) {
-                    Text("Имя: ${owner.displayName()}", style = MaterialTheme.typography.bodyMedium)
-                    Text("Идентификатор: ${owner.stablePublicId()}", style = MaterialTheme.typography.bodySmall)
-                    Text("Android Keystore: ${if (owner.keyStoreBacked()) "используется" else "недоступен"}",
+                    Text(tr("Имя", "Name") + ": ${owner.displayName()}", style = MaterialTheme.typography.bodyMedium)
+                    Text(tr("Идентификатор", "ID") + ": ${owner.stablePublicId()}", style = MaterialTheme.typography.bodySmall)
+                    Text("Android Keystore: " + if (owner.keyStoreBacked()) tr("используется", "in use") else tr("недоступен", "unavailable"),
                         style = MaterialTheme.typography.bodySmall)
-                    Text("Биометрия доступна: ${if (owner.biometricAvailable()) "да" else "нет"}",
+                    Text(tr("Биометрия доступна", "Biometrics available") + ": " + if (owner.biometricAvailable()) tr("да", "yes") else tr("нет", "no"),
                         style = MaterialTheme.typography.bodySmall)
                 } else {
                     Text(
-                        text = "Единый профиль ещё не создан. PIN и пароли не сохраняются.",
+                        text = tr(
+                            "Единый профиль ещё не создан. PIN и пароли не сохраняются.",
+                            "The owner profile is not created yet. PINs and passwords are never stored."
+                        ),
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -199,7 +217,7 @@ fun OwnerScreen() {
             Button(
                 onClick = {
                     scope.launch {
-                        val result = owner.createOwner("Владелец")
+                        val result = owner.createOwner(ownerDefaultName)
                         if (result is com.svetlana.home.owner.OwnerIdentity.Result.Created) {
                             created = true
                             ServiceLocator.historyManager.record(
@@ -212,7 +230,7 @@ fun OwnerScreen() {
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) { Text("Создать профиль владельца", color = MaterialTheme.colorScheme.onPrimary) }
+            ) { Text(tr("Создать профиль владельца", "Create owner profile"), color = MaterialTheme.colorScheme.onPrimary) }
         } else {
             // Аудит §19: настоящая верификация через BiometricPrompt,
             // привязанный к auth-bound Keystore-ключу.
@@ -221,20 +239,24 @@ fun OwnerScreen() {
 
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Text("Верификация владельца", style = MaterialTheme.typography.titleLarge)
+                    Text(tr("Верификация владельца", "Owner verification"), style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "Запускает системную аутентификацию (биометрия или PIN/пароль " +
+                        text = tr(
+                            "Запускает системную аутентификацию (биометрия или PIN/пароль " +
                                 "устройства). Светлана не хранит PIN и не обходит Android Security.",
+                            "Starts system authentication (biometrics or the device PIN/password). " +
+                                "Svetlana never stores the PIN and does not bypass Android Security."
+                        ),
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.height(8.dp))
                     if (verified) {
-                        Text("✓ Владелец верифицирован системой", style = MaterialTheme.typography.bodyMedium,
+                        Text("✓ " + tr("Владелец верифицирован системой", "Owner verified by the system"), style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.primary)
                     }
                     message?.let {
-                        Text("Причина: $it", style = MaterialTheme.typography.bodySmall,
+                        Text(tr("Причина", "Reason") + ": $it", style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error)
                     }
                     Spacer(Modifier.height(8.dp))
@@ -242,11 +264,11 @@ fun OwnerScreen() {
                         onClick = {
                             val activity = context as? androidx.fragment.app.FragmentActivity
                             if (activity == null) {
-                                message = "Недоступно в этом контексте"
+                                message = unavailableHere
                                 return@Button
                             }
                             val auth = com.svetlana.home.owner.BiometricAuth(context)
-                            auth.authenticate(activity, "Вход владельца Светланы") { ok, reason ->
+                            auth.authenticate(activity, authTitle) { ok, reason ->
                                 verified = ok
                                 message = reason
                                 ServiceLocator.historyManager.record(
@@ -259,12 +281,16 @@ fun OwnerScreen() {
                         modifier = Modifier.fillMaxWidth().height(50.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) { Text("Проверить владельца", color = MaterialTheme.colorScheme.onPrimary) }
+                    ) { Text(tr("Проверить владельца", "Verify owner"), color = MaterialTheme.colorScheme.onPrimary) }
                 }
             }
             Text(
-                text = "Статус владельца не даёт root, скрытого доступа к Accessibility, " +
+                text = tr(
+                    "Статус владельца не даёт root, скрытого доступа к Accessibility, " +
                         "микрофону или камере и не обходит Android permission model.",
+                    "Owner status gives no root, no hidden access to Accessibility, " +
+                        "microphone or camera, and does not bypass the Android permission model."
+                ),
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -275,33 +301,37 @@ fun OwnerScreen() {
 fun DeviceScreen() {
     val device = remember { ServiceLocator.device }
     val caps = remember { device.refresh() }
+    val yes = tr("да", "yes")
+    val no = tr("нет", "no")
+    val present = tr("есть", "yes")
+    val mb = tr("МБ", "MB")
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Text("Реальные характеристики устройства", style = MaterialTheme.typography.titleLarge)
+                    Text(tr("Реальные характеристики устройства", "Actual device specs"), style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.height(8.dp))
                     DeviceRow(R.string.device_model, caps.model)
                     DeviceRow(R.string.device_android, caps.androidVersion)
                     DeviceRow(R.string.device_sdk, caps.sdkInt.toString())
                     DeviceRow(R.string.device_abi, caps.abis.joinToString(", "))
-                    DeviceRow(R.string.device_cpu, "${caps.cpuCores} ядер")
-                    DeviceRow(R.string.device_ram, "${caps.ramTotalMb} МБ")
-                    DeviceRow(R.string.device_ram_free, "${caps.ramAvailableMb} МБ")
-                    DeviceRow(R.string.device_storage, "${caps.storageTotalMb} МБ")
-                    DeviceRow(R.string.device_storage_free, "${caps.storageAvailableMb} МБ")
+                    DeviceRow(R.string.device_cpu, "${caps.cpuCores} " + tr("ядер", "cores"))
+                    DeviceRow(R.string.device_ram, "${caps.ramTotalMb} $mb")
+                    DeviceRow(R.string.device_ram_free, "${caps.ramAvailableMb} $mb")
+                    DeviceRow(R.string.device_storage, "${caps.storageTotalMb} $mb")
+                    DeviceRow(R.string.device_storage_free, "${caps.storageAvailableMb} $mb")
                     DeviceRow(R.string.device_gpu, caps.gpu)
                     DeviceRow(R.string.device_gpu_vendor, caps.gpuVendor)
                     DeviceRow(R.string.device_vulkan,
-                        if (caps.vulkanSupported) caps.vulkanVersion.ifBlank { "да" } else "нет")
+                        if (caps.vulkanSupported) caps.vulkanVersion.ifBlank { yes } else no)
                     DeviceRow(R.string.device_gles, caps.openGlEsVersion)
-                    DeviceRow(R.string.device_nnapi, if (caps.nnapiSupported) "да" else "нет")
+                    DeviceRow(R.string.device_nnapi, if (caps.nnapiSupported) yes else no)
                     DeviceRow(R.string.device_thermal, caps.thermalStatus)
                     DeviceRow(R.string.device_battery, "${caps.batteryPercent}%")
                     DeviceRow(R.string.device_screen, "%.1f\" @ %ddpi".format(caps.screenInches, caps.screenDensityDpi))
-                    DeviceRow(R.string.device_camera, if (caps.hasCamera) "есть" else "нет")
-                    DeviceRow(R.string.device_mic, if (caps.hasMicrophone) "есть" else "нет")
+                    DeviceRow(R.string.device_camera, if (caps.hasCamera) present else no)
+                    DeviceRow(R.string.device_mic, if (caps.hasMicrophone) present else no)
                     DeviceRow(R.string.device_network, caps.networkType)
                     DeviceRow(R.string.device_backend,
                         "cpu=${caps.backendSupport.cpu} gpu=${caps.backendSupport.gpu} npu=${caps.backendSupport.npu}")
@@ -332,13 +362,13 @@ fun AvatarScreen() {
 
     GlassCard(modifier = Modifier.fillMaxWidth()) {
         Column {
-            Text("Адаптивный аватар", style = MaterialTheme.typography.titleLarge)
+            Text(tr("Адаптивный аватар", "Adaptive avatar"), style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(8.dp))
-            Text("Текущий режим: ${level.label} (уровень ${level.level})",
+            Text(tr("Текущий режим", "Current mode") + ": ${level.label} (" + tr("уровень", "level") + " ${level.level})",
                 style = MaterialTheme.typography.bodyMedium)
             Text(reason, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(12.dp))
-            Text("Деградация при нехватке ресурсов: Real Avatar → Light Avatar → Living Orb",
+            Text(tr("Деградация при нехватке ресурсов", "Fallback when resources are low") + ": Real Avatar → Light Avatar → Living Orb",
                 style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -374,7 +404,7 @@ fun MemoryScreen() {
             }
         }
         val facts = remember { ServiceLocator.personalMemory.facts() }
-        Text("Фактов в памяти: ${facts.size}", style = MaterialTheme.typography.bodySmall)
+        Text(tr("Фактов в памяти", "Facts in memory") + ": ${facts.size}", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -389,17 +419,22 @@ fun AboutScreen() {
     GlassCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("SVETLANA HOME", style = MaterialTheme.typography.titleLarge)
-            Text("Персональный AI-телефон", style = MaterialTheme.typography.bodyMedium)
+            Text(tr("Персональный AI-телефон", "Personal AI phone"), style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(8.dp))
-            Text("Версия: ${packageInfo?.versionName ?: "?"} (${packageInfo?.versionCode ?: 0})",
+            Text(tr("Версия", "Version") + ": ${packageInfo?.versionName ?: "?"} (${packageInfo?.versionCode ?: 0})",
                 style = MaterialTheme.typography.bodySmall)
-            Text("Сборка: ${com.svetlana.home.BuildConfig.BUILD_TYPE}",
+            Text(tr("Сборка", "Build") + ": ${com.svetlana.home.BuildConfig.BUILD_TYPE}",
                 style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(12.dp))
             Text(
-                text = "Безопасность: нет root, нет Termux, нет произвольных shell-команд, " +
+                text = tr(
+                    "Безопасность: нет root, нет Termux, нет произвольных shell-команд, " +
                         "нет скрытых загрузок, нет скрытого управления, опасные действия " +
                         "подтверждаются пользователем.",
+                    "Security: no root, no Termux, no arbitrary shell commands, " +
+                        "no hidden downloads, no hidden control; dangerous actions " +
+                        "are confirmed by the user."
+                ),
                 style = MaterialTheme.typography.bodySmall
             )
         }

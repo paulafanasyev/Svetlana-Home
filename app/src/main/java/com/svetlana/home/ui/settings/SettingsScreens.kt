@@ -34,6 +34,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.svetlana.home.R
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.tr
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
@@ -55,11 +56,11 @@ fun VoiceSettingsScreen() {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column {
-                Text("Голос Светланы", style = MaterialTheme.typography.titleMedium)
+                Text(tr("Голос Светланы", "Svetlana’s voice"), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
-                Text("TTS доступен: ${if (tts.isAvailable) "да" else "нет"}",
+                Text(tr("TTS доступен", "TTS available") + ": " + if (tts.isAvailable) tr("да", "yes") else tr("нет", "no"),
                     style = MaterialTheme.typography.bodySmall)
-                Text("STT (русский): ${if (recognizer.isAvailable) "доступен" else "недоступен"}",
+                Text(tr("STT (русский)", "STT (Russian)") + ": " + if (recognizer.isAvailable) tr("доступен", "available") else tr("недоступен", "unavailable"),
                     style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -76,10 +77,15 @@ fun VoiceSettingsScreen() {
                     style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Фоновый ассистент слушает слово пробуждения, даже " +
+                    text = tr(
+                        "Фоновый ассистент слушает слово пробуждения, даже " +
                             "когда приложение свёрнуто. Работает через системный " +
                             "STT по таймеру, а не как low-power always-on детектор — " +
                             "это ограничение текущей реализации.",
+                        "The background assistant listens for the wake word even " +
+                            "when the app is minimized. It uses the system STT on a timer, " +
+                            "not a low-power always-on detector — a limitation of the current implementation."
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -87,14 +93,15 @@ fun VoiceSettingsScreen() {
                 // Аудит п.12: технический режим прослушивания видим
                 // пользователю — никаких скрытых характеристик.
                 Text(
-                    text = "Режим: ${ServiceLocator.wakeWord.listeningKind}",
+                    text = tr("Режим", "Mode") + ": ${ServiceLocator.wakeWord.listeningKind}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = if (wakeOn) "Фоновый ассистент включён" else "Фоновый ассистент выключен",
+                        text = if (wakeOn) tr("Фоновый ассистент включён", "Background assistant on")
+                        else tr("Фоновый ассистент выключен", "Background assistant off"),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f)
                     )
@@ -133,17 +140,20 @@ fun HandsSettingsScreen() {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column {
-                Text("Hands / Специальные возможности",
+                Text(tr("Hands / Специальные возможности", "Hands / Accessibility"),
                     style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
-                Text("Статус: ${if (enabled) "Активен" else "Выключено"}",
+                Text(tr("Статус", "Status") + ": " + if (enabled) tr("Активен", "Active") else tr("Выключено", "Off"),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (enabled) MintPrimary else TextSecondary)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Разрешение означает, что система выдала доступ. " +
-                            "Реальное действие подтверждается доказательной цепочкой: " +
-                            "PLAN → TARGET → ACTION_ATTEMPTED → ACTION_PERFORMED → VERIFIED.",
+                    text = tr(
+                        "Разрешение означает, что система выдала доступ. " +
+                            "Реальное действие подтверждается доказательной цепочкой: ",
+                        "The permission only means the system granted access. " +
+                            "A real action is confirmed by the evidence chain: "
+                    ) + "PLAN → TARGET → ACTION_ATTEMPTED → ACTION_PERFORMED → VERIFIED.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -151,7 +161,7 @@ fun HandsSettingsScreen() {
         }
 
         SystemSettingsRow(
-            label = if (enabled) "Изменить доступ Hands" else "Включить Hands",
+            label = if (enabled) tr("Изменить доступ Hands", "Change Hands access") else tr("Включить Hands", "Turn on Hands"),
             intent = pm.settingsIntentFor(com.svetlana.home.permissions.PermissionManager.KEY_HANDS)
         )
         SystemSettingsRow(
@@ -178,24 +188,35 @@ fun PrivacySettingsScreen() {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column {
-                Text("Режим «Только устройство»",
+                Text(tr("Режим «Только устройство»", "“Device only” mode"),
                     style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "В этом режиме External AI, Personal Server и Cloud " +
+                    text = tr(
+                        "В этом режиме External AI, Personal Server и Cloud " +
                             "запрещены. Если локальный ИИ не справляется, Светлана " +
                             "сообщает, что режим запрещает передачу данных наружу.",
+                        "In this mode External AI, Personal Server and Cloud " +
+                            "are blocked. If the local AI can’t handle a request, Svetlana " +
+                            "says the mode forbids sending data outside."
+                    ),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
         }
         GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column {
-                Text("Что можно отправлять", style = MaterialTheme.typography.titleMedium)
+                Text(tr("Что можно отправлять", "What may be sent"), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
-                Text("Текст, скриншоты, UI tree, изображения, аудио, история, " +
-                        "документы — каждое проверяется Privacy Router перед отправкой " +
-                        "конкретному бэкенду.",
+                Text(
+                    tr(
+                        "Текст, скриншоты, UI tree, изображения, аудио, история, " +
+                            "документы — каждое проверяется Privacy Router перед отправкой " +
+                            "конкретному бэкенду.",
+                        "Text, screenshots, UI tree, images, audio, history, " +
+                            "documents — each is checked by the Privacy Router before being sent " +
+                            "to a specific backend."
+                    ),
                     style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -289,15 +310,17 @@ fun ThemeScreen() {
     val mode by settings.themeMode.collectAsState(initial = 0)
 
     val options = listOf(
-        0 to "По системе",
-        1 to "Тёмная",
-        2 to "Светлая"
+        0 to tr("По системе", "System default"),
+        1 to tr("Тёмная", "Dark"),
+        2 to tr("Светлая", "Light")
     )
+    val appearance = tr("Оформление", "Appearance")
+    val logoDesc = tr("Логотип Светланы", "Svetlana logo")
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Text(
-                text = "Оформление",
+                text = appearance,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -322,7 +345,7 @@ fun ThemeScreen() {
             Spacer(Modifier.height(12.dp))
             Image(
                 painter = androidx.compose.ui.res.painterResource(R.drawable.logo_svetlana),
-                contentDescription = "Логотип Светланы",
+                contentDescription = logoDesc,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(180.dp)
