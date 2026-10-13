@@ -13,6 +13,9 @@ import org.junit.runner.RunWith
  * P0 (аудит п.1): если внешний ИИ выбран, но провайдер не настроен,
  * Светлана должна честно сказать, как его подключить, а не молча
  * подменять бэкенд (ТЗ §41, §51).
+ *
+ * Текст зависит от языка интерфейса (на CI-эмуляторе — английский),
+ * поэтому принимаем оба варианта.
  */
 @RunWith(AndroidJUnit4::class)
 class UnconfiguredProviderChatDeviceTest : SvetlanaDeviceTest() {
@@ -31,9 +34,10 @@ class UnconfiguredProviderChatDeviceTest : SvetlanaDeviceTest() {
         val text = result.text
         assertTrue(
             "Ответ должен объяснить, как подключить ИИ: $text",
-            text.contains("Внешний ИИ не настроен", ignoreCase = true) ||
             text.contains("Не выбран", ignoreCase = true) ||
-            text.contains("не настроен", ignoreCase = true)
+            text.contains("не настроен", ignoreCase = true) ||
+            text.contains("not set up", ignoreCase = true) ||
+            text.contains("No AI is selected", ignoreCase = true)
         )
         println("UNCONFIGURED_CHAT_REPLY=${text.take(120)}")
     }

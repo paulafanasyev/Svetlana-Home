@@ -7,6 +7,9 @@ package com.svetlana.home.voice
  * unit-тестами. WakeWordEngine использует её для проверки распознанного
  * текста.
  *
+ * Английский интерфейс: распознавание идёт на en-US, и имя приходит латиницей
+ * («Svetlana», «Sveta») — поэтому латинские формы тоже слова пробуждения.
+ *
  * ОГРАНИЧЕНИЕ (аудит п.12): сама схема прослушивания (polling системного
  * STT короткими окнами) — это не always-on low-power аппаратный детектор.
  * Эта функция отвечает только за сопоставление слова и не делает CLAIM,
@@ -14,7 +17,10 @@ package com.svetlana.home.voice
  */
 object WakeWordMatcher {
 
-    val wakeWords: List<String> = listOf("света", "светочка", "светлана")
+    val wakeWords: List<String> = listOf(
+        "света", "светочка", "светлана",
+        "sveta", "svetochka", "svetlana"
+    )
 
     /**
      * Проверить, содержит ли фраза слово пробуждения.

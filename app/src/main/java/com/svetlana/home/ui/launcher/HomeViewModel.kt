@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import com.svetlana.home.R
 import com.svetlana.home.avatar.AvatarLevel
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.Tr
+import com.svetlana.home.core.VoiceLanguage
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.voice.VoiceAgent
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +19,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+
+private const val DEFAULT_GREETING_RU = "Чем помочь?"
+private const val DEFAULT_GREETING_EN = "How can I help?"
 
 /**
  * Состояния главного экрана.
@@ -29,7 +34,7 @@ data class HomeUiState(
     val isListening: Boolean = false,
     val isThinking: Boolean = false,
     val isSpeaking: Boolean = false,
-    val lastReply: String = "Чем помочь?",
+    val lastReply: String = DEFAULT_GREETING_RU,
     val partialInput: String = "",
     val aiBackendLabel: String = "",
     val pendingConfirmation: com.svetlana.home.control.SvetlanaAction? = null
@@ -40,9 +45,25 @@ class HomeViewModel : ViewModel() {
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
+    /** Контекст приложения — только для выбора языка текстов (без утечки Activity). */
+    @Volatile
+    private var appCtx: Context? = null
+
+    private fun remember(context: Context) {
+        if (appCtx == null) appCtx = context.applicationContext
+    }
+
+    private fun t(ru: String, en: String): String =
+        appCtx?.let { Tr.t(it, ru, en) } ?: ru
+
     fun refreshClock(context: Context) {
+        remember(context)
         val now = android.text.format.DateFormat.format("HH:mm", java.util.Date()).toString()
-        _state.value = _state.value.copy(clock = now)
+        val current = _state.value.lastReply
+        // Приветствие по умолчанию следует за языком интерфейса (в т.ч. после смены языка).
+        val greeting = if (current == DEFAULT_GREETING_RU || current == DEFAULT_GREETING_EN)
+            Tr.t(context, DEFAULT_GREETING_RU, DEFAULT_GREETING_EN) else current
+        _state.value = _state.value.copy(clock = now, lastReply = greeting)
     }
 
     /**
@@ -98,6 +119,7 @@ class HomeViewModel : ViewModel() {
      * диалога одинаково, где бы пользователь ни обратился к Светлане.
      */
     fun handleInput(context: Context, text: String) {
+        remember(context)
         if (text.isBlank()) return
         _state.value = _state.value.copy(isThinking = true, lastReply = context.getString(R.string.home_thinking))
 
@@ -127,17 +149,23 @@ class HomeViewModel : ViewModel() {
     }
 
     /**
-     * Запустить голосовой ввод.
+     * Запустить голосовой ввод. Язык распознавания — по языку интерфейса.
      */
     fun startListening(context: Context) {
+        remember(context)
         if (!ServiceLocator.permissionManager.isGranted(android.Manifest.permission.RECORD_AUDIO)) {
             _state.value = _state.value.copy(
-                lastReply = "Нет разрешения на микрофон. Его можно выдать в «Разрешениях Светланы»."
+                lastReply = Tr.t(context,
+                    "Нет разрешения на микрофон. Его можно выдать в «Разрешениях Светланы».",
+                    "No microphone permission. You can grant it in Svetlana permissions.")
             )
             return
         }
+        val noResult = Tr.t(context,
+            "Не удалось дождаться результата распознавания",
+            "Didn't get a recognition result in time")
         _state.value = _state.value.copy(isListening = true, orbActive = true)
-        ServiceLocator.speechRecognizer.startListening(java.util.Locale.forLanguageTag("ru-RU"))
+        ServiceLocator.speechRecognizer.startListening(VoiceLanguage.locale(context))
 
         viewModelScope.launch(Dispatchers.Default) {
             try {
@@ -157,7 +185,7 @@ class HomeViewModel : ViewModel() {
                         ServiceLocator.speechRecognizer.stopListening()
                         _state.value = _state.value.copy(
                             isListening = false, orbActive = false,
-                            lastReply = "Не удалось дождаться результата распознавания"
+                            lastReply = noResult
                         )
                     }
                 }
@@ -175,6 +203,7 @@ class HomeViewModel : ViewModel() {
     }
 
     fun confirmPendingAction(context: Context) {
+        remember(context)
         val action = _state.value.pendingConfirmation ?: return
         _state.value = _state.value.copy(pendingConfirmation = null)
         viewModelScope.launch(Dispatchers.Default) {
@@ -187,7 +216,7 @@ class HomeViewModel : ViewModel() {
     /** Отмена отзывает и ожидающее согласие в роутере: поздний «Подтвердить» уже ничего не выполнит. */
     fun cancelPendingAction() {
         ServiceLocator.actionRouter.cancelPendingConfirmations()
-        _state.value = _state.value.copy(pendingConfirmation = null, lastReply = "Отменено")
+        _state.value = _state.value.copy(pendingConfirmation = null, lastReply = t("Отменено", "Cancelled"))
     }
 
     fun updatePartial(value: String) {

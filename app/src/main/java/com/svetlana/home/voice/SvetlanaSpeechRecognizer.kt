@@ -10,6 +10,8 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+import com.svetlana.home.core.Tr
+import com.svetlana.home.core.VoiceLanguage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +21,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
 /**
- * SvetlanaSpeechRecognizer — русский STT.
+ * SvetlanaSpeechRecognizer — STT. Язык распознавания следует за языком интерфейса
+ * ([VoiceLanguage]): ru-RU для русского, en-US для английского.
  *
  * Аудит §16: обычный SpeechRecognizer не гарантирует, что распознавание
  * происходит на устройстве — системный сервис может уходить в сеть.
@@ -51,6 +54,8 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         else mainHandler.post { action() }
     }
 
+    private fun tx(ru: String, en: String): String = Tr.t(context, ru, en)
+
     /** Аудит §18: явное состояние сессии. */
     val session = VoiceSessionStateMachine()
 
@@ -72,12 +77,12 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
             } else false
-        } catch (t: Throwable) { false }
+        } catch (e: Throwable) { false }
 
     val isAvailable: Boolean
         get() = try {
             SpeechRecognizer.isRecognitionAvailable(context)
-        } catch (t: Throwable) { false }
+        } catch (e: Throwable) { false }
 
     /**
      * Активна ли ПРИОРИТЕТНАЯ сессия пользователя (тап по микрофону).
@@ -101,7 +106,7 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         _partial.value = ""
     }
 
-    fun startListening(locale: Locale = Locale.forLanguageTag("ru-RU")) {
+    fun startListening(locale: Locale = VoiceLanguage.locale(context)) {
         // Аудит §18: не стартуем новую сессию поверх активной —
         // это была причина потери результата пользователя.
         if (session.isUserSessionActive) {
@@ -111,7 +116,7 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         stopListening()
         clearResult()
         if (!isAvailable) {
-            _result.value = SttResult.Error("Распознавание речи недоступно на этом устройстве")
+            _result.value = SttResult.Error(tx("Распознавание речи недоступно на этом устройстве", "Speech recognition is not available on this device"))
             return
         }
         _foregroundSession.value = true
@@ -138,10 +143,10 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
                 session.transitionTo(VoiceSessionState.LISTENING)
                 _listening.value = true
             }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Не удалось начать распознавание", t)
+        } catch (e: Throwable) {
+            Log.w(TAG, "Не удалось начать распознавание", e)
             session.transitionTo(VoiceSessionState.STOPPED)
-            _result.value = SttResult.Error(t.message ?: "Ошибка распознавания")
+            _result.value = SttResult.Error(e.message ?: tx("Ошибка распознавания", "Recognition error"))
         }
     }
 
@@ -207,7 +212,7 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         startGeneration += 1L
         try {
             onMain { recognizer?.stopListening() }
-        } catch (t: Throwable) { /* ignore */ }
+        } catch (e: Throwable) { /* ignore */ }
         _listening.value = false
         _foregroundSession.value = false
     }
@@ -225,7 +230,7 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
                 recognizer?.destroy()
                 recognizer = null
             }
-        } catch (t: Throwable) { /* ignore */ }
+        } catch (e: Throwable) { /* ignore */ }
         _listening.value = false
         _foregroundSession.value = false
         // Аудит §18: гарантированное освобождение — сессия снова доступна.
@@ -287,13 +292,13 @@ class SvetlanaSpeechRecognizer(private val context: Context) {
         }
 
     private fun errorText(error: Int): String = when (error) {
-        SpeechRecognizer.ERROR_NO_MATCH -> "Речь не распознана"
-        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Время ожидания речи истекло"
-        SpeechRecognizer.ERROR_AUDIO -> "Ошибка записи аудио"
-        SpeechRecognizer.ERROR_NETWORK -> "Сетевая ошибка распознавания"
-        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Сетевой таймаут"
-        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Нет разрешения на микрофон"
-        else -> "Распознавание недоступно"
+        SpeechRecognizer.ERROR_NO_MATCH -> tx("Речь не распознана", "Speech not recognized")
+        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> tx("Время ожидания речи истекло", "No speech detected in time")
+        SpeechRecognizer.ERROR_AUDIO -> tx("Ошибка записи аудио", "Audio recording error")
+        SpeechRecognizer.ERROR_NETWORK -> tx("Сетевая ошибка распознавания", "Recognition network error")
+        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> tx("Сетевой таймаут", "Network timeout")
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> tx("Нет разрешения на микрофон", "No microphone permission")
+        else -> tx("Распознавание недоступно", "Recognition unavailable")
     }
 
     sealed class SttResult {
