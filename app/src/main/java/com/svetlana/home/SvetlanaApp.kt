@@ -3,6 +3,7 @@ package com.svetlana.home
 import android.app.Application
 import android.content.ComponentCallbacks2
 import com.svetlana.home.bridge.BridgeController
+import com.svetlana.home.core.AppLanguage
 import com.svetlana.home.core.ServiceLocator
 
 /**
@@ -14,6 +15,8 @@ class SvetlanaApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // Язык интерфейса (русский / английский / как в системе) — до всего остального.
+        AppLanguage.install(this)
         ServiceLocator.init(this)
         // Мост к ядру Svetlana 2.0 (веб / Windows): http://<ip телефона>:8080,
         // защищён кодом подключения из уведомления. Стартует в фоне и не может
