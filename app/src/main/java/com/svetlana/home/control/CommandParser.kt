@@ -3,14 +3,21 @@ package com.svetlana.home.control
 import com.svetlana.home.apps.AppAliases
 
 /**
- * CommandParser — разбор естественных русских команд в доменные действия.
+ * CommandParser — разбор естественных команд (русских и английских) в доменные действия.
  *
  * Не зависит от Android-контекста, поэтому полностью покрывается unit-тестами.
  * Понимает русские псевдонимы приложений (AppAliases).
+ *
+ * Язык определяется по тексту: есть кириллица — русский разбор (без изменений),
+ * только латиница — сначала английский разбор, затем старые латинские формы.
+ *
+ * Безопасность: английские команды дают те же типы [SvetlanaAction], поэтому звонок,
+ * сообщение, «нажми Pay/Delete» и т.п. так же проходят через [ActionRiskPolicy] и
+ * требуют подтверждения.
  */
 object CommandParser {
 
-    private val wakeWords = listOf("света", "светочка", "светлана")
+    private val wakeWords = listOf("света", "светочка", "светлана", "sveta", "svetochka", "svetlana")
 
     private val openMarkers = listOf(
         "переключись на", "открой приложение", "открой", "запусти приложение", "запусти",
@@ -19,7 +26,7 @@ object CommandParser {
 
     /**
      * Главная точка разбора. Сначала пытается разобрать составную команду
-     * (действия, соединённые союзом «и»), затем — одиночную.
+     * (действия, соединённые союзом «и» / «and»), затем — одиночную.
      */
     fun parse(rawCommand: String): SvetlanaAction? {
         val c = rawCommand.trim()
@@ -30,6 +37,13 @@ object CommandParser {
         // Оригинальный текст нужен для сохранения регистра элементов и фраз
         // (светлана должна нажать именно «Отправить», а не «отправить»).
         val original = stripWakeWord(c).trim()
+
+        if (body.none { it in '\u0400'..'\u04FF' }) {
+            // Английская (латинская) команда.
+            parseEnglishCompound(body, original)?.let { return it }
+            parseEnglishSingle(body, original)?.let { return it }
+            return parseSingle(body, original)
+        }
 
         // Составные команды: «открой Whatsapp и напиши контакту Серый привет как дела»
         parseCompound(body, original)?.let { return it }
@@ -123,6 +137,156 @@ object CommandParser {
 
         if (body.matches(Regex(".*(поделись|share|отправь кому).*"))) return SvetlanaAction.Share("")
 
+        return null
+    }
+
+    // ------------------------------------------------------------------
+    // Английские команды
+    // ------------------------------------------------------------------
+
+    private val EN_POLITE = Regex("^((please|can you|could you|would you|kindly)\\s+)+")
+    private val EN_PLEASE_END = Regex("\\s+please$")
+    private const val EN_COMPOSE_VERBS = "(?:message|text|write to|tell)"
+
+    /** «tell me a joke», «text me later» — вопрос к ИИ, а не сообщение контакту. */
+    private val EN_NOT_CONTACTS = setOf(
+        "me", "us", "you", "him", "her", "them", "it", "a", "an", "the", "about",
+        "what", "how", "why", "when", "where", "who", "something", "anything", "some", "more",
+    )
+
+    /** Убрать вежливые слова и знаки препинания по краям (результат — подстрока body). */
+    private fun cleanEn(body: String): String {
+        var s = body.trim().trimEnd('.', '!', '?', ',').trim()
+        s = EN_POLITE.replace(s, "")
+        s = EN_PLEASE_END.replace(s, "")
+        return s.trim()
+    }
+
+    private fun enTarget(raw: String): String {
+        var t = raw.trim().trim(' ', '.', ',', '!', '?')
+        for (p in listOf("the ", "app ", "application ")) if (t.startsWith(p)) t = t.removePrefix(p)
+        for (s in listOf(" app", " application")) if (t.endsWith(s)) t = t.removeSuffix(s)
+        return t.trim()
+    }
+
+    private fun dropLead(text: String): String {
+        var t = text.trim()
+        for (p in listOf("saying ", "that says ", "that ", ":")) if (t.startsWith(p)) t = t.removePrefix(p).trim()
+        return t.trim(' ', '.', ',', '!', '?')
+    }
+
+    private fun parseEnglishSingle(body: String, original: String): SvetlanaAction? {
+        val s = cleanEn(body)
+        if (s.isEmpty()) return null
+
+        // Навигация
+        when {
+            s.matches(Regex("(go |navigate )?back")) -> return SvetlanaAction.PressBack
+            s.matches(Regex("go home|(go )?(to )?(the )?home( screen)?")) -> return SvetlanaAction.PressHome
+            s.matches(Regex("(show |open )?(the |my )?(recent apps|recents|recent)")) -> return SvetlanaAction.OpenRecents
+            s.matches(Regex("(open |go to )?(the )?settings")) -> return SvetlanaAction.OpenSettings
+        }
+
+        if (s.matches(Regex(".*\\b(screenshot|screen shot|capture (the )?screen)\\b.*")))
+            return SvetlanaAction.TakeScreenshot("current")
+
+        Regex("scroll\\s+(?:the\\s+)?(?:screen\\s+|page\\s+)?(up|down)").matchEntire(s)?.let {
+            return SvetlanaAction.Scroll("current", it.groupValues[1])
+        }
+        Regex("swipe\\s+(up|down|left|right)").matchEntire(s)?.let {
+            return SvetlanaAction.Swipe("current", it.groupValues[1])
+        }
+
+        if (s.matches(Regex(".*\\b(read (the |my )?screen|what'?s on (the |my )?screen|what is on (the |my )?screen)\\b.*")))
+            return SvetlanaAction.ReadScreen("current")
+
+        // Открытие приложений
+        if (s.matches(Regex("(open|launch|start|run)\\s+(the\\s+)?(test(ing)? app|app for testing)")))
+            return SvetlanaAction.OpenApp(HARNESS_NAME)
+        Regex("(?:switch to|go to)\\s+(.+)").matchEntire(s)?.let {
+            val t = enTarget(it.groupValues[1])
+            if (t.isNotBlank()) return SvetlanaAction.OpenApp(t)
+        }
+        Regex("(?:open|launch|start|run)\\s+(.+)").matchEntire(s)?.let {
+            val t = enTarget(it.groupValues[1])
+            if (t.isNotBlank()) return SvetlanaAction.OpenApp(t)
+        }
+
+        // Ввод текста
+        Regex("(?:type|enter|input)\\s+(.+)").matchEntire(s)?.let {
+            val value = it.groupValues[1].trim().trim('"', '«', '»', '“', '”')
+            if (value.isNotBlank()) return SvetlanaAction.TypeText("current", "input", value)
+        }
+
+        // Нажатие
+        Regex("(?:tap|press|click|hit|select)\\s+(?:on\\s+)?(?:the\\s+)?(?:button\\s+)?(.+?)(?:\\s+button)?").matchEntire(s)?.let {
+            val el = it.groupValues[1].trim()
+            if (el.isNotBlank()) return SvetlanaAction.Click("current", originalElement(original, body, el))
+        }
+
+        // Поиск элемента
+        Regex("(?:find|search for|look for|locate)\\s+(?:the\\s+)?(.+)").matchEntire(s)?.let {
+            val el = it.groupValues[1].trim()
+            if (el.isNotBlank()) return SvetlanaAction.FindElement("current", originalElement(original, body, el))
+        }
+
+        // Звонок
+        Regex("(?:call|dial|phone|ring)\\s+(.+)").matchEntire(s)?.let {
+            val contact = it.groupValues[1].trim()
+            if (contact.isNotBlank()) return SvetlanaAction.MakeCall(contact)
+        }
+
+        // SMS: «send a text to Mom [saying hi]»
+        Regex("send\\s+(?:an?\\s+)?(?:sms|text message|text|message)\\s+(?:to\\s+)?(.+)").matchEntire(s)?.let {
+            val rest = it.groupValues[1].trim()
+            val idx = rest.indexOf(" saying ")
+            return if (idx > 0) SvetlanaAction.SendMessage(rest.substring(0, idx).trim(), dropLead(rest.substring(idx)))
+            else SvetlanaAction.SendMessage(rest, "")
+        }
+
+        // Сообщение в мессенджер по умолчанию: «message John hello there»
+        parseEnglishCompose(s, body, original, app = "")?.let { return it }
+
+        if (s.matches(Regex("share\\b.*"))) return SvetlanaAction.Share("")
+
+        return null
+    }
+
+    private fun parseEnglishCompose(s: String, body: String, original: String, app: String): SvetlanaAction? {
+        val m = Regex("$EN_COMPOSE_VERBS\\s+(?:to\\s+)?(?:contact\\s+)?(.+)").matchEntire(s) ?: return null
+        val restLow = m.groupValues[1].trim()
+        val restOrig = originalSubstring(original, body, restLow)
+        val (contact, text) = splitContactAndText(restLow, restOrig)
+        if (contact.substringBefore(' ') in EN_NOT_CONTACTS) return null
+        val cleanText = dropLead(text)
+        if (contact.isBlank() || cleanText.isBlank()) return null
+        return SvetlanaAction.ComposeMessage(app, contact, cleanText)
+    }
+
+    private val enConjunctions = listOf(" and then ", " then ", " and ")
+
+    private fun parseEnglishCompound(body: String, original: String): SvetlanaAction? {
+        val s = cleanEn(body)
+        // «open WhatsApp and message John hello there»
+        Regex("(?:open|launch|start|go to)\\s+(.+?)\\s+and\\s+(?:then\\s+)?($EN_COMPOSE_VERBS\\s+.+)").matchEntire(s)?.let {
+            val app = enTarget(it.groupValues[1])
+            val composePart = it.groupValues[2]
+            if (app.isNotBlank()) {
+                parseEnglishCompose(composePart, body, original, app)?.let { action -> return action }
+            }
+        }
+        for (conj in enConjunctions) {
+            val idx = s.indexOf(conj)
+            if (idx <= 0) continue
+            val left = s.substring(0, idx).trim()
+            val right = s.substring(idx + conj.length).trim()
+            if (left.isEmpty() || right.isEmpty()) continue
+            val leftOrig = originalSubstring(original, body, left)
+            val rightOrig = originalSubstring(original, body, right)
+            val leftAction = parseEnglishSingle(left, leftOrig) ?: continue
+            val rightAction = parseEnglishSingle(right, rightOrig) ?: continue
+            return SvetlanaAction.Compound(listOf(leftAction, retarget(rightAction, leftAction)))
+        }
         return null
     }
 

@@ -9,20 +9,22 @@ package com.svetlana.home.control
  * Текст очищается от управляющих и bidi-символов (иначе можно визуально
  * переставить «Иван» и номер) и обрезается, чтобы длинная строка не вытеснила
  * главное. Текст, вводимый в поле пароля/PIN/карты, не показывается.
+ *
+ * [english] = true — тот же вопрос по-английски (английский интерфейс), с теми же параметрами.
  */
 object ConfirmationText {
     private const val MAX = 160
     private val BIDI = Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069\\u061C]")
     private val SPACES = Regex("\\s+")
 
-    fun quote(raw: String): String {
+    fun quote(raw: String, english: Boolean = false): String {
         val clean = BIDI.replace(raw, "")
             .map { if (it.isISOControl()) ' ' else it }
             .joinToString("")
             .replace(SPACES, " ")
             .trim()
         val cut = if (clean.length > MAX) clean.take(MAX) + "…" else clean
-        return "«${cut.ifEmpty { "(пусто)" }}»"
+        return if (english) "“${cut.ifEmpty { "(empty)" }}”" else "«${cut.ifEmpty { "(пусто)" }}»"
     }
 
     /**
@@ -30,7 +32,12 @@ object ConfirmationText {
      *   на экране (для снимка и чтения экрана)
      * @param secretField ввод идёт в поле пароля/PIN/карты — сам текст не показываем
      */
-    fun describe(action: SvetlanaAction, targetShown: String? = null, secretField: Boolean = false): String = when (action) {
+    fun describe(
+        action: SvetlanaAction,
+        targetShown: String? = null,
+        secretField: Boolean = false,
+        english: Boolean = false
+    ): String = if (english) describeEn(action, targetShown, secretField) else when (action) {
         is SvetlanaAction.MakeCall -> "открыть набор номера ${quote(action.contact)}"
         is SvetlanaAction.SendMessage -> "подготовить SMS ${quote(action.contact)} с текстом ${quote(action.text)}"
         is SvetlanaAction.Share -> "поделиться текстом ${quote(action.text)}"
@@ -49,6 +56,35 @@ object ConfirmationText {
         else -> action.name
     }
 
-    fun question(action: SvetlanaAction, targetShown: String? = null, secretField: Boolean = false): String =
-        "Подтвердите: ${describe(action, targetShown, secretField)}?"
+    private fun describeEn(action: SvetlanaAction, targetShown: String?, secretField: Boolean): String {
+        fun q(s: String) = quote(s, english = true)
+        return when (action) {
+            is SvetlanaAction.MakeCall -> "open the dialer for ${q(action.contact)}"
+            is SvetlanaAction.SendMessage -> "prepare an SMS to ${q(action.contact)} with text ${q(action.text)}"
+            is SvetlanaAction.Share -> "share text ${q(action.text)}"
+            is SvetlanaAction.ComposeMessage ->
+                "write in ${q(action.appTarget)} to contact ${q(action.contact)}: ${q(action.text)}"
+            is SvetlanaAction.Click -> "tap ${q(targetShown ?: action.element)} in ${q(action.target)}"
+            is SvetlanaAction.LongClick -> "long-press ${q(targetShown ?: action.element)} in ${q(action.target)}"
+            is SvetlanaAction.TypeText -> {
+                val text = if (secretField) "hidden text (${action.text.length} chars)" else q(action.text)
+                "type $text into field ${q(targetShown ?: action.element)} in ${q(action.target)}"
+            }
+            is SvetlanaAction.TakeScreenshot -> "take a screenshot of app ${q(targetShown ?: action.target)}"
+            is SvetlanaAction.ReadScreen -> "read the text on the screen of app ${q(targetShown ?: action.target)}"
+            is SvetlanaAction.FindElement -> "read the screen of app ${q(targetShown ?: action.target)}"
+            is SvetlanaAction.Compound ->
+                action.steps.mapIndexed { i, s -> "${i + 1}) ${describeEn(s, null, false)}" }.joinToString("; ")
+            else -> action.name
+        }
+    }
+
+    fun question(
+        action: SvetlanaAction,
+        targetShown: String? = null,
+        secretField: Boolean = false,
+        english: Boolean = false
+    ): String =
+        if (english) "Confirm: ${describe(action, targetShown, secretField, english = true)}?"
+        else "Подтвердите: ${describe(action, targetShown, secretField)}?"
 }
