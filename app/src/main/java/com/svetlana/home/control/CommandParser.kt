@@ -148,6 +148,12 @@ object CommandParser {
     private val EN_PLEASE_END = Regex("\\s+please$")
     private const val EN_COMPOSE_VERBS = "(?:message|text|write to|tell)"
 
+    /** «tell me a joke», «text me later» — вопрос к ИИ, а не сообщение контакту. */
+    private val EN_NOT_CONTACTS = setOf(
+        "me", "us", "you", "him", "her", "them", "it", "a", "an", "the", "about",
+        "what", "how", "why", "when", "where", "who", "something", "anything", "some", "more",
+    )
+
     /** Убрать вежливые слова и знаки препинания по краям (результат — подстрока body). */
     private fun cleanEn(body: String): String {
         var s = body.trim().trimEnd('.', '!', '?', ',').trim()
@@ -251,6 +257,7 @@ object CommandParser {
         val restLow = m.groupValues[1].trim()
         val restOrig = originalSubstring(original, body, restLow)
         val (contact, text) = splitContactAndText(restLow, restOrig)
+        if (contact.substringBefore(' ') in EN_NOT_CONTACTS) return null
         val cleanText = dropLead(text)
         if (contact.isBlank() || cleanText.isBlank()) return null
         return SvetlanaAction.ComposeMessage(app, contact, cleanText)
