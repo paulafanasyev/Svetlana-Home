@@ -13,6 +13,8 @@ package com.svetlana.home.control
  *
  * Очистка поля (ClearText) стирает чужой текст без возможности вернуть — всегда MODERATE,
  * то есть только после подтверждения и только для подтверждённого поля.
+ *
+ * Одна политика для обоих языков: английские подписи кнопок проверяются наравне с русскими.
  */
 object ActionRiskPolicy {
 
@@ -65,14 +67,17 @@ object ActionRiskPolicy {
         "подписат", "списат", "разреш", "предостав", "позвон", "вызов",
         "delete", "remove", "uninstall", "install", "purchase", "checkout", "transfer", "confirm",
         "submit", "factory reset", "erase", "wipe", "subscribe", "allow", "grant", "sign out", "log out",
-        "place order",
+        "place order", "approve", "authoriz", "withdraw", "clear all", "clear data",
     )
 
-    private val DANGEROUS_WORDS = listOf("pay", "buy", "send", "order", "call", "reset", "format", "accept", "ok")
+    private val DANGEROUS_WORDS = listOf(
+        "pay", "buy", "send", "order", "call", "reset", "format", "accept", "ok", "dial", "sell",
+    )
 
     private val SENSITIVE_FIELD_STEMS = listOf(
         "парол", "пин-код", "пин код", "код из смс", "код подтверждения", "одноразов", "номер карты",
         "password", "passcode", "pincode", "pin code", "otp", "cvv", "cvc", "card number", "security code",
+        "verification code", "one-time code",
     )
     private val SENSITIVE_FIELD_WORDS = listOf("pin", "пин", "2fa", "totp")
 
