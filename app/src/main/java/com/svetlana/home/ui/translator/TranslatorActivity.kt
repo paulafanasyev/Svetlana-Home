@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.Tr
 import com.svetlana.home.translator.RuViTranslator
 import com.svetlana.home.translator.TranslatorDirection
 import com.svetlana.home.ui.theme.SvetlanaSettingsTheme
@@ -61,6 +62,9 @@ private fun TranslatorScreen() {
     val scope = rememberCoroutineScope()
     val translator = remember { RuViTranslator() }
     val speechRecognizer = remember { SvetlanaSpeechRecognizer(context.applicationContext) }
+    // Текст на языке интерфейса; работает и в корутинах (не Compose-функция).
+    fun t(ru: String, en: String): String = Tr.t(context, ru, en)
+    val russianText = t("Русский текст", "Russian text")
 
     DisposableEffect(Unit) {
         onDispose { speechRecognizer.release() }
@@ -69,19 +73,19 @@ private fun TranslatorScreen() {
     var direction by remember { mutableStateOf(TranslatorDirection.RU_TO_VI) }
     var sourceText by remember { mutableStateOf("") }
     var translatedText by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("Проверяю модель…") }
+    var status by remember { mutableStateOf(t("Проверяю модель…", "Checking the model…")) }
     var modelReady by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var speakResult by remember { mutableStateOf(true) }
 
     LaunchedEffect(direction) {
         modelReady = false
-        status = "Проверяю модель…"
+        status = t("Проверяю модель…", "Checking the model…")
         modelReady = runCatching { translator.isModelDownloaded(direction) }.getOrDefault(false)
         status = if (modelReady) {
-            "Модель установлена; перевод выполняется на устройстве"
+            t("Модель установлена; перевод выполняется на устройстве", "Model installed; translation runs on the device")
         } else {
-            "Модель не установлена — нажмите «Скачать модель»"
+            t("Модель не установлена — нажмите «Скачать модель»", "Model not installed — tap “Download model”")
         }
     }
 
@@ -93,7 +97,7 @@ private fun TranslatorScreen() {
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Переводчик", style = MaterialTheme.typography.headlineMedium)
+        Text(t("Переводчик", "Translator"), style = MaterialTheme.typography.headlineMedium)
         Text(
             text = direction.label,
             style = MaterialTheme.typography.titleMedium,
@@ -113,7 +117,7 @@ private fun TranslatorScreen() {
             enabled = !busy,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Поменять направление")
+            Text(t("Поменять направление", "Swap direction"))
         }
 
         Text(
@@ -128,12 +132,12 @@ private fun TranslatorScreen() {
                     scope.launch {
                         busy = true
                         try {
-                            status = "Скачиваю модель по Wi-Fi…"
+                            status = t("Скачиваю модель по Wi-Fi…", "Downloading the model over Wi-Fi…")
                             val result = translator.downloadModel(direction, wifiOnly = true)
                             modelReady = result.isSuccess
                             status = result.fold(
-                                onSuccess = { "Модель установлена; интернет для перевода больше не нужен" },
-                                onFailure = { "Не удалось скачать модель: " + (it.message ?: "ошибка") }
+                                onSuccess = { t("Модель установлена; интернет для перевода больше не нужен", "Model installed; translation no longer needs the internet") },
+                                onFailure = { t("Не удалось скачать модель: ", "Couldn’t download the model: ") + (it.message ?: t("ошибка", "error")) }
                             )
                         } finally {
                             busy = false
@@ -143,7 +147,7 @@ private fun TranslatorScreen() {
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Скачать модель")
+                Text(t("Скачать модель", "Download model"))
             }
         }
 
@@ -151,7 +155,7 @@ private fun TranslatorScreen() {
             value = sourceText,
             onValueChange = { sourceText = it },
             label = {
-                Text(if (direction == TranslatorDirection.RU_TO_VI) "Русский текст" else "Tiếng Việt")
+                Text(if (direction == TranslatorDirection.RU_TO_VI) russianText else "Tiếng Việt")
             },
             minLines = 4,
             modifier = Modifier.fillMaxWidth(),
@@ -166,7 +170,10 @@ private fun TranslatorScreen() {
             Button(
                 onClick = {
                     if (!speechRecognizer.isOnDeviceAvailable) {
-                        status = "Голосовой перевод требует on-device STT. Используйте текстовый режим на этом устройстве."
+                        status = t(
+                            "Голосовой перевод требует on-device STT. Используйте текстовый режим на этом устройстве.",
+                            "Voice translation needs on-device STT. Use text mode on this device."
+                        )
                     } else if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                         if (context is Activity) {
                             ActivityCompat.requestPermissions(
@@ -174,30 +181,30 @@ private fun TranslatorScreen() {
                                 arrayOf(Manifest.permission.RECORD_AUDIO),
                                 REQUEST_RECORD_AUDIO
                             )
-                            status = "Разрешите микрофон и нажмите «Говорить» ещё раз"
+                            status = t("Разрешите микрофон и нажмите «Говорить» ещё раз", "Allow the microphone and tap “Speak” again")
                         } else {
-                            status = "Нет разрешения на микрофон"
+                            status = t("Нет разрешения на микрофон", "No microphone permission")
                         }
                     } else {
                         scope.launch {
                             busy = true
                             try {
-                                status = "Слушаю…"
+                                status = t("Слушаю…", "Listening…")
                                 speechRecognizer.startListening(direction.sourceLocale)
                                 val result = speechRecognizer.awaitResult(9_000L)
                                 when (result) {
                                     is SvetlanaSpeechRecognizer.SttResult.Success -> {
                                         sourceText = result.text
                                         if (result.text.isBlank()) {
-                                            status = "Речь не распознана"
+                                            status = t("Речь не распознана", "Speech not recognized")
                                         } else if (!modelReady) {
-                                            status = "Сначала скачайте модель перевода"
+                                            status = t("Сначала скачайте модель перевода", "Download the translation model first")
                                         } else {
                                             val translated = translator.translate(result.text, direction)
                                             translatedText = translated.getOrDefault("")
                                             status = translated.fold(
-                                                onSuccess = { "Переведено локально" },
-                                                onFailure = { it.message ?: "Ошибка перевода" }
+                                                onSuccess = { t("Переведено локально", "Translated on the device") },
+                                                onFailure = { it.message ?: t("Ошибка перевода", "Translation error") }
                                             )
                                             if (translated.isSuccess && speakResult) {
                                                 ServiceLocator.tts.speak(
@@ -208,10 +215,10 @@ private fun TranslatorScreen() {
                                         }
                                     }
                                     is SvetlanaSpeechRecognizer.SttResult.Error -> status = result.message
-                                    null -> status = "Не удалось дождаться распознавания"
+                                    null -> status = t("Не удалось дождаться распознавания", "Recognition timed out")
                                 }
-                            } catch (t: Throwable) {
-                                status = t.message ?: "Ошибка голосового перевода"
+                            } catch (t2: Throwable) {
+                                status = t2.message ?: t("Ошибка голосового перевода", "Voice translation error")
                             } finally {
                                 speechRecognizer.finishSession()
                                 busy = false
@@ -221,7 +228,7 @@ private fun TranslatorScreen() {
                 },
                 enabled = !busy
             ) {
-                Text("Говорить")
+                Text(t("Говорить", "Speak"))
             }
 
             Button(
@@ -229,12 +236,12 @@ private fun TranslatorScreen() {
                     scope.launch {
                         busy = true
                         try {
-                            status = "Перевожу локально…"
+                            status = t("Перевожу локально…", "Translating on the device…")
                             val result = translator.translate(sourceText, direction)
                             translatedText = result.getOrDefault("")
                             status = result.fold(
-                                onSuccess = { "Переведено локально" },
-                                onFailure = { it.message ?: "Ошибка перевода" }
+                                onSuccess = { t("Переведено локально", "Translated on the device") },
+                                onFailure = { it.message ?: t("Ошибка перевода", "Translation error") }
                             )
                             if (result.isSuccess && speakResult) {
                                 ServiceLocator.tts.speak(
@@ -250,7 +257,7 @@ private fun TranslatorScreen() {
                 enabled = !busy && modelReady && sourceText.isNotBlank(),
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Перевести")
+                Text(t("Перевести", "Translate"))
             }
         }
 
@@ -259,7 +266,7 @@ private fun TranslatorScreen() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Озвучивать результат", style = MaterialTheme.typography.bodyMedium)
+            Text(t("Озвучивать результат", "Read the result aloud"), style = MaterialTheme.typography.bodyMedium)
             Switch(checked = speakResult, onCheckedChange = { speakResult = it })
         }
 
@@ -267,7 +274,7 @@ private fun TranslatorScreen() {
             value = translatedText,
             onValueChange = {},
             label = {
-                Text(if (direction == TranslatorDirection.RU_TO_VI) "Tiếng Việt" else "Русский текст")
+                Text(if (direction == TranslatorDirection.RU_TO_VI) "Tiếng Việt" else russianText)
             },
             minLines = 4,
             readOnly = true,
@@ -280,13 +287,13 @@ private fun TranslatorScreen() {
                 scope.launch {
                     busy = true
                     try {
-                        status = "Удаляю модель…"
+                        status = t("Удаляю модель…", "Deleting the model…")
                         val result = translator.deleteModel(direction)
                         modelReady = false
                         translatedText = ""
                         status = result.fold(
-                            onSuccess = { "Модель удалена" },
-                            onFailure = { it.message ?: "Не удалось удалить модель" }
+                            onSuccess = { t("Модель удалена", "Model deleted") },
+                            onFailure = { it.message ?: t("Не удалось удалить модель", "Couldn’t delete the model") }
                         )
                     } finally {
                         busy = false
@@ -296,11 +303,14 @@ private fun TranslatorScreen() {
             enabled = !busy && modelReady,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Удалить модель направления")
+            Text(t("Удалить модель направления", "Delete this direction’s model"))
         }
 
         Text(
-            "После загрузки модели перевод не использует внешний AI-сервер. Скачивание модели выполняется только после нажатия кнопки.",
+            t(
+                "После загрузки модели перевод не использует внешний AI-сервер. Скачивание модели выполняется только после нажатия кнопки.",
+                "Once the model is downloaded, translation doesn’t use an external AI server. The model is downloaded only when you tap the button."
+            ),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.outlineVariant
         )
