@@ -39,6 +39,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.svetlana.home.R
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.tr
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
@@ -93,7 +94,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (section != SettingsSection.HOME) {
                     IconButton(onClick = { section = SettingsSection.HOME }) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад")
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = tr("Назад", "Back"))
                     }
                 }
                 Text(

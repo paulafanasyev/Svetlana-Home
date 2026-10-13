@@ -22,6 +22,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.svetlana.home.bridge.BridgeController
+import com.svetlana.home.core.Tr
+import com.svetlana.home.core.tr
 import com.svetlana.home.ui.components.GlassCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -52,8 +54,8 @@ fun BridgeSettingsCard() {
         while (true) {
             bridgeInfo = withContext(Dispatchers.IO) {
                 try {
-                    val where = BridgeController.address() ?: "нет Wi‑Fi"
-                    "$where · код ${BridgeController.pairingCode(context)}"
+                    val where = BridgeController.address() ?: Tr.t(context, "нет Wi‑Fi", "no Wi‑Fi")
+                    "$where · " + Tr.t(context, "код", "code") + " ${BridgeController.pairingCode(context)}"
                 } catch (e: IllegalStateException) {
                     e.message
                 }
@@ -61,18 +63,22 @@ fun BridgeSettingsCard() {
             delay(30_000)
         }
     }
+    val unavailable = tr("Мост недоступен: нет защищённого хранилища", "Bridge unavailable: no secure storage")
     GlassCard(modifier = Modifier.fillMaxWidth().testTag("settings_bridge")) {
         Column {
-            Text("Подключение к ПК", style = MaterialTheme.typography.titleMedium)
+            Text(tr("Подключение к ПК", "Connect to PC"), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                text = bridgeInfo ?: if (bridgeOn) "Включено" else "Выключено: Светлана работает только на телефоне",
+                text = bridgeInfo ?: if (bridgeOn) tr("Включено", "On") else tr(
+                    "Выключено: Светлана работает только на телефоне",
+                    "Off: Svetlana works on the phone only"
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = if (bridgeOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = if (bridgeOn) "Выключить" else "Включить",
+                text = if (bridgeOn) tr("Выключить", "Turn off") else tr("Включить", "Turn on"),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
@@ -88,7 +94,7 @@ fun BridgeSettingsCard() {
                                     false
                                 }
                             }
-                            if (ok) bridgeOn = target else bridgeInfo = "Мост недоступен: нет защищённого хранилища"
+                            if (ok) bridgeOn = target else bridgeInfo = unavailable
                         }
                     }
                     .padding(horizontal = 4.dp, vertical = 6.dp)

@@ -47,6 +47,7 @@ import com.svetlana.home.R
 import com.svetlana.home.apps.AppModel
 import com.svetlana.home.apps.AppRegistry
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.tr
 import com.svetlana.home.ui.apps.AppDrawerActivity
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.settings.SettingsActivity
@@ -73,6 +74,8 @@ fun AppsPageScreen(appRegistry: AppRegistry) {
     val visible = apps.filterNot { it.isHidden }
     val pinned = visible.filter { it.isFavorite && it.isLaunchable }
     val others = visible.filterNot { it.isFavorite && it.isLaunchable }
+    val appsCount = tr("приложений", "apps")
+    val settingsSub = tr("ИИ, голос, Hands, разрешения, устройство", "AI, voice, Hands, permissions, device")
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(4),
@@ -110,7 +113,7 @@ fun AppsPageScreen(appRegistry: AppRegistry) {
             EntryRow(
                 icon = Icons.Outlined.Apps,
                 label = stringResource(R.string.apps_all_section),
-                sub = "${visible.size} приложений"
+                sub = "${visible.size} $appsCount"
             ) {
                 context.startActivity(Intent(context, AppDrawerActivity::class.java))
             }
@@ -119,7 +122,7 @@ fun AppsPageScreen(appRegistry: AppRegistry) {
             EntryRow(
                 icon = Icons.Outlined.Settings,
                 label = stringResource(R.string.home_settings),
-                sub = "ИИ, голос, Hands, разрешения, устройство"
+                sub = settingsSub
             ) {
                 context.startActivity(Intent(context, SettingsActivity::class.java))
             }
