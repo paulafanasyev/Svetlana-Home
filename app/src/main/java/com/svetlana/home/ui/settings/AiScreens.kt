@@ -39,6 +39,7 @@ import com.svetlana.home.R
 import com.svetlana.home.ai.AIMode
 import com.svetlana.home.ai.AIModel
 import com.svetlana.home.ai.CompatibilityLevel
+import com.svetlana.home.ai.ModelDownloads
 import com.svetlana.home.ai.ModelVerificationRunner
 import com.svetlana.home.ai.ProviderConfig
 import com.svetlana.home.core.SvetlanaStatus
@@ -226,6 +227,9 @@ fun ActionChip(text: String, onClick: () -> Unit) {
 
 /**
  * Локальный ИИ (ТЗ §34). Скачать можно только по решению пользователя.
+ *
+ * Загрузка идёт в [com.svetlana.home.ai.ModelDownloadService] — если свернуть окно,
+ * модель докачивается, а прогресс виден в уведомлении и здесь.
  */
 @Composable
 fun LocalAiScreen() {
@@ -238,16 +242,16 @@ fun LocalAiScreen() {
     val settings = ServiceLocator.settings
     var installed by remember { mutableStateOf(manager.list()) }
     var activeModelId by remember { mutableStateOf<String?>(null) }
-    var downloading by remember { mutableStateOf<String?>(null) }
+    val downloads by ModelDownloads.states.collectAsState()
     val reports = remember { compat.compatibleModels(registry) }
     // ТЗ §35/аудит п.2: автоматическая проверка модели после установки.
     var verification by remember { mutableStateOf<ModelVerificationRunner.Report?>(null) }
     var verifying by remember { mutableStateOf<String?>(null) }
     val mb = tr("МБ", "MB")
-    val downloaded = tr("Модель загружена", "Model downloaded")
-    val downloadError = tr("Ошибка загрузки", "Download failed")
 
     LaunchedEffect(Unit) { activeModelId = settings.activeLocalModelId.first() }
+    // Загрузка завершилась (в том числе пока экран был закрыт) — обновить список.
+    LaunchedEffect(downloads) { installed = manager.list() }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
@@ -362,6 +366,11 @@ fun LocalAiScreen() {
                         Spacer(Modifier.height(8.dp))
                         Text(rep.summary(), style = MaterialTheme.typography.bodySmall)
                     }
+                    // Итог фоновой загрузки с автопроверкой (аудит п.2)
+                    (downloads[model.modelId] as? ModelDownloads.State.Finished)?.takeIf { it.success }?.let { fin ->
+                        Spacer(Modifier.height(8.dp))
+                        Text(fin.message, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         }
@@ -373,6 +382,7 @@ fun LocalAiScreen() {
         items(reports.size) { i ->
             val report = reports[i]
             val alreadyInstalled = installed.any { it.modelId == report.model.id }
+            val dl = downloads[report.model.id]
             GlassCard {
                 Column {
                     Text(report.model.name, style = MaterialTheme.typography.titleMedium)
@@ -391,48 +401,31 @@ fun LocalAiScreen() {
                     Text(tr("Совместимость", "Compatibility") + ": ${report.level.label}", style = MaterialTheme.typography.labelLarge)
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (downloading == report.model.id) {
-                            Text(tr("Загрузка…", "Downloading…") + " ${report.model.sizeMb} $mb", style = MaterialTheme.typography.bodySmall)
+                        if (dl is ModelDownloads.State.Running) {
+                            Text(tr("Загрузка…", "Downloading…") + " ${dl.percent}% · ${report.model.sizeMb} $mb",
+                                style = MaterialTheme.typography.bodySmall)
                         } else if (!alreadyInstalled) {
                             ActionChip(stringResource(R.string.model_download)) {
-                                // Только по решению пользователя (ТЗ §32/§87)
-                                downloading = report.model.id
-                                scope.launch(Dispatchers.IO) {
-                                    val result = manager.install(report.model) { percent ->
-                                        // прогресс можно показать в live-состоянии
-                                    }
-                                    downloading = null
-                                    installed = manager.list()
-                                    // Аудит п.2: после установки автоматически
-                                    // проверяем модель — «установлена» ≠ «работает».
-                                    val installedModel = result.getOrNull()
-                                    if (installedModel != null) {
-                                        val rep = ModelVerificationRunner.verify(
-                                            installedModel.modelId, manager, registry,
-                                            ServiceLocator.compositeRuntime, ServiceLocator.device)
-                                        withContext(Dispatchers.Main) {
-                                            verification = rep
-                                            ServiceLocator.historyManager.record(
-                                                HistoryCategory.MODELS,
-                                                "Проверка после установки ${installedModel.name}: " +
-                                                    if (rep.inferenceOk)
-                                                        "inference OK, ${rep.tokensPerSecond} ток/с"
-                                                    else "inference не запущен: ${rep.failureReason}")
-                                        }
-                                    } else {
-                                        withContext(Dispatchers.Main) {
-                                            Toast.makeText(context,
-                                                if (result.isSuccess) downloaded else downloadError,
-                                                Toast.LENGTH_LONG).show()
-                                        }
-                                    }
-                                }
+                                // Только по решению пользователя (ТЗ §32/§87).
+                                // Фоновый сервис: не обрывается, если свернуть окно.
+                                ModelDownloads.start(context.applicationContext, report.model.id)
                             }
                             ActionChip(stringResource(R.string.model_details)) { }
                         } else {
                             Text(tr("Установлена", "Installed"), style = MaterialTheme.typography.labelLarge)
                         }
                         ActionChip(stringResource(R.string.model_not_now)) { }
+                    }
+                    if (dl is ModelDownloads.State.Running) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(tr("Можно свернуть окно — загрузка продолжится в фоне.",
+                            "You can leave this screen — the download continues in the background."),
+                            style = MaterialTheme.typography.bodySmall, color = TextTertiary)
+                    }
+                    if (dl is ModelDownloads.State.Finished && !dl.success && !alreadyInstalled) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(tr("Ошибка загрузки", "Download failed") + ": ${dl.message}",
+                            style = MaterialTheme.typography.bodySmall, color = WarnAmber)
                     }
                 }
             }

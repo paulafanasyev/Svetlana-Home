@@ -39,6 +39,14 @@ class PrivacyRouter(private val settings: SettingsRepository) {
 /**
  * ModelRouter — определяет LOCAL / REMOTE / HYBRID (ТЗ §47)
  * с учётом сложности задачи, выбора провайдера, приватности, батареи, сети, thermal.
+ *
+ * Сеть проверяется ВЖИВУЮ на каждом запросе. Раньше брался снимок устройства со
+ * старта процесса: если система перезапускала приложение без сети (экран выключен,
+ * Doze), «нет сети» запоминалось навсегда, внешний ИИ тихо подменялся локальным,
+ * и Светлана просила установить модель, хотя провайдер настроен.
+ *
+ * В режиме EXTERNAL запрос всегда идёт выбранному провайдеру: если сети нет, он честно
+ * вернёт ошибку сети, а не предложение скачать локальную модель.
  */
 class ModelRouter(
     private val device: com.svetlana.home.device.DeviceCapabilityManager,
@@ -60,27 +68,25 @@ class ModelRouter(
         val remoteBackend: AIBackend = AIBackend.PERSONAL_SERVER
     )
 
+    private fun online(): Boolean = try { device.networkStatus().first } catch (t: Throwable) { false }
+
     suspend fun route(
         complexity: TaskComplexity,
         dataType: PrivacyDataType = PrivacyDataType.TEXT
     ): Routing {
         val mode = settings.aiMode.first()
-        val caps = device.current()
 
         when (mode) {
             AIMode.LOCAL_ONLY -> return Routing(RouteDecision.LOCAL, AIBackend.LOCAL, "Режим: только устройство")
             AIMode.MY_SERVER -> {
-                if (!caps.networkAvailable) return Routing(RouteDecision.LOCAL, AIBackend.LOCAL,
+                if (!online()) return Routing(RouteDecision.LOCAL, AIBackend.LOCAL,
                     "Сервер недоступен: нет сети. Остаюсь на устройстве")
                 return Routing(RouteDecision.REMOTE, AIBackend.PERSONAL_SERVER, "Режим: мой сервер")
             }
-            AIMode.EXTERNAL -> {
-                if (!caps.networkAvailable) return Routing(RouteDecision.LOCAL, AIBackend.LOCAL,
-                    "Внешний провайдер недоступен: нет сети")
+            AIMode.EXTERNAL ->
                 return Routing(RouteDecision.REMOTE, AIBackend.EXTERNAL, "Режим: внешний провайдер")
-            }
             AIMode.LOCAL_FIRST -> {
-                if (complexity == TaskComplexity.HEAVY && caps.networkAvailable) {
+                if (complexity == TaskComplexity.HEAVY && online()) {
                     val privacy = privacyRouter.canSend(dataType, AIBackend.PERSONAL_SERVER, mode)
                     if (privacy.allowed && serverManager.isReachable()) {
                         return Routing(RouteDecision.HYBRID, AIBackend.HYBRID,
@@ -91,14 +97,16 @@ class ModelRouter(
             }
             AIMode.AUTO -> {
                 // Адаптивный выбор
+                val caps = device.current()
+                val net = online()
                 val heavy = complexity == TaskComplexity.HEAVY
                 val lowResources = caps.ramAvailableMb < 1500 ||
                         caps.thermalStatus in listOf("moderate", "severe", "critical") ||
                         caps.batteryPercent in 0..12
-                if (heavy && caps.networkAvailable && serverManager.isReachable() && !lowResources) {
+                if (heavy && net && serverManager.isReachable() && !lowResources) {
                     return Routing(RouteDecision.HYBRID, AIBackend.HYBRID, "Авто: гибрид local+server")
                 }
-                if (heavy && !caps.networkAvailable) {
+                if (heavy && !net) {
                     return Routing(RouteDecision.LOCAL, AIBackend.LOCAL,
                         "Авто: нет сети, тяжёлая задача остаётся на устройстве")
                 }
