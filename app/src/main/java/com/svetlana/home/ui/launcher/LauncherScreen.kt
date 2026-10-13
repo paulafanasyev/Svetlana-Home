@@ -122,6 +122,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.svetlana.home.apps.AppModel
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.tr
 import com.svetlana.home.voice.VoiceAssistantService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -783,10 +784,13 @@ private fun WorkspacePage(
 @Composable
 private fun ClockWidget(clock: String, lastReply: String, compact: Boolean, onOpenSvetlana: () -> Unit) {
     val now = clock.ifBlank { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()) }
-    val date = remember(clock) {
-        SimpleDateFormat("EEEE, d MMMM", Locale("ru")).format(Date())
+    // Дата — на языке интерфейса («Вторник, 13 октября» / «Tuesday, 13 October»).
+    val locale = LocalConfiguration.current.locales[0]
+    val date = remember(clock, locale) {
+        SimpleDateFormat("EEEE, d MMMM", locale).format(Date())
             .replaceFirstChar { it.uppercase() }
     }
+    val openChat = tr("Открыть чат со Светланой", "Open chat with Svetlana")
     Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = if (compact) 16.dp else 28.dp)) {
         Text(
             text = now,
@@ -803,14 +807,14 @@ private fun ClockWidget(clock: String, lastReply: String, compact: Boolean, onOp
                 .clip(RoundedCornerShape(20.dp))
                 .background(Color.Black.copy(alpha = 0.30f))
                 .clickable(onClick = onOpenSvetlana)
-                .semantics { contentDescription = "Открыть чат со Светланой" }
+                .semantics { contentDescription = openChat }
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             MiniOrb(18.dp)
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "Светлана: $lastReply",
+                text = tr("Светлана", "Svetlana") + ": $lastReply",
                 style = TextStyle(fontSize = 14.sp, color = WallpaperText),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -834,7 +838,7 @@ private fun DefaultHomeHint(onRequestHome: () -> Unit) {
         Icon(Icons.Outlined.Home, contentDescription = null, tint = Color(0xFF1E8F6B), modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
         Text(
-            text = "Назначить Светлану главным экраном",
+            text = tr("Назначить Светлану главным экраном", "Make Svetlana the Home screen"),
             style = TextStyle(fontSize = 14.sp, color = Color(0xFF12201A), fontWeight = FontWeight.Medium)
         )
     }
@@ -852,14 +856,16 @@ private fun HomeWidget(id: Int, heightOverrideDp: Int?, onResize: (Int, Int) -> 
     val heightDp = (heightOverrideDp ?: defaultDp).coerceIn(HomeLayoutOps.WIDGET_MIN_DP, HomeLayoutOps.WIDGET_MAX_DP)
     var menuOpen by remember { mutableStateOf(false) }
     val latestOpen by rememberUpdatedState { menuOpen = true }
+    val widgetWord = tr("Виджет", "Widget")
+    val editLabel = tr("Изменить виджет", "Edit widget")
     Box(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
             .height(heightDp.dp)
             .semantics {
-                contentDescription = "Виджет ${runCatching { info.loadLabel(context.packageManager) }.getOrDefault("")}"
-                onLongClick(label = "Изменить виджет") { menuOpen = true; true }
+                contentDescription = "$widgetWord ${runCatching { info.loadLabel(context.packageManager) }.getOrDefault("")}"
+                onLongClick(label = editLabel) { menuOpen = true; true }
             }
             .testTag("home_widget")
     ) {
@@ -874,20 +880,20 @@ private fun HomeWidget(id: Int, heightOverrideDp: Int?, onResize: (Int, Int) -> 
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             if (heightDp < HomeLayoutOps.WIDGET_MAX_DP) {
                 DropdownMenuItem(
-                    text = { Text("Выше") },
+                    text = { Text(tr("Выше", "Taller")) },
                     leadingIcon = { Icon(Icons.Outlined.UnfoldMore, contentDescription = null) },
                     onClick = { menuOpen = false; onResize(heightDp, 1) }
                 )
             }
             if (heightDp > HomeLayoutOps.WIDGET_MIN_DP) {
                 DropdownMenuItem(
-                    text = { Text("Ниже") },
+                    text = { Text(tr("Ниже", "Shorter")) },
                     leadingIcon = { Icon(Icons.Outlined.UnfoldLess, contentDescription = null) },
                     onClick = { menuOpen = false; onResize(heightDp, -1) }
                 )
             }
             DropdownMenuItem(
-                text = { Text("Удалить виджет") },
+                text = { Text(tr("Удалить виджет", "Remove widget")) },
                 leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
                 onClick = { menuOpen = false; onRemove() }
             )
@@ -909,7 +915,10 @@ private fun Coachmark(onClick: () -> Unit) {
         ) {
             MiniOrb(16.dp)
             Spacer(Modifier.width(8.dp))
-            Text("Свайп вправо — функции Светланы", style = TextStyle(fontSize = 13.sp, color = WallpaperText))
+            Text(
+                tr("Свайп вправо — функции Светланы", "Swipe right for Svetlana’s features"),
+                style = TextStyle(fontSize = 13.sp, color = WallpaperText)
+            )
         }
     }
 }
@@ -932,7 +941,7 @@ private fun RemoveZone(active: Boolean) {
         ) {
             Icon(Icons.Outlined.RemoveCircleOutline, contentDescription = null, tint = Color.White)
             Spacer(Modifier.width(8.dp))
-            Text("Убрать", style = TextStyle(fontSize = 15.sp, color = Color.White, fontWeight = FontWeight.Medium))
+            Text(tr("Убрать", "Remove"), style = TextStyle(fontSize = 15.sp, color = Color.White, fontWeight = FontWeight.Medium))
         }
     }
 }
@@ -983,6 +992,7 @@ private fun Dock(dock: List<AppModel>, menu: AppMenu, onLaunch: (AppModel) -> Un
 
 @Composable
 private fun SearchPill(onSearch: () -> Unit, onMic: () -> Unit, onSvetlana: () -> Unit) {
+    val chatDesc = tr("Чат со Светланой", "Chat with Svetlana")
     Row(
         Modifier
             .fillMaxWidth()
@@ -1000,18 +1010,18 @@ private fun SearchPill(onSearch: () -> Unit, onMic: () -> Unit, onSvetlana: () -
                 .size(42.dp)
                 .clip(CircleShape)
                 .clickable(onClick = onSvetlana)
-                .semantics { contentDescription = "Чат со Светланой" },
+                .semantics { contentDescription = chatDesc },
             contentAlignment = Alignment.Center
         ) { MiniOrb(26.dp) }
         Text(
-            text = "Поиск или вопрос Светлане",
+            text = tr("Поиск или вопрос Светлане", "Search or ask Svetlana"),
             style = TextStyle(fontSize = 16.sp, color = Color(0xFF5F6368)),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).padding(start = 6.dp)
         )
         IconButton(onClick = onMic, modifier = Modifier.testTag("search_mic")) {
-            Icon(Icons.Outlined.Mic, contentDescription = "Голосовой ввод", tint = Color(0xFF1E8F6B))
+            Icon(Icons.Outlined.Mic, contentDescription = tr("Голосовой ввод", "Voice input"), tint = Color(0xFF1E8F6B))
         }
     }
 }
@@ -1053,6 +1063,9 @@ internal fun AppTile(
         showFolders = false
         menuOpen = true
     }
+    val dotsWord = tr("уведомлений", "notifications")
+    val openLabel = tr("Открыть", "Open")
+    val actionsLabel = tr("Действия с приложением", "App actions")
     // Ярлыки приложения (App shortcuts) — только когда меню открыто.
     val shortcuts = remember(menuOpen, app.packageName) {
         if (menuOpen) AppShortcuts.query(context, app.packageName) else emptyList()
@@ -1077,9 +1090,9 @@ internal fun AppTile(
                     onHold = { if (drag != null) haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
                 )
                 .semantics {
-                    contentDescription = if (dots > 0) "${app.label}, уведомлений: $dots" else app.label
-                    onClick(label = "Открыть") { latestLaunch(); true }
-                    onLongClick(label = "Действия с приложением") { openMenu(); true }
+                    contentDescription = if (dots > 0) "${app.label}, $dotsWord: $dots" else app.label
+                    onClick(label = openLabel) { latestLaunch(); true }
+                    onLongClick(label = actionsLabel) { openMenu(); true }
                 }
                 .padding(vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -1128,13 +1141,18 @@ internal fun AppTile(
                 if (shortcuts.isNotEmpty()) androidx.compose.material3.HorizontalDivider()
                 if (menu.canPin(app)) {
                     DropdownMenuItem(
-                        text = { Text(if (menu.onHome(app)) "Убрать с главного экрана" else "На главный экран") },
+                        text = {
+                            Text(
+                                if (menu.onHome(app)) tr("Убрать с главного экрана", "Remove from Home screen")
+                                else tr("На главный экран", "Add to Home screen")
+                            )
+                        },
                         leadingIcon = { Icon(Icons.Outlined.PushPin, contentDescription = null) },
                         onClick = { menuOpen = false; menu.togglePin(app) }
                     )
                     if (menu.addToFolder != null) {
                         DropdownMenuItem(
-                            text = { Text("В папку…") },
+                            text = { Text(tr("В папку…", "Add to folder…")) },
                             leadingIcon = { Icon(Icons.Outlined.CreateNewFolder, contentDescription = null) },
                             trailingIcon = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
                             onClick = { showFolders = true }
@@ -1144,19 +1162,19 @@ internal fun AppTile(
                 val remove = menu.removeFromFolder
                 if (remove != null) {
                     DropdownMenuItem(
-                        text = { Text("Убрать из папки") },
+                        text = { Text(tr("Убрать из папки", "Remove from folder")) },
                         leadingIcon = { Icon(Icons.Outlined.RemoveCircleOutline, contentDescription = null) },
                         onClick = { menuOpen = false; remove(app) }
                     )
                 }
                 DropdownMenuItem(
-                    text = { Text("О приложении") },
+                    text = { Text(tr("О приложении", "App info")) },
                     leadingIcon = { Icon(Icons.Outlined.Info, contentDescription = null) },
                     onClick = { menuOpen = false; menu.info(app) }
                 )
                 if (!app.systemApp) {
                     DropdownMenuItem(
-                        text = { Text("Удалить") },
+                        text = { Text(tr("Удалить", "Uninstall")) },
                         leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
                         onClick = { menuOpen = false; menu.uninstall(app) }
                     )
@@ -1164,7 +1182,7 @@ internal fun AppTile(
             } else {
                 val add = menu.addToFolder
                 DropdownMenuItem(
-                    text = { Text("Новая папка") },
+                    text = { Text(tr("Новая папка", "New folder")) },
                     leadingIcon = { Icon(Icons.Outlined.CreateNewFolder, contentDescription = null) },
                     onClick = { menuOpen = false; add?.invoke(app, null) }
                 )
@@ -1203,6 +1221,9 @@ private fun FolderTile(
             onPositioned = { latestDrag.onPositioned(it) }
         )
     }
+    val folderDesc = tr("Папка", "Folder") + " ${folder.name}, " + tr("приложений", "apps") + ": ${folder.apps.size}"
+    val openFolderLabel = tr("Открыть папку", "Open folder")
+    val folderActionsLabel = tr("Действия с папкой", "Folder actions")
     Box(modifier) {
         Column(
             Modifier
@@ -1223,9 +1244,9 @@ private fun FolderTile(
                     onHold = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
                 )
                 .semantics {
-                    contentDescription = "Папка ${folder.name}, приложений: ${folder.apps.size}"
-                    onClick(label = "Открыть папку") { latestOpen(); true }
-                    onLongClick(label = "Действия с папкой") { menuOpen = true; true }
+                    contentDescription = folderDesc
+                    onClick(label = openFolderLabel) { latestOpen(); true }
+                    onLongClick(label = folderActionsLabel) { menuOpen = true; true }
                 }
                 .testTag("home_folder")
                 .padding(vertical = 6.dp),
@@ -1257,12 +1278,12 @@ private fun FolderTile(
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             DropdownMenuItem(
-                text = { Text("Открыть и переименовать") },
+                text = { Text(tr("Открыть и переименовать", "Open and rename")) },
                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
                 onClick = { menuOpen = false; onOpen() }
             )
             DropdownMenuItem(
-                text = { Text("Расформировать папку") },
+                text = { Text(tr("Расформировать папку", "Ungroup folder")) },
                 leadingIcon = { Icon(Icons.Outlined.FolderOff, contentDescription = null) },
                 onClick = { menuOpen = false; onUngroup() }
             )
@@ -1282,6 +1303,7 @@ private fun FolderPopup(
     var name by remember(folder.id) { mutableStateOf(folder.name) }
     val apps = folder.apps.mapNotNull { appsByPkg[it] }
     val focusManager = LocalFocusManager.current
+    val nameDesc = tr("Название папки", "Folder name")
     // Имя сохраняем очищенным: без пробелов по краям и не пустым.
     DisposableEffect(folder.id) {
         onDispose { onRename(HomeLayoutOps.cleanFolderName(name)) }
@@ -1323,7 +1345,7 @@ private fun FolderPopup(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
-                    .semantics { contentDescription = "Название папки" }
+                    .semantics { contentDescription = nameDesc }
                     .testTag("folder_name")
             )
             Spacer(Modifier.height(8.dp))
@@ -1363,9 +1385,9 @@ private fun HomeMenu(
                 .padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            HomeMenuItem(Icons.Outlined.Wallpaper, "Обои и стиль", "menu_wallpaper", onWallpaper)
-            HomeMenuItem(Icons.Outlined.Widgets, "Виджеты", "menu_widgets", onWidgets)
-            HomeMenuItem(Icons.Outlined.Settings, "Настройки", "menu_settings", onSettings)
+            HomeMenuItem(Icons.Outlined.Wallpaper, tr("Обои и стиль", "Wallpaper & style"), "menu_wallpaper", onWallpaper)
+            HomeMenuItem(Icons.Outlined.Widgets, tr("Виджеты", "Widgets"), "menu_widgets", onWidgets)
+            HomeMenuItem(Icons.Outlined.Settings, tr("Настройки", "Settings"), "menu_settings", onSettings)
         }
     }
 }
