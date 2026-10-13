@@ -18,6 +18,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.svetlana.home.bridge.BridgeController
 import com.svetlana.home.core.AppLanguage
@@ -36,6 +39,12 @@ import kotlinx.coroutines.flow.first
  * Светланы (чат, голос, переводчик, история, настройки) открываются
  * в дополнительных окнах и на панели слева (экран −1). Подключение к ПК
  * (мост к ядру Svetlana 2.0) — в «Настройки → Главный экран».
+ *
+ * Клавиатура: окно не «сжимается» системой (decorFitsSystemWindows = false), отступ под
+ * клавиатуру даёт только Compose (imePadding у полей ввода). Раньше работали оба
+ * механизма сразу: если клавиатура закрывалась, пока рабочий стол был в фоне, экран
+ * оставался сжатым на 3/4. Теперь при уходе с экрана клавиатура скрывается, а при
+ * возврате отступы пересчитываются.
  */
 class HomeActivity : ComponentActivity() {
 
@@ -59,6 +68,8 @@ class HomeActivity : ComponentActivity() {
         )
         // Рабочий стол рисуется поверх системных обоев пользователя.
         window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+        // Отступы (системные панели и клавиатура) считает только Compose — окно не сжимается.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         HomeLayoutStore.init(this)
         setContent { SvetlanaSettingsTheme { HomeScreen() } }
     }
@@ -68,9 +79,36 @@ class HomeActivity : ComponentActivity() {
         LauncherWidgets.startListening(this)
     }
 
+    override fun onResume() {
+        super.onResume()
+        refreshInsets()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) refreshInsets()
+    }
+
     override fun onStop() {
         super.onStop()
         LauncherWidgets.stopListening(this)
+        // Уходим с рабочего стола — убираем клавиатуру и фокус, чтобы вернуться на полный экран.
+        hideKeyboard()
+    }
+
+    private fun hideKeyboard() {
+        try {
+            WindowCompat.getInsetsController(window, window.decorView).hide(WindowInsetsCompat.Type.ime())
+            currentFocus?.clearFocus()
+        } catch (t: Throwable) { /* нет окна — ничего скрывать */ }
+    }
+
+    /** Пересчитать отступы: если клавиатура уже закрыта, устаревший отступ пропадёт. */
+    private fun refreshInsets() {
+        try {
+            val decor = window.decorView
+            decor.post { ViewCompat.requestApplyInsets(decor) }
+        } catch (t: Throwable) { /* ignore */ }
     }
 
     override fun onNewIntent(intent: Intent) {
