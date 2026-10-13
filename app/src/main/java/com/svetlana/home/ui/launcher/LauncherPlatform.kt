@@ -175,7 +175,17 @@ internal class LauncherActions(private val context: Context) {
         start(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
+    /**
+     * «Назначить Светлану главным экраном». Запрос роли ROLE_HOME работает только через
+     * startActivityForResult из Activity: запущенный через startActivity + NEW_TASK, он на многих
+     * телефонах сразу закрывается без диалога (кнопка «не работает»), а после двух
+     * отказов Android и вовсе отклоняет его молча. Поэтому открываем системный
+     * выбор главного экрана (он есть на всех телефонах), затем «Приложения по умолчанию».
+     * Роль назначает только сам пользователь в системном экране.
+     */
     fun requestHomeRole() {
+        if (start(Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))) return
+        if (start(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))) return
         start(ServiceLocator.permissionManager.homeRoleIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 

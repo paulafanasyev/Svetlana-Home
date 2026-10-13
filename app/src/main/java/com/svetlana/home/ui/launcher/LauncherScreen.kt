@@ -73,6 +73,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -175,7 +176,7 @@ internal fun rememberResumeTick(): Int {
  * Рабочий стол в стиле стандартного Android launcher: системные обои, часы,
  * виджеты, страницы иконок и папок, док, строка поиска. Свайп вверх — все
  * приложения, вниз — шторка, долгое нажатие — меню, перетаскивание иконок —
- * перенос и папки. Слева — панель Светланы (экран −1), её функции — в окнах.
+ * перенос и папки. Слева — панель Светланы (экран −1) на весь экран, её функции — в окнах.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -221,6 +222,15 @@ fun LauncherScreen(homeViewModel: HomeViewModel, homeSignal: Int) {
     val compact = configuration.screenHeightDp < 700
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val edgePx = with(density) { 36.dp.toPx() }
+    // Высота дока с поиском: страницы рабочего стола оставляют под него место,
+    // а панель Светланы занимает весь экран.
+    var dockHeightPx by remember { mutableIntStateOf(0) }
+    val dockHeight = with(density) { dockHeightPx.toDp() }
+    // Док есть, пока на экране видна хоть часть рабочего стола. На панели Светланы
+    // его нет совсем: ни прозрачной полосы внизу, ни невидимых кнопок.
+    val dockVisible by remember {
+        derivedStateOf { pager.currentPage + pager.currentPageOffsetFraction > 0.02f }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -438,10 +448,12 @@ fun LauncherScreen(homeViewModel: HomeViewModel, homeSignal: Int) {
                 )
             )
 
-            Column(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize()) {
+                // Страницы занимают весь экран. Панель Светланы — целиком,
+                // рабочие столы оставляют снизу место под док с поиском.
                 HorizontalPager(
                     state = pager,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier.fillMaxSize(),
                     beyondBoundsPageCount = 1,
                     userScrollEnabled = drag == null,
                     key = { if (it == 0) "svetlana" else "home_$it" }
@@ -460,75 +472,84 @@ fun LauncherScreen(homeViewModel: HomeViewModel, homeSignal: Int) {
                     } else {
                         val range = pages.getOrElse(page - 1) { IntRange.EMPTY }
                         val slice = range.map { entries[it] }
-                        WorkspacePage(
-                            first = page == 1,
-                            compact = compact,
-                            clock = uiState.clock,
-                            lastReply = uiState.lastReply,
-                            entries = slice,
-                            widgets = if (page == 1) widgets else emptyList(),
-                            widgetHeights = layout.widgetHeights,
-                            onWidgetResize = { id, current, steps ->
-                                HomeLayoutStore.update { HomeLayoutOps.resizeWidget(it, id, current, steps) }
-                            },
-                            onWidgetRemove = removeWidget,
-                            appsByPkg = appsByPkg,
-                            menu = menu,
-                            isHome = isHome,
-                            draggingKey = drag?.key,
-                            dragFor = ::dragFor,
-                            onLaunch = actions::launch,
-                            onOpenFolder = { openFolderId = it },
-                            onUngroup = { id -> HomeLayoutStore.update { HomeLayoutOps.ungroup(it, id) } },
-                            onOpenSvetlana = { window = SvetlanaWindow.CHAT },
-                            onSwipeUp = { drawerOpen = true },
-                            onSwipeDown = actions::expandNotifications,
-                            onLongPress = { homeMenu = true },
-                            onRequestHome = actions::requestHomeRole,
-                            swipePx = swipePx
-                        )
+                        Box(Modifier.fillMaxSize().padding(bottom = dockHeight)) {
+                            WorkspacePage(
+                                first = page == 1,
+                                compact = compact,
+                                clock = uiState.clock,
+                                lastReply = uiState.lastReply,
+                                entries = slice,
+                                widgets = if (page == 1) widgets else emptyList(),
+                                widgetHeights = layout.widgetHeights,
+                                onWidgetResize = { id, current, steps ->
+                                    HomeLayoutStore.update { HomeLayoutOps.resizeWidget(it, id, current, steps) }
+                                },
+                                onWidgetRemove = removeWidget,
+                                appsByPkg = appsByPkg,
+                                menu = menu,
+                                isHome = isHome,
+                                draggingKey = drag?.key,
+                                dragFor = ::dragFor,
+                                onLaunch = actions::launch,
+                                onOpenFolder = { openFolderId = it },
+                                onUngroup = { id -> HomeLayoutStore.update { HomeLayoutOps.ungroup(it, id) } },
+                                onOpenSvetlana = { window = SvetlanaWindow.CHAT },
+                                onSwipeUp = { drawerOpen = true },
+                                onSwipeDown = actions::expandNotifications,
+                                onLongPress = { homeMenu = true },
+                                onRequestHome = actions::requestHomeRole,
+                                swipePx = swipePx
+                            )
+                        }
                     }
                 }
 
-                // Док, точки страниц и строка поиска (на панели Светланы плавно исчезают).
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .graphicsLayer {
-                            alpha = (pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, 1f)
-                        }
-                        .navigationBarsPadding()
-                        .padding(bottom = 10.dp)
-                        .pointerInput(swipePx) {
-                            var total = 0f
-                            detectVerticalDragGestures(
-                                onDragStart = { total = 0f },
-                                onDragEnd = { if (total < -swipePx) drawerOpen = true },
-                                onVerticalDrag = { _, dy -> total += dy }
-                            )
-                        }
-                ) {
-                    if (!layout.coachmarkShown && layout.initialized) {
-                        Coachmark(
-                            onClick = {
-                                HomeLayoutStore.update { it.copy(coachmarkShown = true) }
-                                scope.launch { pager.animateScrollToPage(0) }
+                // Док, точки страниц и строка поиска — поверх низа рабочего стола. При переходе
+                // на панель Светланы плавно исчезают и убираются целиком.
+                if (dockVisible) {
+                    Column(
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .onGloballyPositioned { c ->
+                                if (c.size.height > 0) dockHeightPx = c.size.height
                             }
+                            .graphicsLayer {
+                                alpha = (pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, 1f)
+                            }
+                            .navigationBarsPadding()
+                            .padding(bottom = 10.dp)
+                            .pointerInput(swipePx) {
+                                var total = 0f
+                                detectVerticalDragGestures(
+                                    onDragStart = { total = 0f },
+                                    onDragEnd = { if (total < -swipePx) drawerOpen = true },
+                                    onVerticalDrag = { _, dy -> total += dy }
+                                )
+                            }
+                    ) {
+                        if (!layout.coachmarkShown && layout.initialized) {
+                            Coachmark(
+                                onClick = {
+                                    HomeLayoutStore.update { it.copy(coachmarkShown = true) }
+                                    scope.launch { pager.animateScrollToPage(0) }
+                                }
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        PageDots(count = pages.size, current = pager.currentPage - 1)
+                        Spacer(Modifier.height(10.dp))
+                        Dock(dock, menu, actions::launch)
+                        Spacer(Modifier.height(12.dp))
+                        SearchPill(
+                            onSearch = { window = SvetlanaWindow.SEARCH },
+                            onMic = {
+                                window = SvetlanaWindow.VOICE
+                                homeViewModel.startListening(context)
+                            },
+                            onSvetlana = { window = SvetlanaWindow.CHAT }
                         )
-                        Spacer(Modifier.height(8.dp))
                     }
-                    PageDots(count = pages.size, current = pager.currentPage - 1)
-                    Spacer(Modifier.height(10.dp))
-                    Dock(dock, menu, actions::launch)
-                    Spacer(Modifier.height(12.dp))
-                    SearchPill(
-                        onSearch = { window = SvetlanaWindow.SEARCH },
-                        onMic = {
-                            window = SvetlanaWindow.VOICE
-                            homeViewModel.startListening(context)
-                        },
-                        onSvetlana = { window = SvetlanaWindow.CHAT }
-                    )
                 }
             }
 
