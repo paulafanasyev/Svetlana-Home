@@ -51,6 +51,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.svetlana.home.R
+import com.svetlana.home.core.tr
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
 import com.svetlana.home.ui.theme.MintPrimary
@@ -95,7 +96,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 .padding(start = 20.dp, top = 12.dp, bottom = 4.dp)
         )
         Text(
-            text = "Чат",
+            text = tr("Чат", "Chat"),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.outlineVariant,
             modifier = Modifier.padding(start = 20.dp, bottom = 8.dp)
@@ -109,7 +110,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
         ) {
             if (uiState.messages.isEmpty()) {
                 Text(
-                    text = "Напишите Светлане — она ответит здесь.\nГолосовые команды работают на главном экране.",
+                    text = tr(
+                        "Напишите Светлане — она ответит здесь.\nГолосовые команды работают на главном экране.",
+                        "Write to Svetlana — she will reply here.\nVoice commands work on the Home screen."
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
@@ -117,6 +121,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         .padding(horizontal = 40.dp)
                 )
             } else {
+                val thinking = tr("Думаю…", "Thinking…")
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -131,7 +136,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     if (uiState.isThinking) {
                         item {
                             MessageBubble(
-                                ChatMessage(text = "Думаю…", isUser = false, pending = true)
+                                ChatMessage(text = thinking, isUser = false, pending = true)
                             )
                         }
                     }
@@ -153,7 +158,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 Column {
                     Text(
                         text = uiState.messages.lastOrNull { !it.isUser }?.text
-                            ?: "Подтвердите действие",
+                            ?: tr("Подтвердите действие", "Confirm the action"),
                         style = MaterialTheme.typography.bodyLarge
                     )
                     Spacer(Modifier.height(10.dp))
@@ -233,7 +238,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 ) {
                     Icon(
                         Icons.Outlined.Send,
-                        contentDescription = "Отправить",
+                        contentDescription = tr("Отправить", "Send"),
                         tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
                     )
                 }

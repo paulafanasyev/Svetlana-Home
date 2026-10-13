@@ -36,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.svetlana.home.R
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.tr
 import com.svetlana.home.permissions.PermissionManager
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
@@ -129,14 +130,14 @@ fun LauncherSettingsScreen() {
             }
             // Прямой путь, если диалог роли на этом телефоне не появляется.
             SystemSettingsRow(
-                label = "Открыть системный выбор главного экрана",
+                label = tr("Открыть системный выбор главного экрана", "Open the system Home app picker"),
                 intent = Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         } else {
             // Уже назначен: даём пользователю возможность вернуться к системному
             // выбору, не обходя Android.
             SystemSettingsRow(
-                label = "Выбрать другой главный экран",
+                label = tr("Выбрать другой главный экран", "Choose another Home app"),
                 intent = Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         }
