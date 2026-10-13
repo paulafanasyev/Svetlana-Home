@@ -18,6 +18,7 @@ import org.junit.runner.RunWith
  * сообщает об этом, а не подделывает активность.
  *
  * ТЗ §19: «команда отправлена» не равна «действие выполнено».
+ * Прокрутка (scrollForward/scrollBackward) здесь не вызывается: она меняет чужой экран.
  */
 @RunWith(AndroidJUnit4::class)
 class HandsDeviceTest : SvetlanaDeviceTest() {
