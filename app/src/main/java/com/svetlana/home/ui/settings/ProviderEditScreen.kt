@@ -36,6 +36,7 @@ import com.svetlana.home.ai.ProviderState
 import com.svetlana.home.ai.ProviderStateCalculator
 import com.svetlana.home.ai.providers.OpenAiCompatibleProvider
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.tr
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.MintPrimary
@@ -78,15 +79,30 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
     var isWorking by remember { mutableStateOf(false) }
     var verifiedModel by remember { mutableStateOf<String?>(null) }
 
+    // Тексты для обработчиков нажатий (вне Compose-контекста).
+    val needEndpointKey = tr("Укажите endpoint и API Key", "Enter the endpoint and API key")
+    val checking = tr("Проверяю…", "Checking…")
+    val connected = tr("Подключено", "Connected")
+    val errorWord = tr("Ошибка", "Error")
+    val checkFirst = tr("Сначала проверьте подключение", "Check the connection first")
+    val fetchingModels = tr("Запрашиваю модели…", "Fetching models…")
+    val noModels = tr("Не удалось получить список моделей", "Couldn’t get the model list")
+    val modelsGot = tr("Получено моделей", "Models received")
+    val needModel = tr("Укажите модель", "Enter a model")
+    val testingInference = tr("Тестирую inference…", "Testing inference…")
+    val modelWord = tr("Модель", "Model")
+    val answered = tr("ответила", "replied")
+    val msWord = tr("мс", "ms")
+
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Text("Подключение провайдера", style = MaterialTheme.typography.titleLarge)
+                    Text(tr("Подключение провайдера", "Provider connection"), style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = name, onValueChange = { name = it },
-                        label = { Text("Название") },
+                        label = { Text(tr("Название", "Name")) },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(8.dp))
@@ -104,13 +120,13 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                     )
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ActionChip("Проверить подключение") {
+                        ActionChip(tr("Проверить подключение", "Test connection")) {
                             if (baseUrl.isBlank() || apiKey.isBlank()) {
-                                connectionStatus = "Укажите endpoint и API Key"
+                                connectionStatus = needEndpointKey
                                 return@ActionChip
                             }
                             isWorking = true
-                            connectionStatus = "Проверяю…"
+                            connectionStatus = checking
                             scope.launch(Dispatchers.IO) {
                                 // Сохраняем промежуточную конфигурацию, чтобы
                                 // провайдер мог прочитать ключ из Keystore.
@@ -123,18 +139,18 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                                 withContext(Dispatchers.Main) {
                                     isWorking = false
                                     connectionStatus = if (r.success)
-                                        "✓ Подключено: ${config.name} @ $baseUrl"
-                                    else "✕ Ошибка: ${r.text.take(100)}"
+                                        "✓ $connected: ${config.name} @ $baseUrl"
+                                    else "✕ $errorWord: ${r.text.take(100)}"
                                 }
                             }
                         }
-                        ActionChip("Получить модели") {
+                        ActionChip(tr("Получить модели", "Get models")) {
                             if (baseUrl.isBlank() || apiKey.isBlank()) {
-                                connectionStatus = "Сначала проверьте подключение"
+                                connectionStatus = checkFirst
                                 return@ActionChip
                             }
                             isWorking = true
-                            connectionStatus = "Запрашиваю модели…"
+                            connectionStatus = fetchingModels
                             scope.launch(Dispatchers.IO) {
                                 manager.update(config.copy(name = name, baseUrl = baseUrl, model = model))
                                 manager.setApiKey(config.id, apiKey)
@@ -147,8 +163,8 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                                     remoteModels.clear()
                                     remoteModels.addAll(models)
                                     connectionStatus = if (models.isEmpty())
-                                        "Не удалось получить список моделей"
-                                    else "Получено моделей: ${models.size}"
+                                        noModels
+                                    else "$modelsGot: ${models.size}"
                                 }
                             }
                         }
@@ -170,7 +186,7 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
         item {
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Text("Модель", style = MaterialTheme.typography.titleMedium)
+                    Text(modelWord, style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(
                         value = model, onValueChange = {
@@ -178,26 +194,28 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                             verifiedModel = null
                             modelTestStatus = ""
                         },
-                        label = { Text("Например: gpt-4o-mini") },
+                        label = { Text(tr("Например: gpt-4o-mini", "For example: gpt-4o-mini")) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "Можно ввести вручную или выбрать из списка ниже " +
-                                "после «Получить модели».",
+                        text = tr(
+                            "Можно ввести вручную или выбрать из списка ниже после «Получить модели».",
+                            "Type it in or pick one from the list below after “Get models”."
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ActionChip("Проверить модель") {
+                        ActionChip(tr("Проверить модель", "Test model")) {
                             if (model.isBlank()) {
-                                modelTestStatus = "Укажите модель"
+                                modelTestStatus = needModel
                                 return@ActionChip
                             }
                             isWorking = true
-                            modelTestStatus = "Тестирую inference…"
+                            modelTestStatus = testingInference
                             scope.launch(Dispatchers.IO) {
                                 manager.update(config.copy(name = name, baseUrl = baseUrl, model = model))
                                 manager.setApiKey(config.id, apiKey)
@@ -209,7 +227,7 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                                     isWorking = false
                                     modelTestStatus = if (r.success) {
                                         verifiedModel = model
-                                        "✓ Модель «$model» ответила: «${r.text.take(40)}» (${r.latencyMs}мс)"
+                                        "✓ $modelWord «$model» $answered: «${r.text.take(40)}» (${r.latencyMs}$msWord)"
                                     } else "✕ ${r.text.take(100)}"
                                 }
                             }
@@ -227,7 +245,7 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
         // Реальный список моделей с сервера
         if (remoteModels.isNotEmpty()) {
             item {
-                Text("Доступные модели (с сервера)", style = MaterialTheme.typography.titleMedium)
+                Text(tr("Доступные модели (с сервера)", "Available models (from the server)"), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
             }
             items(remoteModels.size) { i ->
@@ -250,7 +268,10 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
             }
             item {
                 Text(
-                    text = "Выберите модель из списка, затем проверьте её кнопкой выше.",
+                    text = tr(
+                        "Выберите модель из списка, затем проверьте её кнопкой выше.",
+                        "Pick a model from the list, then test it with the button above."
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -268,23 +289,32 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
             )
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Text("Состояние: ${state.label}", style = MaterialTheme.typography.titleMedium,
+                    Text(tr("Состояние", "State") + ": ${state.label}", style = MaterialTheme.typography.titleMedium,
                         color = if (state == ProviderState.VERIFIED || state == ProviderState.ACTIVE)
                             MintPrimary else TextSecondary)
                     Spacer(Modifier.height(4.dp))
                     Text(
                         text = when (state) {
-                            ProviderState.CONFIGURED ->
+                            ProviderState.CONFIGURED -> tr(
                                 "Конфигурация сохранена, но inference не проверен. " +
-                                "Активировать можно только после проверки модели."
-                            ProviderState.CONNECTION_FAILED ->
-                                "Соединение не установилось. Проверьте endpoint и ключ."
-                            ProviderState.CONNECTED ->
-                                "Соединение есть. Теперь проверьте модель — реальный тестовый запрос."
-                            ProviderState.VERIFIED ->
-                                "✓ Модель ответила на тестовый запрос. Можно активировать."
-                            ProviderState.ACTIVE -> "✓ Провайдер выбран основным."
-                            ProviderState.CHECKING -> "Идёт проверка…"
+                                    "Активировать можно только после проверки модели.",
+                                "Configuration saved, but inference isn’t tested. " +
+                                    "You can activate only after the model test."
+                            )
+                            ProviderState.CONNECTION_FAILED -> tr(
+                                "Соединение не установилось. Проверьте endpoint и ключ.",
+                                "Couldn’t connect. Check the endpoint and key."
+                            )
+                            ProviderState.CONNECTED -> tr(
+                                "Соединение есть. Теперь проверьте модель — реальный тестовый запрос.",
+                                "Connected. Now test the model with a real test request."
+                            )
+                            ProviderState.VERIFIED -> tr(
+                                "✓ Модель ответила на тестовый запрос. Можно активировать.",
+                                "✓ The model answered the test request. You can activate it."
+                            )
+                            ProviderState.ACTIVE -> tr("✓ Провайдер выбран основным.", "✓ This provider is the main one.")
+                            ProviderState.CHECKING -> tr("Идёт проверка…", "Checking…")
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -306,7 +336,7 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) { Text("Сохранить", color = MaterialTheme.colorScheme.onPrimary) }
+            ) { Text(tr("Сохранить", "Save"), color = MaterialTheme.colorScheme.onPrimary) }
         }
 
         item {
@@ -329,11 +359,14 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MintPrimary)
-            ) { Text("Активировать провайдера", color = MaterialTheme.colorScheme.onPrimary) }
+            ) { Text(tr("Активировать провайдера", "Activate provider"), color = MaterialTheme.colorScheme.onPrimary) }
             if (!modelTestStatus.startsWith("✓")) {
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Активация доступна после успешной проверки модели «Проверить модель».",
+                    text = tr(
+                        "Активация доступна после успешной проверки модели «Проверить модель».",
+                        "Activation is available after a successful “Test model”."
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
@@ -342,9 +375,14 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
 
         item {
             Text(
-                text = "Ключ хранится в Android Keystore и не попадает в репозиторий. " +
+                text = tr(
+                    "Ключ хранится в Android Keystore и не попадает в репозиторий. " +
                         "Прямой ключ OpenAI в мобильном приложении виден ему — " +
                         "для production используйте Personal Gateway.",
+                    "The key is stored in Android Keystore and never goes into the repo. " +
+                        "A direct OpenAI key is visible to the mobile app — " +
+                        "use a Personal Gateway in production."
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
