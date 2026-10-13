@@ -58,6 +58,7 @@ class SettingsActivity : ComponentActivity() {
 
 enum class SettingsSection(val titleRes: Int) {
     HOME(R.string.title_settings),
+    LANGUAGE(R.string.title_language),
     THEME(R.string.title_theme),
     AI(R.string.title_providers),
     LOCAL_AI(R.string.title_local_ai),
@@ -104,6 +105,7 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             when (section) {
                 SettingsSection.HOME -> SectionsList { section = it }
+                SettingsSection.LANGUAGE -> LanguageScreen()
                 SettingsSection.THEME -> ThemeScreen()
                 SettingsSection.AI -> AiProvidersScreen()
                 SettingsSection.LOCAL_AI -> LocalAiScreen()
@@ -133,6 +135,7 @@ private fun SectionsList(onOpen: (SettingsSection) -> Unit) {
     // Системные настройки — отдельный раздел в конце, который открывает
     // системные экраны, а не дублирует их.
     val sections = listOf(
+        SettingsSection.LANGUAGE,
         SettingsSection.THEME,
         SettingsSection.AI,
         SettingsSection.LOCAL_AI,

@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- English interface. Keep the same set of names as values/strings.xml (lint MissingTranslation). -->
+<resources>
+    <string name="app_name">Svetlana Home</string>
+    <string name="svetlana_name">Svetlana</string>
+
+    <string name="home_input_hint">Say or type</string>
+    <string name="home_apps">Apps</string>
+    <string name="home_settings">Settings</string>
+    <string name="translator_title">Translator RU ↔ VI</string>
+    <string name="translator_subtitle">On-device voice and text translation</string>
+    <string name="home_thinking">Svetlana is thinking…</string>
+
+    <string name="page_voice">Voice</string>
+    <string name="page_chat">Chat</string>
+    <string name="page_apps">Apps</string>
+    <string name="apps_pin">Add to Home screen</string>
+    <string name="apps_pinned_section">Pinned</string>
+    <string name="apps_all_section">All apps</string>
+
+    <string name="onboarding_welcome">Welcome to Svetlana</string>
+    <string name="onboarding_intro">I can:</string>
+    <string name="onboarding_ability_launcher">control your phone;</string>
+    <string name="onboarding_ability_apps">open apps;</string>
+    <string name="onboarding_ability_harness">control Mobile Harness;</string>
+    <string name="onboarding_ability_voice">work by voice;</string>
+    <string name="onboarding_ability_vision">see the screen;</string>
+    <string name="onboarding_ability_local">use on-device AI;</string>
+    <string name="onboarding_ability_external">connect external AI;</string>
+    <string name="onboarding_ability_server">work with your own server.</string>
+    <string name="onboarding_setup_button">Set up Svetlana</string>
+    <string name="onboarding_skip">Skip</string>
+
+    <string name="setup_title">Set up Svetlana</string>
+    <string name="setup_subtitle">Grant only the access that is really needed, one step at a time</string>
+    <string name="perm_grant">Allow</string>
+    <string name="perm_open_settings">Open settings</string>
+    <string name="perm_skip">Skip</string>
+    <string name="perm_finish">Finish setup</string>
+
+    <string name="permission_center">Svetlana permissions</string>
+    <string name="perm_change">Change</string>
+    <string name="perm_note_persistent">Persistent access is reused only within the allowed feature</string>
+
+    <string name="title_settings">Settings</string>
+    <string name="title_theme">Appearance</string>
+    <string name="title_apps">Apps</string>
+    <string name="title_history">Svetlana history</string>
+    <string name="title_local_ai">On-device AI</string>
+    <string name="title_providers">AI providers</string>
+    <string name="title_server">My Svetlana server</string>
+    <string name="title_model_registry">Model registry</string>
+    <string name="title_device">Device</string>
+    <string name="title_avatar">Avatar</string>
+    <string name="title_owner">Owner</string>
+    <string name="title_memory">Memory</string>
+    <string name="title_about">About</string>
+
+    <string name="title_language">Language</string>
+    <string name="lang_system">System default</string>
+    <string name="lang_settings_note">Svetlana’s interface language. Changes apply immediately, no reinstall needed.</string>
+
+    <string name="title_launcher">Home screen</string>
+    <string name="launcher_make_home">Make Svetlana the Home screen</string>
+    <string name="launcher_already_home">Svetlana is the Home screen</string>
+    <string name="launcher_not_home">Not set</string>
+    <string name="launcher_status_current">Current status</string>
+    <string name="launcher_hint">Once set, pressing Home opens Svetlana. Keeping the choice after a reboot needs to be checked on a physical device.</string>
+
+    <string name="title_system_settings">Phone system settings</string>
+    <string name="system_settings_note">Svetlana does not duplicate Android settings. It opens the right system screen.</string>
+    <string name="system_open_settings">Open Android settings</string>
+
+    <string name="voice_settings">Voice</string>
+    <string name="hands_settings">Hands</string>
+    <string name="privacy_settings">Privacy</string>
+
+    <string name="sys_wifi">Wi-Fi</string>
+    <string name="sys_bluetooth">Bluetooth</string>
+    <string name="sys_mobile_network">SIM and mobile network</string>
+    <string name="sys_display">Display</string>
+    <string name="sys_sound">Sound</string>
+    <string name="sys_battery">Battery</string>
+    <string name="sys_apps">Apps</string>
+    <string name="sys_notifications">Notifications</string>
+    <string name="sys_location">Location</string>
+    <string name="sys_security">Security</string>
+    <string name="sys_accessibility">Accessibility</string>
+    <string name="sys_date_time">Date and time</string>
+    <string name="sys_storage">Storage</string>
+
+    <string name="search_hint">Search apps</string>
+    <string name="search_no_results">Nothing found</string>
+    <string name="action_launch">Open</string>
+
+    <string name="reply_confirm_dangerous">This is a dangerous action. Please confirm it.</string>
+    <string name="reply_action_failed">The action could not be completed</string>
+    <string name="reply_provider_failed">The selected provider could not complete the task</string>
+    <string name="reply_empty">I have nothing to say</string>
+
+    <string name="voice_agent_channel_name">Voice assistant</string>
+    <string name="voice_agent_channel_desc">Svetlana listens for the wake word in the background</string>
+    <string name="voice_agent_notification_title">Svetlana is listening</string>
+    <string name="voice_agent_notification_text">Say “Sveta” to give a command</string>
+    <string name="voice_agent_confirm_open">Opening the app for confirmation</string>
+
+    <string name="models_installed">Installed</string>
+    <string name="models_compatible">Compatible</string>
+    <string name="model_not_installed">No on-device model installed</string>
+    <string name="model_offer_question">You can install an on-device model on this phone. Would you like to see suitable options?</string>
+    <string name="model_size">Size</string>
+    <string name="model_ram_required">Memory required</string>
+    <string name="model_free_space">Free</string>
+    <string name="model_perf">Expected performance</string>
+    <string name="model_download">Download</string>
+    <string name="model_details">Details</string>
+    <string name="model_not_now">Not now</string>
+    <string name="model_benchmark">Run benchmark</string>
+    <string name="model_delete">Delete</string>
+    <string name="model_never_auto">A model is never downloaded automatically — only after you decide</string>
+
+    <string name="provider_status">Status</string>
+    <string name="provider_test">Test connection</string>
+    <string name="provider_use">Use</string>
+    <string name="provider_disable">Disable</string>
+    <string name="provider_delete">Delete</string>
+    <string name="provider_secured">Keys are kept in the device’s encrypted storage</string>
+    <string name="provider_none">No providers connected — that’s fine, the basic features work</string>
+
+    <string name="server_connect">Connect</string>
+    <string name="server_check">Check</string>
+    <string name="server_disconnect">Disconnect</string>
+    <string name="server_capabilities">Server capabilities</string>
+    <string name="server_free_tier_note">The app does not guarantee that a resource is free — check the terms yourself</string>
+
+    <string name="history_empty">History is empty</string>
+    <string name="history_clear">Clear history</string>
+
+    <string name="memory_note">Personal memory is never sent to an external AI automatically</string>
+
+    <string name="device_model">Model</string>
+    <string name="device_android">Android</string>
+    <string name="device_sdk">SDK</string>
+    <string name="device_abi">ABI</string>
+    <string name="device_ram">RAM</string>
+    <string name="device_ram_free">Available memory</string>
+    <string name="device_storage">Storage</string>
+    <string name="device_storage_free">Free</string>
+    <string name="device_cpu">CPU</string>
+    <string name="device_gpu">Graphics</string>
+    <string name="device_gpu_vendor">GPU vendor</string>
+    <string name="device_vulkan">Vulkan</string>
+    <string name="device_gles">OpenGL ES</string>
+    <string name="device_nnapi">NNAPI</string>
+    <string name="device_thermal">Thermal state</string>
+    <string name="device_battery">Battery</string>
+    <string name="device_screen">Screen</string>
+    <string name="device_camera">Camera</string>
+    <string name="device_mic">Microphone</string>
+    <string name="device_network">Network</string>
+    <string name="device_backend">Backend</string>
+
+    <string name="hands_service_label">Svetlana Hands</string>
+    <string name="hands_notification_title">Hands is active</string>
+    <string name="hands_notification_text">Svetlana can control the interface within the allowed features</string>
+    <string name="hands_channel_name">Hands</string>
+    <string name="hands_channel_desc">Controlling the interface of other apps</string>
+
+    <string name="cancel">Cancel</string>
+    <string name="confirm">Confirm</string>
+</resources>

@@ -62,6 +62,11 @@
     <string name="title_memory">Память</string>
     <string name="title_about">О приложении</string>
 
+    <!-- Язык интерфейса -->
+    <string name="title_language">Язык</string>
+    <string name="lang_system">Как в системе</string>
+    <string name="lang_settings_note">Язык интерфейса Светланы. Меняется сразу, без переустановки.</string>
+
     <!-- Launcher (ТЗ §4) -->
     <string name="title_launcher">Главный экран</string>
     <string name="launcher_make_home">Сделать Светлану главным экраном</string>
