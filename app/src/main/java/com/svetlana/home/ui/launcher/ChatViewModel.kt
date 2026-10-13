@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.Tr
 import com.svetlana.home.voice.VoiceAgent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,11 +44,18 @@ class ChatViewModel : ViewModel() {
     private val _state = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
 
+    /** Контекст приложения — только для языка служебных текстов. */
+    @Volatile
+    private var appCtx: Context? = null
+
+    private fun t(ru: String, en: String): String = appCtx?.let { Tr.t(it, ru, en) } ?: ru
+
     /**
      * Обработать текст из чата через единое ядро диалога (VoiceAgent).
      * Ответы стримятся прямо в пузырёк сообщения.
      */
     fun handleInput(context: Context, text: String) {
+        if (appCtx == null) appCtx = context.applicationContext
         if (text.isBlank()) return
         val userMsg = ChatMessage(text = text.trim(), isUser = true)
         _state.value = _state.value.copy(
@@ -96,6 +104,7 @@ class ChatViewModel : ViewModel() {
     }
 
     fun confirmPendingAction(context: Context) {
+        if (appCtx == null) appCtx = context.applicationContext
         val action = _state.value.pendingConfirmation ?: return
         _state.value = _state.value.copy(pendingConfirmation = null)
         viewModelScope.launch(Dispatchers.Default) {
@@ -112,7 +121,7 @@ class ChatViewModel : ViewModel() {
         ServiceLocator.actionRouter.cancelPendingConfirmations()
         _state.value = _state.value.copy(
             pendingConfirmation = null,
-            messages = _state.value.messages + ChatMessage(text = "Отменено", isUser = false)
+            messages = _state.value.messages + ChatMessage(text = t("Отменено", "Cancelled"), isUser = false)
         )
     }
 

@@ -6,8 +6,10 @@ import com.svetlana.home.ai.AIMode
 import com.svetlana.home.ai.AIRouter
 import com.svetlana.home.ai.AIModelCompatibilityEngine
 import com.svetlana.home.ai.AIModelRegistry
+import com.svetlana.home.ai.label
 import com.svetlana.home.control.ActionRouter
 import com.svetlana.home.control.SvetlanaAction
+import com.svetlana.home.core.Tr
 import com.svetlana.home.device.DeviceCapabilityManager
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.memory.HistoryManager
@@ -22,7 +24,8 @@ import com.svetlana.home.store.SettingsRepository
  *
  * Безопасность: команда из фонового слова пробуждения ([CommandOrigin.BACKGROUND_VOICE]) не
  * аутентифицирована: любое действие подтверждается в открытом приложении, настройки ИИ не
- * меняются, личная память в запрос не добавляется ([VoicePolicy]).
+ * меняются, личная память в запрос не добавляется ([VoicePolicy]). Правила одинаковы
+ * для русских и английских команд; ответы — на языке интерфейса.
  */
 class VoiceAgent(
     private val context: Context,
@@ -49,8 +52,12 @@ class VoiceAgent(
     private val _events = kotlinx.coroutines.flow.MutableSharedFlow<DialogueEvent>(extraBufferCapacity = 8)
     val events: kotlinx.coroutines.flow.SharedFlow<DialogueEvent> = _events
 
-    private val fillers = listOf("Дай подумать…", "Сейчас…", "Минуточку…", "Так…")
+    private val fillersRu = listOf("Дай подумать…", "Сейчас…", "Минуточку…", "Так…")
+    private val fillersEn = listOf("Let me think…", "One moment…", "Just a second…", "Okay…")
     private var fillerIndex = 0
+
+    private fun english(): Boolean = runCatching { Tr.isEnglish(context) }.getOrDefault(false)
+    private fun t(ru: String, en: String): String = if (english()) en else ru
 
     /**
      * Обработать команду: текстом или голосом.
@@ -117,46 +124,72 @@ class VoiceAgent(
     }
 
     private fun speakFiller(tts: SvetlanaTts?) {
-        val phrase = fillers[fillerIndex % fillers.size]
+        val list = if (english()) fillersEn else fillersRu
+        val phrase = list[fillerIndex % list.size]
         fillerIndex++
         tts?.speak(phrase, flush = false)
     }
 
+    private fun hasAny(low: String, vararg needles: String) = needles.any { low.contains(it) }
+
     private suspend fun handleAiCommand(text: String, mayChange: Boolean): String? {
-        val low = text.lowercase().trim().replace("ё", "е")
+        val low = text.lowercase().trim().replace("ё", "е").replace('’', '\'')
+        val noCloudEn = hasAny(low, "don't send", "do not send", "dont send") && low.contains("cloud")
         val change: AIMode? = when {
             low.contains("только локальный") || low.contains("только устройство") -> AIMode.LOCAL_ONLY
             low.contains("мой сервер") -> AIMode.MY_SERVER
             low.contains("локальный в приоритете") -> AIMode.LOCAL_FIRST
             low.contains("внешнего провайдера") || low.contains("openai-compatible") -> AIMode.EXTERNAL
             low.contains("не отправляй") && low.contains("облако") -> AIMode.LOCAL_ONLY
+            // English
+            hasAny(low, "only local ai", "local ai only", "only the local ai", "device only mode", "use device only") -> AIMode.LOCAL_ONLY
+            hasAny(low, "use my server", "switch to my server") -> AIMode.MY_SERVER
+            hasAny(low, "local first") -> AIMode.LOCAL_FIRST
+            hasAny(low, "use external provider", "use the external provider", "use an external provider",
+                "switch to external provider", "switch to the external provider") -> AIMode.EXTERNAL
+            noCloudEn -> AIMode.LOCAL_ONLY
             else -> null
         }
         if (change != null) {
-            if (!mayChange) return VoicePolicy.SETTINGS_REFUSED
+            if (!mayChange) return VoicePolicy.settingsRefused(english())
             settings.setAiMode(change)
+            val cloud = low.contains("облако") || noCloudEn
             return when (change) {
-                AIMode.LOCAL_ONLY -> if (low.contains("облако")) "Хорошо, данные не будут покидать устройство."
-                    else "Хорошо, теперь используется только локальный ИИ. Ничего не отправляется в облако."
-                AIMode.MY_SERVER -> "Хорошо, теперь используется ваш сервер."
-                AIMode.LOCAL_FIRST -> "Хорошо, локальный ИИ в приоритете."
-                AIMode.EXTERNAL -> "Хорошо, используется внешний провайдер."
-                else -> "Хорошо."
+                AIMode.LOCAL_ONLY -> if (cloud) t("Хорошо, данные не будут покидать устройство.", "Okay, your data won't leave the device.")
+                    else t("Хорошо, теперь используется только локальный ИИ. Ничего не отправляется в облако.",
+                        "Okay, now only the local AI is used. Nothing is sent to the cloud.")
+                AIMode.MY_SERVER -> t("Хорошо, теперь используется ваш сервер.", "Okay, now your server is used.")
+                AIMode.LOCAL_FIRST -> t("Хорошо, локальный ИИ в приоритете.", "Okay, the local AI comes first.")
+                AIMode.EXTERNAL -> t("Хорошо, используется внешний провайдер.", "Okay, the external provider is used.")
+                else -> t("Хорошо.", "Okay.")
             }
         }
         return when {
             low.contains("какой ии может работать") || low.contains("какие модели") ||
-                low.contains("подходящие варианты") -> offerModels()
-            low.contains("какой ии") || low.contains("какая модель") || low.contains("кто отвечает") ->
-                aiRouter.currentBackendLabel()
+                low.contains("подходящие варианты") ||
+                hasAny(low, "which ai can run", "what ai can run", "which models can run", "what models can run",
+                    "compatible models", "which model can run") -> offerModels()
+            low.contains("какой ии") || low.contains("какая модель") || low.contains("кто отвечает") ||
+                hasAny(low, "which ai are you", "what ai are you", "which ai is answering", "what ai is answering",
+                    "which model are you", "who is answering", "who's answering") ->
+                aiRouter.currentBackend().label(context)
             else -> null
         }
     }
 
     private suspend fun offerModels(): String {
         val report = compatibility.bestFit(modelRegistry)
-            ?: return "Я не нашла модели, совместимой с этим устройством."
+            ?: return t("Я не нашла модели, совместимой с этим устройством.",
+                "I couldn't find a model compatible with this device.")
         val caps = device.current()
+        if (english()) return buildString {
+            append("I found a local model compatible with your device.\n\n")
+            append("Name: ${report.model.name}\n")
+            append("Size: ${report.model.sizeMb} MB\n")
+            append("Memory needed: ${report.model.ramRequirementMb} MB (device has ${caps.ramTotalMb} MB)\n")
+            append("Expected performance: ${report.expectedPerf}\n\n")
+            append("You can download it in Local AI. I don't download anything without your decision.")
+        }
         return buildString {
             append("Я нашла локальную модель, совместимую с вашим устройством.\n\n")
             append("Название: ${report.model.name}\n")
