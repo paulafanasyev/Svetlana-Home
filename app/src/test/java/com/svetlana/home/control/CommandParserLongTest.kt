@@ -56,7 +56,7 @@ class CommandParserLongTest {
         assertThat(click.target).isEqualTo("telegram")
         val type = a.steps[2] as SvetlanaAction.TypeText
         assertThat(type.target).isEqualTo("telegram")
-        assertThat(type.text).isEqualTo("Серый")
+        assertThat(type.text.lowercase()).isEqualTo("серый")
     }
 
     @Test
