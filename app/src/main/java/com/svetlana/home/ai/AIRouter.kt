@@ -3,6 +3,8 @@ package com.svetlana.home.ai
 import android.content.Context
 import com.svetlana.home.ai.providers.OpenAiCompatibleProvider
 import com.svetlana.home.ai.providers.PersonalServerProvider
+import com.svetlana.home.core.Tr
+import com.svetlana.home.core.VoiceLanguage
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.memory.HistoryManager
 import com.svetlana.home.store.SettingsRepository
@@ -100,6 +102,9 @@ data class StreamChunk(
  * ВАЖНО (ТЗ §41): если пользователь выбрал «только локальный ИИ»,
  * Светлана не переключается на облако из-за ошибки. Она сообщает, что
  * локальная модель не справилась, и предлагает варианты.
+ *
+ * Язык ответа: в английском интерфейсе провайдеру передаётся системная
+ * инструкция [VoiceLanguage.replyInstruction]; в русском — ничего не меняется.
  */
 class AIRouter(
     private val context: Context,
@@ -112,6 +117,10 @@ class AIRouter(
     private val localProvider: com.svetlana.home.ai.providers.LocalAIProvider,
     private val hybridPipeline: HybridPipeline? = null
 ) {
+
+    private fun t(ru: String, en: String): String = Tr.t(context, ru, en)
+
+    private fun systemPrompt(): String? = VoiceLanguage.replyInstruction(context)
 
     suspend fun activeMode(): AIMode = settings.aiMode.first()
 
@@ -171,7 +180,7 @@ class AIRouter(
             val pipeline = hybridPipeline
             if (pipeline == null) {
                 historyManager.record(HistoryCategory.AI, "HYBRID выбран, pipeline не подключён")
-                return Routing.Blocked(routing.backend, "Гибридный режим недоступен в этой сборке")
+                return Routing.Blocked(routing.backend, t("Гибридный режим недоступен в этой сборке", "Hybrid mode is not available in this build"))
             }
             return Routing.HybridRoute(routing.backend, pipeline, mode, routing.remoteBackend)
         }
@@ -195,9 +204,15 @@ class AIRouter(
         // а не подменяем тихо другим бэкендом.
         if (provider == null) {
             val msg = when (routing.backend) {
-                AIBackend.EXTERNAL -> "Внешний ИИ не настроен. Подключите провайдера в «Настройки» → «Внешние ИИ» — и я смогу отвечать на свободные вопросы."
-                AIBackend.NONE -> "Сейчас не выбран ни один ИИ. Локальную модель можно установить в «Локальный ИИ», либо подключить внешний провайдер."
-                else -> "Выбранный ИИ недоступен."
+                AIBackend.EXTERNAL -> t(
+                    "Внешний ИИ не настроен. Подключите провайдера в «Настройки» → «Внешние ИИ» — и я смогу отвечать на свободные вопросы.",
+                    "External AI is not set up. Connect a provider in Settings → AI providers and I'll be able to answer open questions."
+                )
+                AIBackend.NONE -> t(
+                    "Сейчас не выбран ни один ИИ. Локальную модель можно установить в «Локальный ИИ», либо подключить внешний провайдер.",
+                    "No AI is selected right now. Install a local model in Local AI, or connect an external provider."
+                )
+                else -> t("Выбранный ИИ недоступен.", "The selected AI is unavailable.")
             }
             historyManager.record(HistoryCategory.AI,
                 "chat: провайдер не настроен (backend=${routing.backend}, mode=$mode)")
@@ -206,7 +221,10 @@ class AIRouter(
 
         if (!provider.isAvailable() && provider is com.svetlana.home.ai.providers.LocalAIProvider && mode == AIMode.LOCAL_ONLY) {
             // ТЗ §41: не уходим в облако при LOCAL_ONLY
-            val msg = "Локальная модель не может выполнить эту задачу. Варианты: попробовать другую локальную модель, использовать мой сервер, использовать внешний AI, отмена."
+            val msg = t(
+                "Локальная модель не может выполнить эту задачу. Варианты: попробовать другую локальную модель, использовать мой сервер, использовать внешний AI, отмена.",
+                "The local model can't handle this task. Options: try another local model, use my server, use an external AI, or cancel."
+            )
             historyManager.record(HistoryCategory.AI, "Локальный ИИ не справился, режим LOCAL_ONLY удержан")
             return Routing.Blocked(AIBackend.LOCAL, msg)
         }
@@ -242,7 +260,7 @@ class AIRouter(
                 )
             }
             is Routing.Ready -> {
-                val result = r.provider.chat(prompt)
+                val result = r.provider.chat(prompt, systemPrompt())
                 historyManager.record(HistoryCategory.AI,
                     "chat → ${result.backend} ${if (result.success) "OK" else "FAIL"} (${result.latencyMs}мс)")
                 result
@@ -279,10 +297,11 @@ class AIRouter(
                 emit(StreamChunk(res.text, res.text, done = true, success = res.success, res.backend))
             }
             is Routing.Ready -> {
+                val sys = systemPrompt()
                 if (r.provider.supportsStreaming()) {
                     val sb = StringBuilder()
                     try {
-                        r.provider.chatStream(prompt).collect { delta ->
+                        r.provider.chatStream(prompt, sys).collect { delta ->
                             sb.append(delta)
                             emit(StreamChunk(delta, sb.toString(), done = false, success = true, r.backend))
                         }
@@ -292,7 +311,7 @@ class AIRouter(
                     val full = sb.toString()
                     if (full.isBlank()) {
                         // Стриминг ничего не отдал — честный фолбэк на обычный chat.
-                        val fallback = r.provider.chat(prompt)
+                        val fallback = r.provider.chat(prompt, sys)
                         emit(StreamChunk(fallback.text, fallback.text, done = true, success = fallback.success, r.backend))
                     } else {
                         historyManager.record(HistoryCategory.AI,
@@ -300,7 +319,7 @@ class AIRouter(
                         emit(StreamChunk("", full, done = true, success = true, r.backend))
                     }
                 } else {
-                    val res = r.provider.chat(prompt)
+                    val res = r.provider.chat(prompt, sys)
                     historyManager.record(HistoryCategory.AI,
                         "chat → ${res.backend} ${if (res.success) "OK" else "FAIL"} (${res.latencyMs}мс)")
                     emit(StreamChunk(res.text, res.text, done = true, success = res.success, r.backend))
@@ -347,8 +366,12 @@ class AIRouter(
                 // loaded, so a cold local VLM must reach provider.vision().
                 if (r.provider !is com.svetlana.home.ai.providers.LocalAIProvider &&
                     !r.provider.capabilities().vision) {
-                    val msg = "Выбранный ИИ (${r.provider.displayName}) не поддерживает изображения. " +
-                        "Подключите vision-модель в настройках или включите локальную VLM."
+                    val msg = t(
+                        "Выбранный ИИ (${r.provider.displayName}) не поддерживает изображения. " +
+                            "Подключите vision-модель в настройках или включите локальную VLM.",
+                        "The selected AI (${r.provider.displayName}) doesn't support images. " +
+                            "Connect a vision model in settings or enable a local VLM."
+                    )
                     historyManager.record(HistoryCategory.VISION,
                         "vision отклонён: ${r.provider.displayName} без поддержки изображений")
                     return AIResult(false, msg, r.backend,
@@ -367,10 +390,10 @@ class AIRouter(
      * Перечень доступных вариантов, когда локальный ИИ не справился (ТЗ §41).
      */
     fun fallbackOptions(): List<FallbackOption> = listOf(
-        FallbackOption("Попробовать другую локальную модель", AIBackend.LOCAL),
-        FallbackOption("Использовать мой сервер", AIBackend.PERSONAL_SERVER),
-        FallbackOption("Использовать внешний AI", AIBackend.EXTERNAL),
-        FallbackOption("Отмена", AIBackend.NONE)
+        FallbackOption(t("Попробовать другую локальную модель", "Try another local model"), AIBackend.LOCAL),
+        FallbackOption(t("Использовать мой сервер", "Use my server"), AIBackend.PERSONAL_SERVER),
+        FallbackOption(t("Использовать внешний AI", "Use an external AI"), AIBackend.EXTERNAL),
+        FallbackOption(t("Отмена", "Cancel"), AIBackend.NONE)
     )
 
     data class FallbackOption(val title: String, val backend: AIBackend)
