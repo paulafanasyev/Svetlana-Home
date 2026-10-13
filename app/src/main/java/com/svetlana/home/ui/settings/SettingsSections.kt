@@ -37,6 +37,7 @@ import com.svetlana.home.R
 import com.svetlana.home.avatar.AvatarLevel
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.core.tr
+import com.svetlana.home.core.trLabel
 import com.svetlana.home.device.DeviceCapabilityManager
 import com.svetlana.home.memory.MemoryMode
 import com.svetlana.home.permissions.PermissionItem
@@ -397,7 +398,7 @@ fun MemoryScreen() {
                         },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(m.label, modifier = Modifier.weight(1f),
+                    Text(trLabel(m.label), modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.titleMedium)
                     if (mode == m) Text("✓", color = MaterialTheme.colorScheme.primary)
                 }

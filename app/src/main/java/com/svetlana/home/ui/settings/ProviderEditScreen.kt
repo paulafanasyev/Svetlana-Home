@@ -37,6 +37,7 @@ import com.svetlana.home.ai.ProviderStateCalculator
 import com.svetlana.home.ai.providers.OpenAiCompatibleProvider
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.core.tr
+import com.svetlana.home.core.trLabel
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.MintPrimary
@@ -289,7 +290,7 @@ fun ProviderEditScreen(config: ProviderConfig, onSaved: () -> Unit) {
             )
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Text(tr("Состояние", "State") + ": ${state.label}", style = MaterialTheme.typography.titleMedium,
+                    Text(tr("Состояние", "State") + ": ${trLabel(state.label)}", style = MaterialTheme.typography.titleMedium,
                         color = if (state == ProviderState.VERIFIED || state == ProviderState.ACTIVE)
                             MintPrimary else TextSecondary)
                     Spacer(Modifier.height(4.dp))

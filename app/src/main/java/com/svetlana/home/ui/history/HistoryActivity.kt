@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,10 +28,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.svetlana.home.R
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.tr
+import com.svetlana.home.core.trLabel
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.memory.HistoryEntry
 import com.svetlana.home.ui.components.GlassCard
@@ -72,7 +76,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
                     style = MaterialTheme.typography.headlineMedium)
             }
             Text(
-                text = "${entries.size} записей",
+                text = "${entries.size} " + tr("записей", "entries"),
                 style = MaterialTheme.typography.bodySmall
             )
             HistoryFilterRow(filter) { filter = it; entries = history.all() }
@@ -112,24 +116,27 @@ private fun HistoryFilterRow(current: HistoryCategory?, onChange: (HistoryCatego
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
     ) {
-        Chip("Все", current == null) { onChange(null) }
+        Chip(tr("Все", "All"), current == null) { onChange(null) }
         HistoryCategory.entries.forEach { cat ->
-            Chip(cat.label, current == cat) { onChange(cat) }
+            Chip(trLabel(cat.label), current == cat) { onChange(cat) }
         }
     }
 }
 
 @Composable
 private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
+    // Раньше чип не реагировал на нажатие: onClick не был подключён.
     Text(
         text = text,
         style = MaterialTheme.typography.labelSmall,
         modifier = Modifier
             .padding(top = 6.dp)
+            .clip(RoundedCornerShape(10.dp))
             .background(
                 if (selected) MintPrimary.copy(alpha = 0.18f) else MintSoft.copy(alpha = 0.06f),
                 shape = RoundedCornerShape(10.dp)
             )
+            .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 5.dp)
     )
 }
@@ -143,7 +150,7 @@ private fun HistoryRow(entry: HistoryEntry) {
         Column {
             Row {
                 Text(
-                    text = entry.category.label,
+                    text = trLabel(entry.category.label),
                     style = MaterialTheme.typography.labelSmall,
                     color = MintSoft,
                     modifier = Modifier.weight(1f)

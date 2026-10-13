@@ -44,6 +44,7 @@ import com.svetlana.home.ai.ProviderConfig
 import com.svetlana.home.core.SvetlanaStatus
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.core.tr
+import com.svetlana.home.core.trLabel
 import com.svetlana.home.memory.HistoryCategory
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.MintPrimary
@@ -114,7 +115,7 @@ fun AiProvidersScreen() {
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(m.label, modifier = Modifier.weight(1f))
+                    Text(trLabel(m.label), modifier = Modifier.weight(1f))
                     if (mode == m) Text("✓", color = MaterialTheme.colorScheme.primary)
                 }
             }
@@ -302,7 +303,7 @@ fun LocalAiScreen() {
                     Text("${model.sizeBytes / (1024 * 1024)} $mb",
                         style = MaterialTheme.typography.bodySmall)
                     // Аудит §14: строгий жизненный цикл вместо оптимистичного isAvailable()
-                    Text(tr("Статус", "Status") + ": ${status.label}", style = MaterialTheme.typography.labelLarge)
+                    Text(tr("Статус", "Status") + ": ${trLabel(status.label)}", style = MaterialTheme.typography.labelLarge)
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         // Аудит §15: явный выбор основной модели

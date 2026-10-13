@@ -51,10 +51,11 @@ class RoleAndLocationDeviceTest {
         // Оба поля независимы и читаемы — это и есть суть аудита п.7.
         // Не должно быть общего «Выключено» без объяснения.
         assertTrue("сводка описывает состояние", diag.summary.isNotBlank())
-        // Сводка разделяет два состояния
-        val mentionsPermission = diag.summary.contains("разреш", ignoreCase = true)
-        val mentionsServices = diag.summary.contains("геолокаци", ignoreCase = true)
-        assertTrue("сводка упоминает разрешение и системную геолокацию",
+        // Сводка разделяет два состояния — на языке интерфейса (русский или English).
+        val s = diag.summary
+        val mentionsPermission = listOf("разреш", "permission", "allowed").any { s.contains(it, ignoreCase = true) }
+        val mentionsServices = listOf("геолокаци", "location").any { s.contains(it, ignoreCase = true) }
+        assertTrue("сводка упоминает разрешение и системную геолокацию: $s",
             mentionsPermission && mentionsServices)
     }
 

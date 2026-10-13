@@ -11,6 +11,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import com.svetlana.home.apps.AppAliases
+import com.svetlana.home.core.Tr
 import com.svetlana.home.hands.SvetlanaAccessibilityService
 
 /**
@@ -33,70 +34,78 @@ data class PermissionItem(
  *
  * ВАЖНО: permission manager не запрашивает ничего лишнего и не обходить Android.
  * Если Android требует повторное системное подтверждение — пользователь проходит штатный flow.
+ *
+ * Тексты — на языке интерфейса ([Tr]): ресурсы контекста приложения уже
+ * переключены на выбранный язык (AppLanguage).
  */
 class PermissionManager(private val context: Context) {
+
+    private fun t(ru: String, en: String): String = Tr.t(context, ru, en)
 
     fun isGranted(permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
     fun list(): List<PermissionItem> {
         val accessible = accessibilityEnabled()
+        val off = t("Выключено", "Off")
+        val allowed = t("Разрешён", "Allowed")
+        val notAllowed = t("Не разрешён", "Not allowed")
         return listOf(
             PermissionItem(
-                key = KEY_MIC, title = "Микрофон",
-                description = "Нужно для голосовых команд и wake word",
+                key = KEY_MIC, title = t("Микрофон", "Microphone"),
+                description = t("Нужно для голосовых команд и wake word", "Needed for voice commands and the wake word"),
                 required = true, kind = PermissionItem.Kind.RUNTIME,
-                statusText = if (isGranted(Manifest.permission.RECORD_AUDIO)) "Разрешён" else "Не разрешён",
+                statusText = if (isGranted(Manifest.permission.RECORD_AUDIO)) allowed else notAllowed,
                 granted = isGranted(Manifest.permission.RECORD_AUDIO)
             ),
             PermissionItem(
-                key = KEY_CAMERA, title = "Камера",
-                description = "Нужно для зрения и анализа изображений",
+                key = KEY_CAMERA, title = t("Камера", "Camera"),
+                description = t("Нужно для зрения и анализа изображений", "Needed for vision and image analysis"),
                 required = false, kind = PermissionItem.Kind.RUNTIME,
-                statusText = if (isGranted(Manifest.permission.CAMERA)) "Разрешена" else "Не разрешена",
+                statusText = if (isGranted(Manifest.permission.CAMERA)) t("Разрешена", "Allowed") else t("Не разрешена", "Not allowed"),
                 granted = isGranted(Manifest.permission.CAMERA)
             ),
             PermissionItem(
-                key = KEY_CONTACTS, title = "Контакты",
-                description = "Нужно для звонков и сообщений по имени",
+                key = KEY_CONTACTS, title = t("Контакты", "Contacts"),
+                description = t("Нужно для звонков и сообщений по имени", "Needed to call and message people by name"),
                 required = false, kind = PermissionItem.Kind.RUNTIME,
-                statusText = if (isGranted(Manifest.permission.READ_CONTACTS)) "Разрешены" else "Не разрешены",
+                statusText = if (isGranted(Manifest.permission.READ_CONTACTS)) t("Разрешены", "Allowed") else t("Не разрешены", "Not allowed"),
                 granted = isGranted(Manifest.permission.READ_CONTACTS)
             ),
             PermissionItem(
-                key = KEY_PHONE, title = "Телефон",
-                description = "Нужно для совершения звонков",
+                key = KEY_PHONE, title = t("Телефон", "Phone"),
+                description = t("Нужно для совершения звонков", "Needed to make calls"),
                 required = false, kind = PermissionItem.Kind.RUNTIME,
-                statusText = if (isGranted(Manifest.permission.CALL_PHONE)) "Разрешён" else "Не разрешён",
+                statusText = if (isGranted(Manifest.permission.CALL_PHONE)) allowed else notAllowed,
                 granted = isGranted(Manifest.permission.CALL_PHONE)
             ),
             PermissionItem(
-                key = KEY_NOTIFICATIONS, title = "Уведомления",
-                description = "Нужно для статуса и ответов",
+                key = KEY_NOTIFICATIONS, title = t("Уведомления", "Notifications"),
+                description = t("Нужно для статуса и ответов", "Needed for status and replies"),
                 required = false,
                 kind = PermissionItem.Kind.NOTIFICATION,
-                statusText = if (notificationsEnabled()) "Разрешены" else "Выключено",
+                statusText = if (notificationsEnabled()) t("Разрешены", "Allowed") else off,
                 granted = notificationsEnabled()
             ),
             PermissionItem(
-                key = KEY_LOCATION, title = "Местоположение",
-                description = "Необязательно — только если попросите",
+                key = KEY_LOCATION, title = t("Местоположение", "Location"),
+                description = t("Необязательно — только если попросите", "Optional — only when you ask"),
                 required = false, kind = PermissionItem.Kind.RUNTIME,
-                statusText = if (isGranted(Manifest.permission.ACCESS_COARSE_LOCATION)) "Разрешено" else "Выключено",
+                statusText = if (isGranted(Manifest.permission.ACCESS_COARSE_LOCATION)) t("Разрешено", "Allowed") else off,
                 granted = isGranted(Manifest.permission.ACCESS_COARSE_LOCATION)
             ),
             PermissionItem(
-                key = KEY_HANDS, title = "Hands / Специальные возможности",
-                description = "Нужно для управления другими приложениями",
+                key = KEY_HANDS, title = t("Hands / Специальные возможности", "Hands / Accessibility"),
+                description = t("Нужно для управления другими приложениями", "Needed to control other apps"),
                 required = false, kind = PermissionItem.Kind.ACCESSIBILITY,
-                statusText = if (accessible) "Активен" else "Выключено",
+                statusText = if (accessible) t("Активен", "Active") else off,
                 granted = accessible
             ),
             PermissionItem(
-                key = KEY_HOME, title = "Главный экран",
-                description = "Светлана назначена главным экраном",
+                key = KEY_HOME, title = t("Главный экран", "Home screen"),
+                description = t("Светлана назначена главным экраном", "Svetlana is set as the Home screen"),
                 required = false, kind = PermissionItem.Kind.ROLE_HOME,
-                statusText = if (isHomeLauncher()) "Светлана" else "Не назначен",
+                statusText = if (isHomeLauncher()) t("Светлана", "Svetlana") else t("Не назначен", "Not set"),
                 granted = isHomeLauncher()
             )
         )
@@ -174,10 +183,10 @@ class PermissionManager(private val context: Context) {
             permissionGranted = permissionGranted,
             locationServicesEnabled = servicesOn,
             summary = when {
-                permissionGranted && servicesOn -> "Разрешено, геолокация включена"
-                permissionGranted && !servicesOn -> "Разрешение есть, но системная геолокация выключена"
-                !permissionGranted && servicesOn -> "Системная геолокация включена, но разрешение Светлане не выдано"
-                else -> "Разрешение не выдано и системная геолокация выключена"
+                permissionGranted && servicesOn -> t("Разрешено, геолокация включена", "Allowed, location is on")
+                permissionGranted && !servicesOn -> t("Разрешение есть, но системная геолокация выключена", "Permission granted, but system location is off")
+                !permissionGranted && servicesOn -> t("Системная геолокация включена, но разрешение Светлане не выдано", "System location is on, but Svetlana has no permission")
+                else -> t("Разрешение не выдано и системная геолокация выключена", "No permission, and system location is off")
             }
         )
     }

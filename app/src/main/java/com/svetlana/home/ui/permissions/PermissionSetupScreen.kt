@@ -44,6 +44,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.svetlana.home.R
 import com.svetlana.home.core.ServiceLocator
+import com.svetlana.home.core.tr
 import com.svetlana.home.permissions.PermissionItem
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.theme.AlmostBlack
@@ -124,7 +125,7 @@ fun PermissionSetupScreen(onAllHandled: () -> Unit) {
                 Text(text = item.description, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = if (item.granted) "Уже предоставлено" else "Требуется",
+                    text = if (item.granted) tr("Уже предоставлено", "Already granted") else tr("Требуется", "Required"),
                     style = MaterialTheme.typography.labelLarge
                 )
             }
@@ -162,7 +163,7 @@ fun PermissionSetupScreen(onAllHandled: () -> Unit) {
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Text(
-                        text = if (item.granted) "Продолжить" else stringResource(R.string.perm_grant),
+                        text = if (item.granted) tr("Продолжить", "Continue") else stringResource(R.string.perm_grant),
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                 }
