@@ -96,6 +96,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.svetlana.home.R
 import com.svetlana.home.apps.AppModel
+import com.svetlana.home.core.tr
 import com.svetlana.home.ui.components.GlassCard
 import com.svetlana.home.ui.components.LivingOrb
 import com.svetlana.home.ui.history.HistoryActivity
@@ -125,7 +126,7 @@ internal fun SvetlanaWindowFrame(tag: String, onClose: () -> Unit, content: @Com
                 .padding(top = 4.dp, end = 8.dp)
                 .testTag("window_close")
         ) {
-            Icon(Icons.Outlined.Close, contentDescription = "Закрыть окно", tint = MaterialTheme.colorScheme.onBackground)
+            Icon(Icons.Outlined.Close, contentDescription = tr("Закрыть окно", "Close window"), tint = MaterialTheme.colorScheme.onBackground)
         }
     }
 }
@@ -156,7 +157,7 @@ internal fun SvetlanaPanel(
             Column(Modifier.weight(1f)) {
                 Text(stringResource(R.string.svetlana_name), style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    text = uiState.aiBackendLabel.ifBlank { "Ваш ИИ-помощник" },
+                    text = uiState.aiBackendLabel.ifBlank { tr("Ваш ИИ-помощник", "Your AI assistant") },
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
@@ -183,32 +184,32 @@ internal fun SvetlanaPanel(
                 )
                 Spacer(Modifier.height(14.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PillButton(Icons.Outlined.Mic, "Сказать", onVoice, "panel_voice")
-                    PillButton(Icons.Outlined.Forum, "Написать", { onOpen(SvetlanaWindow.CHAT) }, "panel_chat")
+                    PillButton(Icons.Outlined.Mic, tr("Сказать", "Speak"), onVoice, "panel_voice")
+                    PillButton(Icons.Outlined.Forum, tr("Написать", "Type"), { onOpen(SvetlanaWindow.CHAT) }, "panel_chat")
                 }
             }
         }
 
         Spacer(Modifier.height(16.dp))
         Text(
-            "Функции",
+            tr("Функции", "Features"),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
         )
         val tiles = listOf(
-            Tile("tile_chat", Icons.Outlined.Forum, "Чат", "Переписка со Светланой") { onOpen(SvetlanaWindow.CHAT) },
-            Tile("tile_voice", Icons.Outlined.Mic, "Голос", "Разговор и команды") { onOpen(SvetlanaWindow.VOICE) },
-            Tile("tile_translate", Icons.Outlined.Language, "Переводчик", "Текст, голос, камера") {
+            Tile("tile_chat", Icons.Outlined.Forum, tr("Чат", "Chat"), tr("Переписка со Светланой", "Chat with Svetlana")) { onOpen(SvetlanaWindow.CHAT) },
+            Tile("tile_voice", Icons.Outlined.Mic, tr("Голос", "Voice"), tr("Разговор и команды", "Talk and commands")) { onOpen(SvetlanaWindow.VOICE) },
+            Tile("tile_translate", Icons.Outlined.Language, tr("Переводчик", "Translator"), tr("Текст, голос, камера", "Text, voice, camera")) {
                 actions.open(TranslatorActivity::class.java)
             },
-            Tile("tile_history", Icons.Outlined.History, "История", "Что делала Светлана") {
+            Tile("tile_history", Icons.Outlined.History, tr("История", "History"), tr("Что делала Светлана", "What Svetlana did")) {
                 actions.open(HistoryActivity::class.java)
             },
-            Tile("tile_settings", Icons.Outlined.Settings, "Настройки", "ИИ, голос, Hands и разрешения") {
+            Tile("tile_settings", Icons.Outlined.Settings, tr("Настройки", "Settings"), tr("ИИ, голос, Hands и разрешения", "AI, voice, Hands and permissions")) {
                 actions.open(SettingsActivity::class.java)
             },
-            Tile("tile_apps", Icons.Outlined.Apps, "Приложения", "Все приложения телефона", onDrawer)
+            Tile("tile_apps", Icons.Outlined.Apps, tr("Приложения", "Apps"), tr("Все приложения телефона", "All apps on the phone"), onDrawer)
         )
         tiles.chunked(2).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -332,7 +333,7 @@ internal fun VoiceWindowContent(viewModel: HomeViewModel, uiState: HomeUiState) 
             }
         }
         Text(
-            text = if (uiState.isListening) "Слушаю…" else "Нажмите на орб, чтобы говорить",
+            text = if (uiState.isListening) tr("Слушаю…", "Listening…") else tr("Нажмите на орб, чтобы говорить", "Tap the orb to speak"),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.outlineVariant
         )
@@ -376,7 +377,7 @@ private fun SearchField(
         )
         if (value.isNotEmpty()) {
             IconButton(onClick = { onValueChange("") }, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Outlined.Close, contentDescription = "Очистить", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Outlined.Close, contentDescription = tr("Очистить", "Clear"), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -468,7 +469,7 @@ internal fun AppDrawer(
                     val first = results.firstOrNull()
                     if (first != null) onLaunch(first) else if (query.isNotBlank()) onAskSvetlana(query.trim())
                 },
-                placeholder = "Поиск приложений",
+                placeholder = tr("Поиск приложений", "Search apps"),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -487,7 +488,7 @@ internal fun AppDrawer(
             ) {
                 if (query.isBlank()) {
                     if (recent.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) { DrawerHeader("Недавние") }
+                        item(span = { GridItemSpan(maxLineSpan) }) { DrawerHeader(tr("Недавние", "Recent")) }
                         items(recent, key = { "r_" + it.packageName }) { app ->
                             AppTile(app, menu, { onLaunch(app) }, onWallpaper = false)
                         }
@@ -495,7 +496,7 @@ internal fun AppDrawer(
                             HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
                         }
                     }
-                    item(span = { GridItemSpan(maxLineSpan) }) { DrawerHeader("Все приложения · ${sorted.size}") }
+                    item(span = { GridItemSpan(maxLineSpan) }) { DrawerHeader(tr("Все приложения", "All apps") + " · ${sorted.size}") }
                     items(sorted, key = { it.packageName }) { app ->
                         AppTile(app, menu, { onLaunch(app) }, onWallpaper = false)
                     }
@@ -504,7 +505,7 @@ internal fun AppDrawer(
                         AppTile(app, menu, { onLaunch(app) }, onWallpaper = false)
                     }
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        AskRow(Icons.Outlined.Forum, "Спросить Светлану: «${query.trim()}»", "drawer_ask") {
+                        AskRow(Icons.Outlined.Forum, tr("Спросить Светлану", "Ask Svetlana") + ": «${query.trim()}»", "drawer_ask") {
                             onAskSvetlana(query.trim())
                         }
                     }
@@ -530,6 +531,9 @@ private fun FastScroller(letters: List<String>, modifier: Modifier, onLetter: (I
     var active by remember { mutableIntStateOf(-1) }
     var heightPx by remember { mutableFloatStateOf(1f) }
     val latestOnLetter by rememberUpdatedState(onLetter)
+    val scrollerDesc = tr("Алфавитный указатель приложений", "Alphabetical app index")
+    val letterDesc = tr("Приложения на букву", "Apps starting with")
+    val goLabel = tr("Перейти", "Go")
     fun pick(y: Float) {
         val i = ((y / heightPx) * letters.size).toInt().coerceIn(0, letters.lastIndex)
         if (i != active) {
@@ -558,7 +562,7 @@ private fun FastScroller(letters: List<String>, modifier: Modifier, onLetter: (I
                         active = -1
                     }
                 }
-                .semantics { contentDescription = "Алфавитный указатель приложений" }
+                .semantics { contentDescription = scrollerDesc }
                 .testTag("fast_scroller"),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -573,8 +577,8 @@ private fun FastScroller(letters: List<String>, modifier: Modifier, onLetter: (I
                     modifier = Modifier
                         .padding(vertical = 1.dp)
                         .semantics {
-                            contentDescription = "Приложения на букву $l"
-                            onClick(label = "Перейти") { latestOnLetter(i); true }
+                            contentDescription = "$letterDesc $l"
+                            onClick(label = goLabel) { latestOnLetter(i); true }
                         }
                 )
             }
@@ -654,13 +658,13 @@ internal fun SearchWindow(
     ) {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose, modifier = Modifier.testTag("window_close")) {
-                Icon(Icons.Outlined.Close, contentDescription = "Закрыть поиск", tint = MaterialTheme.colorScheme.onBackground)
+                Icon(Icons.Outlined.Close, contentDescription = tr("Закрыть поиск", "Close search"), tint = MaterialTheme.colorScheme.onBackground)
             }
             SearchField(
                 value = query,
                 onValueChange = { query = it },
                 onSubmit = { if (query.isNotBlank()) onAsk(query.trim()) },
-                placeholder = "Приложение или вопрос",
+                placeholder = tr("Приложение или вопрос", "App or question"),
                 modifier = Modifier.weight(1f).focusRequester(focus)
             )
         }
@@ -671,12 +675,12 @@ internal fun SearchWindow(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        PillButton(Icons.Outlined.Forum, "Чат", { onOpenWindow(SvetlanaWindow.CHAT) }, "search_chat")
-                        PillButton(Icons.Outlined.Mic, "Голос", { onOpenWindow(SvetlanaWindow.VOICE) }, "search_voice")
+                        PillButton(Icons.Outlined.Forum, tr("Чат", "Chat"), { onOpenWindow(SvetlanaWindow.CHAT) }, "search_chat")
+                        PillButton(Icons.Outlined.Mic, tr("Голос", "Voice"), { onOpenWindow(SvetlanaWindow.VOICE) }, "search_voice")
                     }
                 }
                 if (recent.isNotEmpty()) {
-                    item { DrawerHeader("Недавние приложения") }
+                    item { DrawerHeader(tr("Недавние приложения", "Recent apps")) }
                     item {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                             recent.forEach { app ->
@@ -688,10 +692,10 @@ internal fun SearchWindow(
                 }
             } else {
                 item {
-                    AskRow(Icons.Outlined.Forum, "Спросить Светлану: «${query.trim()}»", "search_ask") { onAsk(query.trim()) }
+                    AskRow(Icons.Outlined.Forum, tr("Спросить Светлану", "Ask Svetlana") + ": «${query.trim()}»", "search_ask") { onAsk(query.trim()) }
                 }
                 if (results.isNotEmpty()) {
-                    item { DrawerHeader("Приложения") }
+                    item { DrawerHeader(tr("Приложения", "Apps")) }
                     items(results, key = { it.packageName }) { app ->
                         Row(
                             Modifier
@@ -707,7 +711,7 @@ internal fun SearchWindow(
                     }
                 }
                 item {
-                    AskRow(Icons.Outlined.Public, "Искать в интернете: «${query.trim()}»", "search_web") { onWeb(query.trim()) }
+                    AskRow(Icons.Outlined.Public, tr("Искать в интернете", "Search the web") + ": «${query.trim()}»", "search_web") { onWeb(query.trim()) }
                 }
             }
         }
@@ -730,6 +734,7 @@ internal fun WidgetPickerWindow(
             .map { it to (runCatching { it.loadLabel(pm) }.getOrNull() ?: it.provider.className) }
             .sortedWith(compareBy({ appLabel(pm, it.first.provider.packageName) }, { it.second }))
     }
+    val widgetFallback = tr("Виджет", "Widget")
     Column(
         Modifier
             .fillMaxSize()
@@ -738,16 +743,16 @@ internal fun WidgetPickerWindow(
             .navigationBarsPadding()
             .testTag("window_widgets")
     ) {
-        WindowHeader("Виджеты", onClose)
+        WindowHeader(tr("Виджеты", "Widgets"), onClose)
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             if (placed.isNotEmpty()) {
-                item { DrawerHeader("На главном экране") }
+                item { DrawerHeader(tr("На главном экране", "On the Home screen")) }
                 items(placed, key = { "placed_$it" }) { id ->
                     val info = remember(id) { runCatching { manager.getAppWidgetInfo(id) }.getOrNull() }
                     SettingsRow(
-                        title = info?.let { runCatching { it.loadLabel(pm) }.getOrNull() } ?: "Виджет",
+                        title = info?.let { runCatching { it.loadLabel(pm) }.getOrNull() } ?: widgetFallback,
                         subtitle = info?.let { appLabel(pm, it.provider.packageName) } ?: "",
-                        actionLabel = "Удалить",
+                        actionLabel = tr("Удалить", "Remove"),
                         tag = "widget_remove",
                         onClick = { onRemove(id) }
                     )
@@ -757,14 +762,14 @@ internal fun WidgetPickerWindow(
             if (providers.isEmpty()) {
                 item {
                     Text(
-                        "На телефоне нет приложений с виджетами.",
+                        tr("На телефоне нет приложений с виджетами.", "No apps with widgets on this phone."),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(20.dp)
                     )
                 }
             } else {
-                item { DrawerHeader("Добавить на главный экран") }
+                item { DrawerHeader(tr("Добавить на главный экран", "Add to Home screen")) }
                 items(providers, key = { it.first.provider.flattenToString() }) { (info, label) ->
                     val density = context.resources.displayMetrics.density
                     val cols = ((info.minWidth / density + 30) / 70).toInt().coerceIn(1, 4)
@@ -809,6 +814,7 @@ internal fun HomeSettingsWindow(
     onClose: () -> Unit
 ) {
     var confirmReset by remember { mutableStateOf(false) }
+    val open = tr("Открыть", "Open")
     Column(
         Modifier
             .fillMaxSize()
@@ -818,46 +824,52 @@ internal fun HomeSettingsWindow(
             .verticalScroll(rememberScrollState())
             .testTag("window_home_settings")
     ) {
-        WindowHeader("Главный экран", onClose)
+        WindowHeader(tr("Главный экран", "Home screen"), onClose)
         SettingsRow(
-            title = "Главный экран по умолчанию",
-            subtitle = if (isHome) "Светлана" else "Сейчас другой launcher",
-            actionLabel = if (isHome) null else "Назначить",
+            title = tr("Главный экран по умолчанию", "Default Home screen"),
+            subtitle = if (isHome) stringResource(R.string.svetlana_name) else tr("Сейчас другой launcher", "Another launcher is set"),
+            actionLabel = if (isHome) null else tr("Назначить", "Set"),
             tag = "settings_default_home",
             onClick = actions::requestHomeRole
         )
         SettingsRow(
-            title = "Значки уведомлений",
-            subtitle = if (dotsEnabled) "Включены" else "Нужен доступ к уведомлениям (видно только, у каких приложений они есть)",
-            actionLabel = if (dotsEnabled) "Изменить" else "Включить",
+            title = tr("Значки уведомлений", "Notification dots"),
+            subtitle = if (dotsEnabled) tr("Включены", "On") else tr(
+                "Нужен доступ к уведомлениям (видно только, у каких приложений они есть)",
+                "Needs notification access (only shows which apps have them)"
+            ),
+            actionLabel = if (dotsEnabled) tr("Изменить", "Change") else tr("Включить", "Turn on"),
             tag = "settings_dots",
             onClick = actions::notificationAccess
         )
         SettingsRow(
-            title = "Виджеты",
-            subtitle = if (widgetCount == 0) "Нет виджетов" else "На экране: $widgetCount",
-            actionLabel = "Открыть",
+            title = tr("Виджеты", "Widgets"),
+            subtitle = if (widgetCount == 0) tr("Нет виджетов", "No widgets") else tr("На экране", "On screen") + ": $widgetCount",
+            actionLabel = open,
             tag = "settings_widgets",
             onClick = onWidgets
         )
         SettingsRow(
-            title = "Обои и стиль",
-            subtitle = "Системный выбор обоев",
-            actionLabel = "Открыть",
+            title = tr("Обои и стиль", "Wallpaper & style"),
+            subtitle = tr("Системный выбор обоев", "System wallpaper picker"),
+            actionLabel = open,
             tag = "settings_wallpaper",
             onClick = actions::wallpaper
         )
         SettingsRow(
-            title = "Настройки Светланы",
-            subtitle = "ИИ, голос, Hands и разрешения",
-            actionLabel = "Открыть",
+            title = tr("Настройки Светланы", "Svetlana settings"),
+            subtitle = tr("ИИ, голос, Hands и разрешения", "AI, voice, Hands and permissions"),
+            actionLabel = open,
             tag = "settings_svetlana",
             onClick = { actions.open(SettingsActivity::class.java) }
         )
         SettingsRow(
-            title = "Сбросить раскладку",
-            subtitle = if (confirmReset) "Нажмите ещё раз — иконки и папки вернутся к исходным" else "Иконки и папки по умолчанию",
-            actionLabel = if (confirmReset) "Сбросить" else null,
+            title = tr("Сбросить раскладку", "Reset layout"),
+            subtitle = if (confirmReset) tr(
+                "Нажмите ещё раз — иконки и папки вернутся к исходным",
+                "Tap again — icons and folders go back to the defaults"
+            ) else tr("Иконки и папки по умолчанию", "Default icons and folders"),
+            actionLabel = if (confirmReset) tr("Сбросить", "Reset") else null,
             tag = "settings_reset",
             onClick = { if (confirmReset) onResetLayout() else confirmReset = true }
         )
@@ -867,7 +879,7 @@ internal fun HomeSettingsWindow(
 @Composable
 private fun WindowHeader(title: String, onClose: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        CloseButton(onClose, "Закрыть")
+        CloseButton(onClose, tr("Закрыть", "Close"))
         Text(title, style = MaterialTheme.typography.titleLarge)
     }
 }
