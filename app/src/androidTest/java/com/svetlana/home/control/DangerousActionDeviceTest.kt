@@ -20,6 +20,8 @@ import org.junit.runner.RunWith
  *     → действие НЕ выполняется
  *     → requiresUserConfirmation = true
  *     → в истории записан запрос подтверждения
+ *
+ * Текст вопроса — на языке интерфейса (на CI-эмуляторе — английский).
  */
 @RunWith(AndroidJUnit4::class)
 class DangerousActionDeviceTest : SvetlanaDeviceTest() {
@@ -37,9 +39,12 @@ class DangerousActionDeviceTest : SvetlanaDeviceTest() {
         // Требуется подтверждение пользователя
         assertTrue("Должен быть выставлен requiresUserConfirmation",
             result.requiresUserConfirmation)
-        // Сообщение содержит указание на подтверждение
+        // Сообщение содержит указание на подтверждение и точные параметры
         assertTrue("Ответ должен предлагать подтверждение: ${result.message}",
-            result.message.contains("подтверд", ignoreCase = true))
+            result.message.contains("подтверд", ignoreCase = true) ||
+                result.message.contains("confirm", ignoreCase = true))
+        assertTrue("В вопросе должен быть адресат: ${result.message}",
+            result.message.contains("Иван"))
     }
 
     @Test
@@ -49,6 +54,15 @@ class DangerousActionDeviceTest : SvetlanaDeviceTest() {
             ActionRisk.DANGEROUS, engine.riskOf(SvetlanaAction.SendMessage("Иван", "текст")))
         assertEquals("Звонок должен быть DANGEROUS",
             ActionRisk.DANGEROUS, engine.riskOf(SvetlanaAction.MakeCall("Иван")))
+    }
+
+    @Test
+    fun englishCommandStillBlocked() {
+        val router = ServiceLocator.actionRouter
+        val result = runBlocking { router.route("call Mom") }
+        assertTrue("Английская команда должна разобраться", result != null)
+        assertFalse("Звонок не должен выполняться без подтверждения", result!!.success)
+        assertTrue("Нужно подтверждение", result.requiresUserConfirmation)
     }
 
     @Test
