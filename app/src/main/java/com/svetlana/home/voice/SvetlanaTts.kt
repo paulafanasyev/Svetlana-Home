@@ -4,19 +4,24 @@ import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import com.svetlana.home.core.VoiceLanguage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 
 /**
- * SvetlanaTts — русский синтез речи через системный TTS Android.
+ * SvetlanaTts — синтез речи через системный TTS Android.
+ *
+ * Язык голоса — по языку интерфейса ([VoiceLanguage]); фразы на кириллице всегда читаются
+ * русским голосом.
  *
  * Безопасность: каждая фраза отмечается в [SpeechOutputGate] — фоновое слово пробуждения не слушает,
  * пока Светлана говорит, и отбрасывает окна записи, пересекающиеся с её речью.
  */
 class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
 
+    private val appContext: Context = context.applicationContext
     private var tts: TextToSpeech? = null
     private var ready = false
 
@@ -38,7 +43,7 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
 
     init {
         try {
-            tts = TextToSpeech(context.applicationContext, this)
+            tts = TextToSpeech(appContext, this)
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) { _speaking.value = true }
                 override fun onDone(utteranceId: String?) { finished() }
@@ -55,7 +60,7 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            val result = tts?.setLanguage(Locale.forLanguageTag("ru-RU"))
+            val result = tts?.setLanguage(VoiceLanguage.locale(appContext))
             ready = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED
             if (!ready) {
                 tts?.setLanguage(Locale.getDefault())
@@ -74,7 +79,8 @@ class SvetlanaTts(context: Context) : TextToSpeech.OnInitListener {
 
     val isAvailable: Boolean get() = ready && tts != null
 
-    fun speak(text: String, flush: Boolean = true) = speak(text, Locale.forLanguageTag("ru-RU"), flush)
+    /** Голос выбирается по тексту и языку интерфейса ([VoiceLanguage.localeForText]). */
+    fun speak(text: String, flush: Boolean = true) = speak(text, VoiceLanguage.localeForText(appContext, text), flush)
 
     fun speak(text: String, locale: Locale, flush: Boolean = true) {
         if (text.isBlank()) return
