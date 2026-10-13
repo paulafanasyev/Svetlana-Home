@@ -20,9 +20,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.svetlana.home.bridge.BridgeController
+import com.svetlana.home.core.AppLanguage
 import com.svetlana.home.core.ServiceLocator
 import com.svetlana.home.permissions.PermissionBootstrap
 import com.svetlana.home.ui.onboarding.OnboardingFlowContent
+import com.svetlana.home.ui.settings.LanguagePickerFirstRun
 import com.svetlana.home.ui.theme.SvetlanaSettingsTheme
 import kotlinx.coroutines.flow.first
 
@@ -96,10 +98,11 @@ class HomeActivity : ComponentActivity() {
 
     @Composable
     private fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
-        // P0: первый запуск — onboarding (Owner + разрешения), ТЗ §65.
+        // P0: первый запуск — выбор языка, затем onboarding (Owner + разрешения), ТЗ §65.
         // null = ещё читаем состояние: рабочий стол (и диалог разрешений) не
         // создаём, пока точно не знаем, что онбординг пройден.
         var onboardingDone by remember { mutableStateOf<Boolean?>(null) }
+        var languageChosen by remember { mutableStateOf(AppLanguage.isChosen(this@HomeActivity)) }
         LaunchedEffect(Unit) {
             onboardingDone = ServiceLocator.settings.onboardingDone.first()
         }
@@ -108,10 +111,19 @@ class HomeActivity : ComponentActivity() {
             null -> Box(Modifier.fillMaxSize())
             // Onboarding — на непрозрачном фоне, обои под ним не просвечивают.
             false -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                OnboardingFlowContent(
-                    launchHome = { /* Home уже на экране */ },
-                    onFinished = { onboardingDone = true }
-                )
+                if (!languageChosen && !PermissionBootstrap.isUnderInstrumentation()) {
+                    // Язык — самый первый шаг. При смене языка экран пересоздаётся,
+                    // флаг «выбрано» уже сохранён — дальше сразу onboarding.
+                    LanguagePickerFirstRun(onDone = { choice ->
+                        AppLanguage.set(this@HomeActivity, choice)
+                        languageChosen = true
+                    })
+                } else {
+                    OnboardingFlowContent(
+                        launchHome = { /* Home уже на экране */ },
+                        onFinished = { onboardingDone = true }
+                    )
+                }
             }
             else -> {
                 // Диалог разрешений — только когда онбординг уже позади.
