@@ -14,6 +14,9 @@ package com.svetlana.home.control
  * Очистка поля (ClearText) стирает чужой текст без возможности вернуть — всегда MODERATE,
  * то есть только после подтверждения и только для подтверждённого поля.
  *
+ * Ответ из уведомления (ReplyIncoming) — это отправка сообщения: DANGEROUS. Чтение входящих —
+ * SAFE в открытом приложении; фоновый голос всё равно только предлагает действие (ActionRouter).
+ *
  * Одна политика для обоих языков: английские подписи кнопок проверяются наравне с русскими.
  */
 object ActionRiskPolicy {
@@ -22,6 +25,7 @@ object ActionRiskPolicy {
         is SvetlanaAction.SendMessage -> ActionRisk.DANGEROUS
         is SvetlanaAction.MakeCall -> ActionRisk.DANGEROUS
         is SvetlanaAction.ComposeMessage -> ActionRisk.DANGEROUS
+        is SvetlanaAction.ReplyIncoming -> ActionRisk.DANGEROUS
         is SvetlanaAction.Share -> ActionRisk.MODERATE
         is SvetlanaAction.ClearText -> ActionRisk.MODERATE
         is SvetlanaAction.Click ->

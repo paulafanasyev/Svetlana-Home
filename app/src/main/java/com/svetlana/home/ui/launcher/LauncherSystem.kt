@@ -29,6 +29,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import com.svetlana.home.control.IncomingInbox
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,8 +74,10 @@ internal object HomeLayoutStore {
 
 /**
  * Значки уведомлений на иконках (как в Pixel/One UI). Работают только
- * после того, как пользователь сам выдал доступ к уведомлениям;
- * читаются лишь имена пакетов и количество, текст уведомлений не трогаем.
+ * после того, как пользователь сам выдал доступ к уведомлениям.
+ * Для значков читаются лишь имена пакетов и количество. Текст читается только у сообщений
+ * мессенджеров — для команд «что мне написали» / «ответь …» ([IncomingInbox]); он хранится
+ * только в памяти, а банки, платёжки и менеджеры паролей пропускаются целиком.
  */
 internal object NotificationDots {
     private val state = MutableStateFlow<Map<String, Int>>(emptyMap())
@@ -99,10 +102,26 @@ class NotificationDotsService : NotificationListenerService() {
     private fun refresh() {
         try { NotificationDots.publish(activeNotifications) } catch (t: Throwable) { NotificationDots.clear() }
     }
-    override fun onListenerConnected() = refresh()
-    override fun onListenerDisconnected() = NotificationDots.clear()
-    override fun onNotificationPosted(sbn: StatusBarNotification?) = refresh()
-    override fun onNotificationRemoved(sbn: StatusBarNotification?) = refresh()
+
+    override fun onListenerConnected() {
+        refresh()
+        try { IncomingInbox.reset(this, activeNotifications) } catch (t: Throwable) { IncomingInbox.clear() }
+    }
+
+    override fun onListenerDisconnected() {
+        NotificationDots.clear()
+        IncomingInbox.clear()
+    }
+
+    override fun onNotificationPosted(sbn: StatusBarNotification?) {
+        refresh()
+        if (sbn != null) try { IncomingInbox.onPosted(this, sbn) } catch (t: Throwable) { Log.w("Incoming", "onPosted", t) }
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        refresh()
+        sbn?.key?.let { IncomingInbox.onRemoved(it) }
+    }
 }
 
 /**

@@ -29,6 +29,21 @@ sealed class SvetlanaAction {
     @Serializable data class MakeCall(val contact: String) : SvetlanaAction() { override val name = "MakeCall" }
     @Serializable data class Share(val text: String) : SvetlanaAction() { override val name = "Share" }
 
+    /** Прочитать входящие из уведомлений (все или от [contact]). */
+    @Serializable data class ReadIncoming(val contact: String? = null) : SvetlanaAction() { override val name = "ReadIncoming" }
+
+    /**
+     * Ответить через кнопку «Ответить» уведомления. До подтверждения роутер заполняет
+     * [key] (конкретное уведомление), [contact] (кому именно) и [app] — пользователь
+     * подтверждает именно их.
+     */
+    @Serializable data class ReplyIncoming(
+        val contact: String?,
+        val text: String,
+        val key: String? = null,
+        val app: String? = null
+    ) : SvetlanaAction() { override val name = "ReplyIncoming" }
+
     /**
      * Длинная многошаговая Hands-цепочка.
      *

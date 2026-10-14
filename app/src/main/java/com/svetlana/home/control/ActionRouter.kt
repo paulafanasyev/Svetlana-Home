@@ -39,6 +39,9 @@ private object RouterGrant : ActionGrant
  * Нажатие/ввод/очистка выполняются только на том элементе, который был оценён и подтверждён:
  * движок получает его метку (пакет, текст, id, границы) и отказывает, если на экране уже другой элемент.
  *
+ * Ответ на входящее сначала привязывается к конкретному уведомлению (ключ, собеседник,
+ * приложение) — подтверждение и отправка идут именно туда, кого показали пользователю.
+ *
  * Вопросы-подтверждения задаются на языке интерфейса; журнал истории остаётся русским.
  *
  * Здесь нет доступа к shell, root или скрытым командам.
@@ -50,6 +53,8 @@ class ActionRouter(
     private val permissionManager: PermissionManager,
     private val historyManager: HistoryManager
 ) {
+
+    private val incoming = IncomingMessages(context)
 
     private fun english(): Boolean = runCatching { Tr.isEnglish(context) }.getOrDefault(false)
 
@@ -68,6 +73,16 @@ class ActionRouter(
         executeInternal(action, confirmed, chainApproved = false)
 
     private suspend fun executeInternal(action: SvetlanaAction, confirmed: Boolean, chainApproved: Boolean): ActionResult {
+        // Ответ на входящее: сначала выбираем конкретное уведомление, и уже ЕГО подтверждает пользователь.
+        if (action is SvetlanaAction.ReplyIncoming && action.key == null) {
+            return when (val pinned = incoming.pin(action)) {
+                is IncomingMessages.Pinned.Ok -> executeInternal(pinned.action, confirmed, chainApproved)
+                is IncomingMessages.Pinned.Fail -> {
+                    historyManager.record(HistoryCategory.ERRORS, "${action.name} → FAILED: ${pinned.message}")
+                    ActionResult(action, false, pinned.message, way = "notification")
+                }
+            }
+        }
         val policyRisk = ActionRiskPolicy.requiresConfirmation(action) && !chainApproved
         val target = screenTarget(action)
         val targetRisk = target != null && target.dangerous
@@ -115,6 +130,8 @@ class ActionRouter(
             is SvetlanaAction.Share -> engine.share(RouterGrant, action.text)
             is SvetlanaAction.ComposeMessage ->
                 engine.composeMessage(RouterGrant, action.appTarget, action.contact, action.text)
+            is SvetlanaAction.ReadIncoming -> incoming.read(action.contact)
+            is SvetlanaAction.ReplyIncoming -> incoming.reply(RouterGrant, action)
             is SvetlanaAction.Compound -> executeCompound(action, confirmed)
         }
 
@@ -202,7 +219,7 @@ class ActionRouter(
      *   ничего не выполняется — действие только предлагается на подтверждение в приложении.
      */
     suspend fun route(command: String, confirmed: Boolean = false, unattendedVoice: Boolean = false): ActionResult? {
-        val action = CommandParser.parse(command)
+        val action = IncomingCommands.parse(command) ?: CommandParser.parse(command)
         if (action != null) {
             if (unattendedVoice) return proposeFromVoice(action)
             return execute(action, confirmed)
@@ -259,6 +276,8 @@ class ActionRouter(
             is SvetlanaAction.OpenApp, is SvetlanaAction.OpenAppScreen -> Availability.AVAILABLE
             is SvetlanaAction.MakeCall, is SvetlanaAction.SendMessage,
             is SvetlanaAction.Share -> Availability.AVAILABLE
+            // Входящие работают через доступ к уведомлениям, без Hands (нет доступа — понятное сообщение).
+            is SvetlanaAction.ReadIncoming, is SvetlanaAction.ReplyIncoming -> Availability.AVAILABLE
             SvetlanaAction.PressBack, SvetlanaAction.PressHome, SvetlanaAction.OpenRecents,
             SvetlanaAction.OpenSettings -> {
                 if (ServiceLocator.hands.isActive) Availability.AVAILABLE
