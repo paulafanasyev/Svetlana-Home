@@ -34,6 +34,11 @@ import com.svetlana.home.permissions.PermissionManager
  *   чатов с таким именем (два «Алекса»), чат не открывается — нужно точное имя ([ambiguousContact]);
  * - звонок только через набор номера, SMS — только черновик.
  *
+ * Надёжность сообщений: мессенджер часто открывается в старом чате — возвращаемся «Назад»
+ * к списку чатов ([backToChatList]); вместо фиксированных пауз ждём нужный экран до таймаута
+ * ([waitFor]); строка чата нажимается через нажимаемого родителя (текст имени в WhatsApp сам по себе
+ * не нажимается); имена сравниваются без учёта регистра и «ё» ([ContactMatch]).
+ *
  * Запрещено: произвольные shell-команды, root, Termux, скрытое управление, автонабор звонка.
  */
 class AppControlEngine(
@@ -97,39 +102,83 @@ class AppControlEngine(
 
     /**
      * Открыт чат именно с этим собеседником: шапка чата (самый верхний текст выше поля ввода)
-     * равна имени контакта или начинается с него. Имя в сообщении ниже шапки не считается.
+     * равна имени контакта или начинается с него ([ContactMatch]). Имя в сообщении ниже шапки не считается.
      */
     private fun recipientShown(contact: String, input: UiNode): Boolean {
-        val want = contact.trim().lowercase()
-        if (want.isEmpty()) return false
+        if (ContactMatch.norm(contact).isEmpty()) return false
         val tree = hands.uiTree() ?: return false
         val title = tree.nodes
             .filter { it.text.isNotBlank() && !it.bounds.isEmpty && !sameSpot(input, it) && it.bounds.top < input.bounds.top }
             .minWithOrNull(compareBy<UiNode>({ it.bounds.top }, { it.bounds.left }))
             ?: return false
-        val shown = title.text.trim().lowercase()
-        return shown == want || shown.startsWith("$want ")
+        return ContactMatch.matches(title.text, contact)
     }
 
     /**
      * На экране несколько РАЗНЫХ строк, подходящих под это имя (два «Алекса» или «Алекс» и
      * «Алекс Иванов» — шапка любого из них пройдёт [recipientShown]): кому писать — неизвестно,
-     * первую попавшуюся не выбираем. Поля ввода (поиск с тем же текстом) не считаются,
+     * первую попавшуюся не выбираем. Поля ввода (поиск с тем же текстом, [exclude]) не считаются,
      * вложенные элементы одной строки (перекрывающиеся границы) считаются одной строкой.
      */
-    private fun ambiguousContact(contact: String): Boolean {
-        val want = contact.trim().lowercase()
-        if (want.isEmpty()) return true
+    private fun ambiguousContact(contact: String, exclude: UiNode? = null): Boolean {
+        if (ContactMatch.norm(contact).isEmpty()) return true
         val tree = hands.uiTree() ?: return true
         val rows = mutableListOf<Rect>()
         for (n in tree.nodes) {
-            if (n.bounds.isEmpty || n.className.lowercase().contains("edittext")) continue
-            val t = n.visibleText.trim().lowercase()
-            if (t != want && !t.startsWith("$want ")) continue
+            if (n.bounds.isEmpty || isInputLike(n) || (exclude != null && sameSpot(exclude, n))) continue
+            if (!ContactMatch.matches(n.visibleText, contact)) continue
             if (rows.none { Rect.intersects(it, n.bounds) }) rows += Rect(n.bounds)
         }
         return rows.size > 1
     }
+
+    private fun isInputLike(n: UiNode): Boolean {
+        val cls = n.className.lowercase()
+        return cls.contains("edittext") || cls.contains("autocomplete") || cls.contains("searchview")
+    }
+
+    /** Строка чата/контакта с этим именем (не поле ввода): самая верхняя. */
+    private fun findContactRow(contact: String, exclude: UiNode? = null): UiNode? {
+        if (ContactMatch.norm(contact).isEmpty()) return null
+        val tree = hands.uiTree() ?: return null
+        return tree.nodes
+            .filter { !it.bounds.isEmpty && !isInputLike(it) && !(exclude != null && sameSpot(exclude, it)) &&
+                ContactMatch.matches(it.visibleText, contact) }
+            .minWithOrNull(compareBy<UiNode>({ it.bounds.top }, { it.bounds.left }))
+    }
+
+    /**
+     * Кнопка/строка поиска в мессенджере: по описанию/id, либо по ТОЧНОМУ тексту вроде «Поиск».
+     * Слово «поиск» внутри текста сообщения не считается.
+     */
+    private fun findSearchEntry(): UiNode? {
+        val tree = hands.uiTree() ?: return null
+        return tree.nodes.firstOrNull { n ->
+            if (n.bounds.isEmpty || !n.isEnabled) return@firstOrNull false
+            val desc = ContactMatch.norm(n.contentDescription)
+            val text = ContactMatch.norm(n.text)
+            SEARCH_DESC.any { desc == it || desc.startsWith("$it ") } ||
+                n.id.lowercase().let { id -> id.contains("search") && !id.contains("result") } ||
+                text in SEARCH_TEXT
+        }
+    }
+
+    /** Ждать, пока [probe] вернёт не null, но не дольше [timeoutMs]. */
+    private suspend fun <T : Any> waitFor(timeoutMs: Long, probe: () -> T?): T? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            probe()?.let { return it }
+            if (System.currentTimeMillis() >= deadline) return null
+            kotlinx.coroutines.delay(POLL_MS)
+        }
+    }
+
+    /** Поле ввода чата, в шапке которого именно этот собеседник. */
+    private suspend fun awaitChatWith(contact: String, appPkg: String, timeoutMs: Long = CHAT_OPEN_TIMEOUT_MS): UiNode? =
+        waitFor(timeoutMs) {
+            if (!onScreen(appPkg)) null
+            else hands.findEditableField()?.takeIf { recipientShown(contact, it) }
+        }
 
     suspend fun openApp(target: String): ActionResult {
         val proof = proofBuilder.start("PLAN0_TARGET=OPEN_APP target=$target")
@@ -531,15 +580,22 @@ class AppControlEngine(
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED: приложение не открыто")
             return ActionResult(action, false, open.message, steps, open.way)
         }
-        kotlinx.coroutines.delay(UI_SETTLE_MS)
+        // Дать приложению отрисовать первый экран (холодный старт WhatsApp — до пары секунд).
+        waitFor(APP_READY_TIMEOUT_MS) { hands.uiTree()?.nodes?.takeIf { onScreen(appPkg) && it.size > 5 } }
 
-        val chat = openChatWithContact(contact, appPkg, steps)
+        var chat = openChatWithContact(contact, appName, appPkg, steps)
+        if (!chat.ok && chat.retryable) {
+            // Одна повторная попытка: мессенджер мог не успеть отрисовать список/поиск.
+            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "повторная попытка открыть чат")
+            kotlinx.coroutines.delay(RETRY_PAUSE_MS)
+            chat = openChatWithContact(contact, appName, appPkg, steps)
+        }
         if (!chat.ok) {
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED: чат не открыт")
             return ActionResult(action, false, chat.message, steps, "hands")
         }
 
-        val field = hands.findEditableField()
+        val field = waitFor(FIELD_TIMEOUT_MS) { hands.findEditableField() }
         if (field == null) {
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "поле ввода не найдено")
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED")
@@ -551,7 +607,9 @@ class AppControlEngine(
         if (!onScreen(appPkg)) return moved(hands.currentPackage())
         val typed = hands.inputText(field, text, appPkg)
         steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "текст введён: «${text.take(32)}»")
-        val textEntered = typed && hands.verifyTextEntered(field, text)
+        val textEntered = typed && (waitFor(TEXT_VERIFY_TIMEOUT_MS) {
+            if (hands.verifyTextEntered(field, text)) true else null
+        } == true)
         steps += ProofStep(ProofStage.ACTION_PERFORMED,
             if (textEntered) StepStatus.OK else StepStatus.FAILED,
             if (textEntered) "PLAN_STEP3=TYPE_TEXT PLAN_STEP3_STATUS=ACTION_PERFORMED"
@@ -561,11 +619,12 @@ class AppControlEngine(
             return ActionResult(action, false, "Не удалось напечатать сообщение", steps, "hands")
         }
 
-        val send = hands.findSendButton()
+        // Кнопка «Отправить» в WhatsApp/Telegram появляется только после ввода текста (вместо микрофона).
+        val send = waitFor(SEND_BUTTON_TIMEOUT_MS) { hands.findSendButton() }
         if (send == null) {
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "кнопка отправки не найдена")
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED")
-            return ActionResult(action, false, "Не нашла кнопку отправки сообщения", steps, "hands")
+            return ActionResult(action, false, "Не нашла кнопку отправки сообщения — текст оставила в поле", steps, "hands")
         }
         // Перед отправкой: та же кнопка, то же поле с текстом и тот же собеседник в шапке.
         if (!sameTarget(appPkg, send, hands.findSendButton())) return changed("кнопка отправки изменилась")
@@ -575,9 +634,10 @@ class AppControlEngine(
         val sent = hands.clickNode(send, appPkg)
         steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "нажата кнопка отправки")
 
-        kotlinx.coroutines.delay(UI_SETTLE_MS)
+        val messageVisible = sent && (waitFor(SEND_VERIFY_TIMEOUT_MS) {
+            if (onScreen(appPkg) && hands.verifyTextVisibleInNonEditableNode(text)) true else null
+        } == true)
         val stillThere = onScreen(appPkg)
-        val messageVisible = stillThere && hands.verifyTextVisibleInNonEditableNode(text)
         val verified = sent && messageVisible
         steps += ProofStep(ProofStage.ACTION_PERFORMED, if (sent) StepStatus.OK else StepStatus.FAILED,
             "PLAN_STEP4=SEND PLAN_STEP4_STATUS=${if (sent) "ACTION_PERFORMED" else "FAILED"}")
@@ -587,11 +647,41 @@ class AppControlEngine(
 
         return ActionResult(action, verified,
             if (verified) "Сообщение «${text.take(24)}» отправлено контакту $contact"
+            else if (sent) "Кнопку «Отправить» нажала, но не вижу сообщение в чате — проверьте сами"
             else "Не удалось подтвердить отправку сообщения",
             steps, "hands")
     }
 
-    private suspend fun openChatWithContact(contact: String, appPkg: String, steps: MutableList<ProofStep>): StepResult {
+    /**
+     * Мессенджер часто открывается там, где его оставили (в чужом чате, в настройках).
+     * Возвращаемся «Назад» к списку чатов — не больше [MAX_BACK_STEPS] раз и только пока
+     * на экране этот мессенджер.
+     * @return true — уже открыт чат именно с этим собеседником.
+     */
+    private suspend fun backToChatList(contact: String, appPkg: String, steps: MutableList<ProofStep>): Boolean {
+        for (attempt in 1..MAX_BACK_STEPS) {
+            if (!onScreen(appPkg)) return false
+            val field = hands.findEditableField()
+            if (field != null && recipientShown(contact, field)) {
+                steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "чат с $contact уже открыт")
+                return true
+            }
+            if (findContactRow(contact) != null || findSearchEntry() != null) return false
+            if (!hands.pressBack()) return false
+            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "назад к списку чатов ($attempt)")
+            waitFor(BACK_SETTLE_MS) {
+                if (!onScreen(appPkg) || findContactRow(contact) != null || findSearchEntry() != null) true else null
+            }
+        }
+        return false
+    }
+
+    private suspend fun openChatWithContact(
+        contact: String,
+        appName: String,
+        appPkg: String,
+        steps: MutableList<ProofStep>
+    ): StepResult {
         steps += ProofStep(ProofStage.TARGET_APP_IDENTIFIED, StepStatus.OK, "контакт: $contact app=$appPkg")
         val away = StepResult(false, "На экране другое приложение — действие отменено")
         val swapped = StepResult(false, "Строка чата изменилась перед нажатием — действие отменено для безопасности")
@@ -600,56 +690,67 @@ class AppControlEngine(
             StepResult(false, "Нашла несколько чатов «${contact.take(40)}» — назовите полное имя, чтобы не ошибиться собеседником")
         }
 
-        val direct = hands.findElement(contact)
-        if (direct != null && direct.isClickable) {
-            // Два подходящих чата — не выбираем первый попавшийся.
-            if (ambiguousContact(contact)) return ambiguous()
-            // Строка чата ищется ещё раз прямо перед нажатием: подмена или сдвиг = отказ.
-            if (!sameTarget(appPkg, direct, hands.findElement(contact))) return swapped
-            if (!onScreen(appPkg)) return away
-            val clicked = hands.clickNode(direct, appPkg)
-            kotlinx.coroutines.delay(UI_SETTLE_MS)
-            val input = if (onScreen(appPkg)) hands.findEditableField() else null
-            val opened = input != null && recipientShown(contact, input)
-            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "чат найден в списке, нажатие")
-            steps += stepPerformed(opened, "PLAN_STEP2=OPEN_CHAT")
-            if (clicked && opened) return StepResult(true, "Чат с $contact открыт")
+        // 0. Вернуться к списку чатов (или убедиться, что нужный чат уже открыт).
+        if (backToChatList(contact, appPkg, steps)) return StepResult(true, "Чат с $contact уже открыт")
+        if (!onScreen(appPkg)) {
+            // «Назад» вывел из приложения — открываем его заново (один раз).
+            val reopen = openApp(appName)
+            steps += reopen.proof
+            if (!reopen.success || !onScreen(appPkg)) return away
+            waitFor(APP_READY_TIMEOUT_MS) { if (findContactRow(contact) != null || findSearchEntry() != null) true else null }
         }
 
-        val searchEntry = hands.findElement("поиск")
-            ?: hands.findElement("search")
-            ?: hands.findElement("new chat")
-            ?: hands.findElement("новый чат")
+        // 1. Чат виден в списке — нажимаем строку (нажатие уйдёт нажимаемому родителю строки).
+        val direct = findContactRow(contact)
+        if (direct != null) {
+            if (ambiguousContact(contact)) return ambiguous()
+            // Строка чата ищется ещё раз прямо перед нажатием: подмена или сдвиг = отказ.
+            if (!sameTarget(appPkg, direct, findContactRow(contact))) return swapped
+            if (!onScreen(appPkg)) return away
+            val clicked = hands.clickNode(direct, appPkg)
+            val opened = clicked && awaitChatWith(contact, appPkg) != null
+            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "чат найден в списке, нажатие")
+            steps += stepPerformed(opened, "PLAN_STEP2=OPEN_CHAT")
+            if (opened) return StepResult(true, "Чат с $contact открыт")
+            // Не открылся нужный чат — назад к списку и через поиск.
+            if (onScreen(appPkg) && findSearchEntry() == null) {
+                hands.pressBack()
+                waitFor(BACK_SETTLE_MS) { findSearchEntry() }
+            }
+        }
+
+        // 2. Поиск по имени.
+        val searchEntry = waitFor(SEARCH_TIMEOUT_MS) { findSearchEntry() }
         if (searchEntry == null) {
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED,
                 "чат не найден в списке и нет кнопки поиска")
-            return StepResult(false, "Не нашла чат с $contact")
+            return StepResult(false, "Не нашла чат с $contact", retryable = true)
         }
         if (!onScreen(appPkg)) return away
         hands.clickNode(searchEntry, appPkg)
-        kotlinx.coroutines.delay(UI_SETTLE_MS)
-        val searchField = hands.findEditableField()
+        val searchField = waitFor(FIELD_TIMEOUT_MS) { if (onScreen(appPkg)) hands.findEditableField() else null }
             ?: run {
                 steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "поле поиска не появилось")
-                return StepResult(false, "Не удалось открыть поиск контакта")
+                return StepResult(false, "Не удалось открыть поиск контакта", retryable = true)
             }
         if (!onScreen(appPkg)) return away
-        hands.inputText(searchField, contact, appPkg)
-        kotlinx.coroutines.delay(UI_SETTLE_MS)
-        val found = hands.findElement(contact)
-        if (found == null || !found.isClickable) {
-            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "контакт не найден в результатах поиска")
-            return StepResult(false, "Контакт $contact не найден")
+        if (!hands.inputText(searchField, contact, appPkg)) {
+            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "имя не введено в поиск")
+            return StepResult(false, "Не удалось ввести имя в поиск", retryable = true)
         }
-        if (ambiguousContact(contact)) return ambiguous()
-        if (!sameTarget(appPkg, found, hands.findElement(contact))) return swapped
+        steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "поиск: «${contact.take(40)}»")
+        val found = waitFor(RESULTS_TIMEOUT_MS) { if (onScreen(appPkg)) findContactRow(contact, exclude = searchField) else null }
+        if (found == null) {
+            steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "контакт не найден в результатах поиска")
+            return StepResult(false, "Контакт $contact не найден — проверьте, как он записан")
+        }
+        if (ambiguousContact(contact, exclude = searchField)) return ambiguous()
+        if (!sameTarget(appPkg, found, findContactRow(contact, exclude = searchField))) return swapped
         if (!onScreen(appPkg)) return away
         val clicked = hands.clickNode(found, appPkg)
-        kotlinx.coroutines.delay(UI_SETTLE_MS)
-        val input = if (onScreen(appPkg)) hands.findEditableField() else null
-        val opened = input != null && recipientShown(contact, input)
-        steps += stepPerformed(clicked && opened, "PLAN_STEP2=OPEN_CHAT")
-        return if (clicked && opened) StepResult(true, "Чат с $contact открыт")
+        val opened = clicked && awaitChatWith(contact, appPkg) != null
+        steps += stepPerformed(opened, "PLAN_STEP2=OPEN_CHAT")
+        return if (opened) StepResult(true, "Чат с $contact открыт")
         else StepResult(false, "Не удалось открыть чат с $contact")
     }
 
@@ -657,11 +758,24 @@ class AppControlEngine(
         ProofStep(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             "$plan PLAN_STEP2_STATUS=${if (ok) "ACTION_PERFORMED" else "FAILED"}")
 
-    private data class StepResult(val ok: Boolean, val message: String)
+    private data class StepResult(val ok: Boolean, val message: String, val retryable: Boolean = false)
 
     companion object {
-        private const val UI_SETTLE_MS = 600L
         private const val DEFAULT_MESSENGER = "whatsapp"
+        private const val POLL_MS = 200L
+        private const val APP_READY_TIMEOUT_MS = 2500L
+        private const val CHAT_OPEN_TIMEOUT_MS = 4000L
+        private const val SEARCH_TIMEOUT_MS = 3000L
+        private const val FIELD_TIMEOUT_MS = 2500L
+        private const val RESULTS_TIMEOUT_MS = 4000L
+        private const val BACK_SETTLE_MS = 1200L
+        private const val TEXT_VERIFY_TIMEOUT_MS = 1500L
+        private const val SEND_BUTTON_TIMEOUT_MS = 2000L
+        private const val SEND_VERIFY_TIMEOUT_MS = 3000L
+        private const val RETRY_PAUSE_MS = 800L
+        private const val MAX_BACK_STEPS = 3
+        private val SEARCH_DESC = listOf("поиск", "search", "искать")
+        private val SEARCH_TEXT = setOf("поиск", "search", "новый чат", "new chat")
         private val GENERIC_TARGETS = setOf("экран", "текущее", "текущий", "этот", "здесь", "current", "screen", "this")
         private val PACKAGE_RE = Regex("^[a-zA-Z][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+$")
 
