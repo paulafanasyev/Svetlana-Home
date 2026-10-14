@@ -50,7 +50,8 @@ object ModelDownloads {
 
     /**
      * Запустить загрузку — только по нажатию пользователя (ТЗ §32/§87). Загрузка идёт
-     * в foreground-сервисе с уведомлением и не обрывается, если свернуть окно.
+     * в foreground-сервисе с уведомлением и не обрывается, если свернуть окно. Повторное нажатие
+     * после обрыва продолжает с того же места ([LocalModelManager.install]).
      */
     fun start(context: Context, modelId: String) {
         if (isRunning(modelId)) return
@@ -72,6 +73,10 @@ object ModelDownloads {
  * Раньше загрузка жила в корутине экрана настроек: стоило свернуть окно, и Android
  * ограничивал сеть/завершал процесс — модель не докачивалась. Все проверки целостности
  * (https, лимит размера, SHA-256 из реестра) остаются в [LocalModelManager.install].
+ *
+ * Android 15 ограничивает dataSync-сервис шестью часами и зовёт [onTimeout]: сервис должен
+ * остановиться за несколько секунд, иначе приложение аварийно завершается. Загрузка тогда
+ * ставится на паузу с сохранением частичного файла.
  */
 class ModelDownloadService : Service() {
 
@@ -79,12 +84,16 @@ class ModelDownloadService : Service() {
     private val active = AtomicInteger(0)
     private var wakeLock: PowerManager.WakeLock? = null
 
+    @Volatile
+    private var stopRequested = false
+
     private fun t(ru: String, en: String): String = Tr.t(applicationContext, ru, en)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         ensureChannel()
+        stopRequested = false
         val modelId = intent?.getStringExtra(EXTRA_MODEL_ID)
         val model = modelId?.let { ServiceLocator.modelRegistry.byId(it) }
         startInForeground(progressNotification(model?.name ?: "…", 0))
@@ -99,7 +108,7 @@ class ModelDownloadService : Service() {
             var lastPercent = -1
             var lastAt = 0L
             val result = try {
-                ServiceLocator.localModelManager.install(model) { percent ->
+                ServiceLocator.localModelManager.install(model, cancelled = { stopRequested }) { percent ->
                     val now = SystemClock.elapsedRealtime()
                     if (percent != lastPercent && (now - lastAt > 700L || percent >= 100)) {
                         lastPercent = percent
@@ -127,6 +136,13 @@ class ModelDownloadService : Service() {
             if (active.decrementAndGet() == 0) finish()
         }
         return START_NOT_STICKY
+    }
+
+    /** Android 15: лимит времени dataSync исчерпан — пауза с сохранением скачанного и сразу остановка. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "Лимит времени foreground-сервиса — ставим загрузку на паузу")
+        stopRequested = true
+        finish()
     }
 
     /** Аудит п.2: «установлена» ≠ «работает» — сразу проверяем модель. */
@@ -198,7 +214,7 @@ class ModelDownloadService : Service() {
     private fun doneNotification(name: String, ok: Boolean, message: String) =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(if (ok) t("Модель загружена", "Model downloaded") else t("Ошибка загрузки", "Download failed"))
+            .setContentTitle(if (ok) t("Модель загружена", "Model downloaded") else t("Загрузка не завершена", "Download not finished"))
             .setContentText("$name: $message")
             .setStyle(NotificationCompat.BigTextStyle().bigText("$name: $message"))
             .setAutoCancel(true)
@@ -213,6 +229,8 @@ class ModelDownloadService : Service() {
     }
 
     override fun onDestroy() {
+        // Сервис уничтожен (системой или по тайм-ауту) — поток загрузки останавливается с сохранением .part.
+        stopRequested = true
         releaseWakeLock()
         scope.cancel()
         super.onDestroy()

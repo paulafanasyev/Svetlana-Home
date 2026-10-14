@@ -7,7 +7,10 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /**
  * Управление установленными локальными моделями.
@@ -19,6 +22,11 @@ import java.util.concurrent.ConcurrentHashMap
  * устанавливается только при совпадении с доверенным SHA-256 из реестра. Перед КАЖДОЙ
  * загрузкой в нативный runtime файл заново хешируется и сверяется с хешем из реестра (сохранённый
  * на диске хеш не считается доверенным).
+ *
+ * Докачка: модели по 1–5 ГБ, мобильная связь рвётся. Частичный файл (.part) не удаляется при
+ * обрыве: загрузка продолжается с того же места (HTTP Range → 206), в том числе после повторного
+ * нажатия «Скачать». Проверка SHA-256 в конце защищает от склейки чужих кусков: несовпадение —
+ * файл удаляется и следующая попытка начинается с нуля.
  */
 @Serializable
 data class InstalledModel(
@@ -74,6 +82,12 @@ open class LocalModelManager(
     private fun maxDownloadBytes(model: AIModel): Long =
         maxOf(model.sizeMb.toLong() * 1024L * 1024L * 5L / 4L, 64L * 1024L * 1024L)
 
+    /** Уже скачано байт для незаконченной загрузки (0 — нет частичного файла). */
+    fun partialBytes(model: AIModel): Long {
+        val temp = File(modelsDir, ".${model.id}.${extensionFor(model)}.part")
+        return if (temp.isFile) temp.length() else 0L
+    }
+
     /**
      * Файл модели не изменён: лежит в нашей папке моделей и его SHA-256 совпадает с доверенным
      * хешем ИЗ РЕЕСТРА. Модель без доверенного хеша не проходит проверку никогда.
@@ -99,8 +113,21 @@ open class LocalModelManager(
         } catch (t: Throwable) { false }
     }
 
+    /** Итог одной попытки скачивания. */
+    private sealed class Chunk {
+        object Done : Chunk()
+        class Fatal(val message: String) : Chunk()
+        class Retry(val error: Throwable) : Chunk()
+        object Cancelled : Chunk()
+    }
+
+    /**
+     * @param cancelled проверяется на каждом блоке: true — остановиться, сохранив частичный файл
+     *   для докачки (лимит времени foreground-сервиса в Android 15).
+     */
     fun install(
         model: AIModel,
+        cancelled: () -> Boolean = { false },
         progress: (percent: Int) -> Unit = {}
     ): Result<InstalledModel> {
         val ext = extensionFor(model)
@@ -122,50 +149,44 @@ open class LocalModelManager(
             if (!model.downloadUrl.startsWith("https://", ignoreCase = true)) {
                 return Result.failure(IllegalStateException("Модели скачиваются только по защищённому https"))
             }
-            if (!isSpaceEnough(model)) {
+            val already = if (temp.isFile) temp.length() else 0L
+            if (!isSpaceEnough(model, already)) {
                 return Result.failure(IllegalStateException("Недостаточно свободного места"))
             }
             val limit = maxDownloadBytes(model)
-            Log.i(TAG, "Начинаю загрузку модели ${model.name} (${model.sizeMb}MB) по решению пользователя")
-            temp.delete()
+            Log.i(TAG, "Загрузка модели ${model.name} (${model.sizeMb}MB) по решению пользователя; уже есть $already байт")
             backup.delete()
-            val client = okhttp3.OkHttpClient.Builder().followSslRedirects(false).build()
-            val request = okhttp3.Request.Builder().url(model.downloadUrl).build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    return Result.failure(IllegalStateException("Сервер вернул код ${response.code}"))
-                }
-                if (!response.request.url.isHttps) {
-                    return Result.failure(IllegalStateException("Загрузка перенаправлена на незащищённый адрес — отменена"))
-                }
-                val body = response.body ?: return Result.failure(IllegalStateException("Пустой ответ"))
-                val total = body.contentLength()
-                if (total > limit) {
-                    return Result.failure(IllegalStateException("Файл на сервере больше ожидаемого — загрузка отменена"))
-                }
-                var copied = 0L
-                body.byteStream().use { input ->
-                    temp.outputStream().use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            val n = input.read(buffer)
-                            if (n <= 0) break
-                            copied += n
-                            if (copied > limit) {
-                                output.close()
-                                temp.delete()
-                                return Result.failure(IllegalStateException("Файл больше ожидаемого — загрузка отменена"))
-                            }
-                            output.write(buffer, 0, n)
-                            if (total > 0) progress(((copied * 100) / total).toInt())
+            val client = okhttp3.OkHttpClient.Builder()
+                .followSslRedirects(false)
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .build()
+
+            var attempt = 0
+            while (true) {
+                attempt++
+                when (val chunk = downloadOnce(client, model, temp, limit, cancelled, progress)) {
+                    Chunk.Done -> break
+                    Chunk.Cancelled -> return Result.failure(IllegalStateException(
+                        "Загрузка приостановлена (${percentOf(temp.length(), model)}%). Нажмите «Скачать» — она продолжится с того же места."))
+                    is Chunk.Fatal -> {
+                        temp.delete()
+                        return Result.failure(IllegalStateException(chunk.message))
+                    }
+                    is Chunk.Retry -> {
+                        Log.w(TAG, "Попытка $attempt не удалась, скачано ${temp.length()} байт", chunk.error)
+                        if (attempt >= MAX_ATTEMPTS) {
+                            return Result.failure(IllegalStateException(
+                                "Связь прерывается (${percentOf(temp.length(), model)}% скачано). Нажмите «Скачать» ещё раз — загрузка продолжится."))
                         }
+                        sleepUnlessCancelled(BACKOFF_MS * attempt, cancelled)
+                        if (cancelled()) return Result.failure(IllegalStateException(
+                            "Загрузка приостановлена. Нажмите «Скачать» — она продолжится с того же места."))
                     }
                 }
-                if (total >= 0 && copied != total) {
-                    temp.delete()
-                    return Result.failure(IllegalStateException("Размер загрузки не совпадает с Content-Length ($copied/$total)"))
-                }
             }
+
             if (temp.length() < model.sizeMb * 1024L * 1024L / 4L) {
                 temp.delete()
                 return Result.failure(IllegalStateException("Файл загрузился не полностью"))
@@ -208,12 +229,95 @@ open class LocalModelManager(
             Log.i(TAG, "Модель ${model.name} установлена")
             Result.success(installedModel)
         } catch (t: Throwable) {
-            temp.delete()
+            // Частичный файл оставляем для докачки: целостность всё равно проверит SHA-256.
             if (!target.exists() && backup.exists()) {
                 backup.renameTo(target)
             }
             Log.e(TAG, "Не удалось загрузить модель", t)
             Result.failure(t)
+        }
+    }
+
+    private fun percentOf(bytes: Long, model: AIModel): Int {
+        val total = model.sizeMb.toLong() * 1024L * 1024L
+        return if (total <= 0) 0 else ((bytes * 100) / total).toInt().coerceIn(0, 99)
+    }
+
+    private fun sleepUnlessCancelled(ms: Long, cancelled: () -> Boolean) {
+        var left = ms
+        while (left > 0 && !cancelled()) {
+            val step = minOf(left, 500L)
+            Thread.sleep(step)
+            left -= step
+        }
+    }
+
+    /** Одна попытка: продолжает частичный файл (Range) или начинает заново, если сервер прислал весь файл. */
+    private fun downloadOnce(
+        client: okhttp3.OkHttpClient,
+        model: AIModel,
+        temp: File,
+        limit: Long,
+        cancelled: () -> Boolean,
+        progress: (Int) -> Unit
+    ): Chunk {
+        val have = if (temp.isFile) temp.length() else 0L
+        if (have > limit) {
+            return Chunk.Fatal("Файл больше ожидаемого — загрузка отменена")
+        }
+        val request = okhttp3.Request.Builder().url(model.downloadUrl).apply {
+            if (have > 0) header("Range", "bytes=$have-")
+        }.build()
+        return try {
+            client.newCall(request).execute().use { response ->
+                // Диапазон за концом файла: частичный файл уже полный (проверит SHA-256) или битый.
+                if (response.code == 416 && have > 0) return Chunk.Done
+                if (!response.isSuccessful) {
+                    val code = response.code
+                    return if (code == 408 || code == 429 || code in 500..599) {
+                        Chunk.Retry(IOException("HTTP $code"))
+                    } else {
+                        Chunk.Fatal("Сервер вернул код $code")
+                    }
+                }
+                if (!response.request.url.isHttps) {
+                    return Chunk.Fatal("Загрузка перенаправлена на незащищённый адрес — отменена")
+                }
+                val body = response.body ?: return Chunk.Retry(IOException("Пустой ответ"))
+                val append = have > 0 && response.code == 206
+                if (append && contentRangeStart(response.header("Content-Range")) != have) {
+                    // Сервер продолжил не с того места — склеивать нельзя, начинаем заново.
+                    temp.delete()
+                    return Chunk.Retry(IOException("Content-Range не совпадает"))
+                }
+                val start = if (append) have else 0L
+                val length = body.contentLength()
+                val total = if (length >= 0) start + length else -1L
+                if (total > limit) {
+                    return Chunk.Fatal("Файл на сервере больше ожидаемого — загрузка отменена")
+                }
+                var copied = start
+                body.byteStream().use { input ->
+                    FileOutputStream(temp, append).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            if (cancelled()) return Chunk.Cancelled
+                            val n = input.read(buffer)
+                            if (n <= 0) break
+                            copied += n
+                            if (copied > limit) {
+                                return Chunk.Fatal("Файл больше ожидаемого — загрузка отменена")
+                            }
+                            output.write(buffer, 0, n)
+                            if (total > 0) progress(((copied * 100) / total).toInt())
+                        }
+                    }
+                }
+                if (total >= 0 && copied != total) Chunk.Retry(IOException("Связь прервалась: $copied/$total"))
+                else Chunk.Done
+            }
+        } catch (e: IOException) {
+            Chunk.Retry(e)
         }
     }
 
@@ -264,8 +368,9 @@ open class LocalModelManager(
         } ?: SvetlanaStatus.NOT_PROVEN
     }
 
-    private fun isSpaceEnough(model: AIModel): Boolean =
-        freeSpaceBytes() > model.storageRequirementMb * 1024L * 1024L * 1.1
+    /** Уже скачанная часть файла места больше не требует. */
+    private fun isSpaceEnough(model: AIModel, alreadyBytes: Long = 0L): Boolean =
+        freeSpaceBytes() + alreadyBytes > model.storageRequirementMb * 1024L * 1024L * 1.1
 
     private fun extensionFor(model: AIModel): String = when (model.backend) {
         "litertlm" -> "litertlm"
@@ -338,5 +443,16 @@ open class LocalModelManager(
         try { storeFile.writeText(json.encodeToString(ListSerializer(InstalledModel.serializer()), installed)) } catch (t: Throwable) { /* ignore */ }
     }
 
-    companion object { private const val TAG = "LocalModels" }
+    companion object {
+        private const val TAG = "LocalModels"
+        private const val MAX_ATTEMPTS = 8
+        private const val BACKOFF_MS = 3_000L
+
+        /** «bytes 1000-1999/5000» → 1000; что угодно другое → null. */
+        fun contentRangeStart(header: String?): Long? {
+            val h = header?.trim()?.lowercase() ?: return null
+            if (!h.startsWith("bytes ")) return null
+            return h.removePrefix("bytes ").substringBefore('-').trim().toLongOrNull()
+        }
+    }
 }
