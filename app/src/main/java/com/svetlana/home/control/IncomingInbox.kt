@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.RemoteInput
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
@@ -18,17 +19,35 @@ import com.svetlana.home.hands.SensitiveApps
  * Входящие из уведомлений мессенджеров (только в памяти, на диск не пишется).
  *
  * Наполняется сервисом уведомлений (NotificationDotsService) — только после того, как
- * пользователь сам выдал доступ к уведомлениям. Берутся только сообщения
- * (CATEGORY_MESSAGE, MessagingStyle или кнопка «Ответить»); банки, платёжки, менеджеры паролей и
- * госуслуги ([SensitiveApps]) пропускаются целиком. Ответ уходит через стандартную кнопку
- * «Ответить» уведомления (RemoteInput) — без Hands и без открытия чата.
+ * пользователь сам выдал доступ к уведомлениям. Берутся только сообщения: CATEGORY_MESSAGE,
+ * MessagingStyle или известный мессенджер с кнопкой «Ответить». Любое другое приложение с полем
+ * ввода в уведомлении не считается «собеседником». Банки, платёжки, менеджеры паролей и госуслуги
+ * ([SensitiveApps]) пропускаются целиком.
+ *
+ * Мои собственные ответы, которые мессенджер дописывает в уведомление, не делают меня
+ * отправителем ([IncomingLogic.inbound]). Сводка группы берётся, только если от этого
+ * приложения нет отдельных уведомлений с сообщениями.
+ *
+ * Ответ уходит через стандартную кнопку «Ответить» (RemoteInput) и только если беседа в
+ * уведомлении всё ещё та, что показали в подтверждении (сверка [IncomingEntry.fingerprint]).
  */
 object IncomingInbox {
 
-    private class Item(val entry: IncomingEntry, val reply: Notification.Action?)
+    private class Item(val entry: IncomingEntry, val reply: Notification.Action?, val summary: Boolean)
+
+    enum class Send { SENT, GONE, CHANGED, UNSUPPORTED }
 
     private const val MAX_ITEMS = 50
     private val items = LinkedHashMap<String, Item>()
+
+    /** Мессенджеры, у которых уведомление с кнопкой «Ответить» без MessagingStyle тоже считаем сообщением. */
+    private val KNOWN_MESSENGERS = listOf(
+        "com.whatsapp", "org.telegram", "org.thunderdog.challegram", "com.viber", "org.thoughtcrime.securesms",
+        "com.vkontakte", "ru.oneme", "com.google.android.apps.messaging", "com.samsung.android.messaging",
+        "com.android.mms", "com.facebook.orca", "com.discord", "com.skype", "jp.naver.line", "com.instagram"
+    )
+
+    private fun isKnownMessenger(pkg: String): Boolean = KNOWN_MESSENGERS.any { pkg.startsWith(it) }
 
     fun isEnabled(context: Context): Boolean = try {
         NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
@@ -62,26 +81,48 @@ object IncomingInbox {
         items.clear()
     }
 
+    /** Сводки групп — только для приложений без отдельных уведомлений (иначе дубли). */
     @Synchronized
-    fun entries(): List<IncomingEntry> = items.values.map { it.entry }
+    fun entries(): List<IncomingEntry> {
+        val withChildren = items.values.filter { !it.summary }.map { it.entry.pkg }.toSet()
+        return items.values.filter { !it.summary || it.entry.pkg !in withChildren }.map { it.entry }
+    }
 
     @Synchronized
     fun entry(key: String): IncomingEntry? = items[key]?.entry
 
     @Synchronized
-    private fun replyAction(key: String): Notification.Action? = items[key]?.reply
+    private fun replyFor(key: String, fingerprint: String): Pair<Send, Notification.Action?> {
+        val item = items[key] ?: return Send.GONE to null
+        if (item.entry.fingerprint != fingerprint) return Send.CHANGED to null
+        val action = item.reply ?: return Send.UNSUPPORTED to null
+        return Send.SENT to action
+    }
 
-    /** Ответ через кнопку «Ответить» именно этого уведомления. */
-    fun sendReply(context: Context, key: String, text: String): Boolean {
-        val action = replyAction(key) ?: return false
+    /** Ответ через кнопку «Ответить» именно этого уведомления и именно этой беседы. */
+    fun sendReply(context: Context, key: String, fingerprint: String, text: String): Send {
+        val (state, action) = replyFor(key, fingerprint)
+        if (state != Send.SENT || action == null) return state
         val free = action.remoteInputs.orEmpty().filter { it.allowFreeFormInput }
-        if (free.isEmpty()) return false
-        val pending = action.actionIntent ?: return false
+        if (free.isEmpty()) return Send.UNSUPPORTED
+        val pending = action.actionIntent ?: return Send.UNSUPPORTED
+        // Неизменяемый PendingIntent не примет текст ответа — честно говорим «не поддерживается».
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && pending.isImmutable) return Send.UNSUPPORTED
         val results = Bundle().apply { free.forEach { putCharSequence(it.resultKey, text) } }
         val fill = Intent()
         RemoteInput.addResultsToIntent(free.toTypedArray(), fill, results)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            RemoteInput.setResultsSource(fill, RemoteInput.SOURCE_FREE_FORM_INPUT)
+        }
         pending.send(context, 0, fill)
-        return true
+        return Send.SENT
+    }
+
+    private fun replyActionOf(n: Notification): Notification.Action? {
+        val action = n.actions?.firstOrNull { a -> a.remoteInputs.orEmpty().any { it.allowFreeFormInput } } ?: return null
+        val pending = action.actionIntent ?: return null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && pending.isImmutable) return null
+        return action
     }
 
     private fun extract(context: Context, sbn: StatusBarNotification): Item? {
@@ -89,28 +130,35 @@ object IncomingInbox {
         if (pkg == context.packageName || SensitiveApps.isSensitive(pkg)) return null
         if (sbn.isOngoing) return null
         val n = sbn.notification ?: return null
-        if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return null
-        val reply = n.actions?.firstOrNull { a -> a.remoteInputs.orEmpty().any { it.allowFreeFormInput } }
+        val summary = n.flags and Notification.FLAG_GROUP_SUMMARY != 0
+        val reply = replyActionOf(n)
         val style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)
-        if (n.category != Notification.CATEGORY_MESSAGE && style == null && reply == null) return null
+        val messaging = n.category == Notification.CATEGORY_MESSAGE || style != null ||
+            (reply != null && isKnownMessenger(pkg))
+        if (!messaging) return null
+        // Сводку без сообщений не берём («5 новых сообщений»).
+        if (summary && style?.messages.isNullOrEmpty()) return null
         val extras = n.extras
         val title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
-        var sender = title
+        val inbound: Inbound
         var chat: String? = null
-        var time = sbn.postTime
-        val messages = style?.messages.orEmpty()
-        val text: String
-        if (style != null && messages.isNotEmpty()) {
-            val last = messages.last()
-            sender = last.person?.name?.toString()?.trim()?.ifEmpty { null } ?: title
+        if (style != null && style.messages.isNotEmpty()) {
+            val me = style.user
+            val messages = style.messages.map { m ->
+                val person = m.person
+                val fromMe = person == null ||
+                    (person.key != null && person.key == me.key) ||
+                    (person.name != null && person.name.toString() == me.name?.toString())
+                StyleMessage(person?.name?.toString(), m.text?.toString(), if (m.timestamp > 0) m.timestamp else sbn.postTime, fromMe)
+            }
+            inbound = IncomingLogic.inbound(messages, title) ?: return null
             if (style.isGroupConversation) chat = style.conversationTitle?.toString()?.trim()?.ifEmpty { null }
-            text = messages.takeLast(3).mapNotNull { it.text?.toString()?.trim()?.ifEmpty { null } }.joinToString(" / ")
-            if (last.timestamp > 0) time = last.timestamp
         } else {
-            text = (extras?.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: extras?.getCharSequence(Notification.EXTRA_TEXT))
+            val text = (extras?.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: extras?.getCharSequence(Notification.EXTRA_TEXT))
                 ?.toString()?.trim().orEmpty()
+            if (title.isBlank() || text.isBlank()) return null
+            inbound = Inbound(title, text, sbn.postTime, answered = false)
         }
-        if (sender.isBlank() || text.isBlank()) return null
         val app = try {
             val pm = context.packageManager
             pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
@@ -118,17 +166,21 @@ object IncomingInbox {
             pkg
         }
         return Item(
-            IncomingEntry(sbn.key, pkg, app, sender.take(80), text.take(600), time, canReply = reply != null, chat = chat?.take(80)),
-            reply
+            IncomingEntry(
+                sbn.key, pkg, app, inbound.sender.take(80), inbound.text.take(600), inbound.time,
+                canReply = reply != null, chat = chat?.take(80), answered = inbound.answered
+            ),
+            reply,
+            summary
         )
     }
 }
 
 /**
  * Исполнение команд про входящие. Ответ сначала «прикалывается» к конкретному уведомлению
- * ([pin]): в действии запоминаются ключ, собеседник и приложение — именно их пользователь видит
- * в подтверждении, и именно туда уйдёт ответ. Пришло новое сообщение от другого человека
- * между вопросом и «Подтвердить» — ответ всё равно уйдёт тому, кого показали.
+ * ([pin]): в действии запоминаются ключ, собеседник, приложение, отпечаток беседы и кусочек
+ * его сообщения — именно их пользователь видит в подтверждении. Если к моменту отправки уведомление
+ * с тем же ключом принадлежит другой беседе — ответ не уходит.
  */
 class IncomingMessages(private val context: Context) {
 
@@ -148,53 +200,70 @@ class IncomingMessages(private val context: Context) {
     fun pin(action: SvetlanaAction.ReplyIncoming): Pinned {
         if (!IncomingInbox.isEnabled(context)) return Pinned.Fail(noAccess())
         val name = action.contact
-        return when (val p = IncomingLogic.replyTarget(name, IncomingInbox.entries())) {
-            is IncomingPick.Found -> Pinned.Ok(action.copy(contact = IncomingLogic.who(p.entry), key = p.entry.key, app = p.entry.app))
+        val app = action.app
+        val inApp = app?.let { t(" в $it", " in $it") }.orEmpty()
+        return when (val p = IncomingLogic.replyTarget(name, IncomingInbox.entries(), app)) {
+            is IncomingPick.Found -> Pinned.Ok(action.copy(
+                contact = IncomingLogic.who(p.entry),
+                key = p.entry.key,
+                app = p.entry.app,
+                fp = p.entry.fingerprint,
+                quote = IncomingLogic.safeText(p.entry.text, english()).take(80)
+            ))
             is IncomingPick.Ambiguous -> Pinned.Fail(t(
-                "Сообщения от нескольких людей: ${p.names.joinToString(", ")} — назовите полное имя",
-                "Messages from several people: ${p.names.joinToString(", ")} — say the full name"))
+                "Подходят несколько: ${p.names.joinToString(", ")}. Уточните имя или приложение: «ответь Серому в телеграме …»",
+                "Several match: ${p.names.joinToString(", ")}. Say the full name or the app: “reply to Sam in Telegram …”"))
             IncomingPick.NotFound -> Pinned.Fail(t(
-                "Не вижу сообщений от «${name.orEmpty().take(40)}», на которые можно ответить. Скажите «ответь Серому …» или «ответь ему …»",
-                "I don't see messages from “${name.orEmpty().take(40)}” that can be answered. Say “reply to Sam …” or “reply …”"))
+                "Не вижу сообщений от «${name.orEmpty().take(40)}»$inApp, на которые можно ответить из уведомления. Скажите «ответь Серому …» или «ответь ему …»",
+                "I don't see messages from “${name.orEmpty().take(40)}”$inApp that can be answered from a notification. Say “reply to Sam …” or “reply …”"))
             IncomingPick.Empty -> Pinned.Fail(t(
-                "Нет сообщений, на которые можно ответить из уведомления",
-                "No messages that can be answered from a notification"))
+                "Нет сообщений$inApp, на которые можно ответить из уведомления (уведомление скрыто или в нём нет кнопки «Ответить»)",
+                "No messages$inApp that can be answered from a notification (it was dismissed or has no Reply button)"))
         }
     }
 
-    fun read(contact: String?): ActionResult {
-        val action = SvetlanaAction.ReadIncoming(contact)
-        val steps = mutableListOf(ProofStep(ProofStage.PLAN, StepStatus.OK, "PLAN_TARGET=READ_INCOMING contact=${contact ?: "-"}"))
+    fun read(action: SvetlanaAction.ReadIncoming): ActionResult {
+        val steps = mutableListOf(ProofStep(ProofStage.PLAN, StepStatus.OK,
+            "PLAN_TARGET=READ_INCOMING contact=${action.contact ?: "-"} app=${action.app ?: "-"} latest=${action.latestOnly}"))
         if (!IncomingInbox.isEnabled(context)) {
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "notification access not granted")
             return ActionResult(action, false, noAccess(), steps, "notification")
         }
         val entries = IncomingInbox.entries()
         steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.OK, "PLAN_RESULT=VERIFIED entries=${entries.size}")
-        return ActionResult(action, true, IncomingLogic.summary(contact, entries, english()), steps, "notification")
+        val limit = if (action.latestOnly) 1 else IncomingLogic.MAX_READ
+        return ActionResult(action, true,
+            IncomingLogic.summary(action.contact, entries, english(), action.app, limit), steps, "notification")
     }
 
     @Suppress("UNUSED_PARAMETER")
     fun reply(grant: ActionGrant, action: SvetlanaAction.ReplyIncoming): ActionResult {
         val steps = mutableListOf(ProofStep(ProofStage.PLAN, StepStatus.OK, "PLAN_TARGET=REPLY_INCOMING app=${action.app ?: "-"}"))
         val key = action.key
+        val fp = action.fp
         val entry = key?.let { IncomingInbox.entry(it) }
-        if (key == null || entry == null) {
+        if (key == null || fp == null || entry == null) {
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "notification gone")
             return ActionResult(action, false, t(
                 "Уведомление уже исчезло — ответ не отправлен",
                 "The notification is gone — the reply was not sent"), steps, "notification")
         }
-        val sent = try { IncomingInbox.sendReply(context, key, action.text) } catch (t: Throwable) { false }
-        steps += ProofStep(ProofStage.ACTION_PERFORMED, if (sent) StepStatus.OK else StepStatus.FAILED,
-            if (sent) "reply sent via notification RemoteInput" else "reply action failed")
-        steps += ProofStep(ProofStage.RESULT_VERIFIED, if (sent) StepStatus.UNVERIFIED else StepStatus.FAILED,
-            if (sent) "PLAN_RESULT=NOT PROVEN delivered by the messenger" else "PLAN_RESULT=NOT VERIFIED")
-        val who = IncomingLogic.who(entry)
-        return ActionResult(action, sent,
-            if (sent) t("Ответила $who в ${entry.app}: «${action.text.take(60)}»",
+        val sent = try { IncomingInbox.sendReply(context, key, fp, action.text) } catch (t: Throwable) { IncomingInbox.Send.UNSUPPORTED }
+        val ok = sent == IncomingInbox.Send.SENT
+        steps += ProofStep(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED, "reply via RemoteInput: $sent")
+        steps += ProofStep(ProofStage.RESULT_VERIFIED, if (ok) StepStatus.UNVERIFIED else StepStatus.FAILED,
+            if (ok) "PLAN_RESULT=NOT PROVEN delivered by the messenger" else "PLAN_RESULT=NOT VERIFIED")
+        val who = action.contact ?: IncomingLogic.who(entry)
+        val message = when (sent) {
+            IncomingInbox.Send.SENT -> t("Ответила $who в ${entry.app}: «${action.text.take(60)}»",
                 "Replied to $who in ${entry.app}: “${action.text.take(60)}”")
-            else t("Не получилось ответить через уведомление", "Couldn't reply via the notification"),
-            steps, "notification")
+            IncomingInbox.Send.GONE -> t("Уведомление уже исчезло — ответ не отправлен",
+                "The notification is gone — the reply was not sent")
+            IncomingInbox.Send.CHANGED -> t("Уведомление изменилось (там уже другая беседа) — ответ не отправлен, повторите команду",
+                "The notification changed to another conversation — the reply was not sent, please repeat")
+            IncomingInbox.Send.UNSUPPORTED -> t("${entry.app} не даёт отвечать из уведомления — ответ не отправлен",
+                "${entry.app} doesn't allow replying from the notification — the reply was not sent")
+        }
+        return ActionResult(action, ok, message, steps, "notification")
     }
 }
