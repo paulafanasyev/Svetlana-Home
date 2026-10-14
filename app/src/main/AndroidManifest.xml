@@ -113,6 +113,23 @@
             </intent-filter>
         </activity>
 
+        <!-- Цифровой помощник по умолчанию (роль ASSISTANT): долгое нажатие «Домой» /
+             кнопки питания открывает окно голоса. Экспортировано, чтобы его могла открыть
+             система; микрофон сам включается только у выбранного помощника (AssistLaunch). -->
+        <activity
+            android:name=".ui.launcher.AssistActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.svetlana.home.assist"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.SvetlanaHome">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".ui.onboarding.OnboardingActivity"
             android:exported="false"
