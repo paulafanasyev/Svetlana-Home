@@ -451,10 +451,20 @@ class HandsController(private val context: Context) {
     /**
      * Поле ввода на текущем экране (для мессенджеров). Поля паролей/PIN/карт сюда
      * не попадают: сообщение туда не печатаем.
+     *
+     * Сначала ищем НАСТОЯЩЕЕ поле ввода (EditText и подобные). Раньше первым попадался
+     * любой нажимаемый TextView — в WhatsApp это имя в шапке чата, и Светлана открывала
+     * чат, но ничего не писала. TextView остаётся запасным вариантом для нестандартных приложений.
      */
     fun findEditableField(): UiNode? {
         val tree = uiTree() ?: return null
-        return tree.nodes.firstOrNull { isEditable(it) && !it.isPassword }
+        val candidates = tree.nodes.filter { isEditable(it) && !it.isPassword }
+        return candidates.firstOrNull { isRealInput(it) } ?: candidates.firstOrNull()
+    }
+
+    private fun isRealInput(node: UiNode): Boolean {
+        val cls = node.className.lowercase()
+        return cls.contains("edittext") || cls.contains("autocomplete") || cls.contains("input")
     }
 
     private fun isEditable(node: UiNode): Boolean {
