@@ -32,7 +32,8 @@ import com.svetlana.home.permissions.PermissionManager
  *   вводится в то же поле, а нажимается та же кнопка «Отправить» (каждый шаг перепроверяется
  *   перед действием); имя в тексте сообщения ниже шапки не считается; если на экране несколько
  *   чатов с таким именем (два «Алекса»), чат не открывается — нужно точное имя ([ambiguousContact]);
- * - звонок только через набор номера, SMS — только черновик.
+ * - звонок только через набор номера, SMS — только черновик. Номер по имени берётся из контактов
+ *   ([CalleeResolver]): два подходящих человека = отказ, несколько номеров без основного = карточка контакта.
  *
  * Надёжность сообщений: мессенджер часто открывается в старом чате — возвращаемся «Назад»
  * к списку чатов ([backToChatList]); вместо фиксированных пауз ждём нужный экран до таймаута
@@ -812,22 +813,47 @@ class AppControlEngine(
             "$pkg ${node.text} ${node.contentDescription} ${node.id} ${node.bounds}"
     }
 
+    /** Кому звонить / писать SMS: номер как сказан или номер из контактов по имени (с падежами). */
+    private val callees = CalleeResolver(context, permissionManager)
+
     suspend fun makeCall(grant: ActionGrant, contact: String): ActionResult {
         val action = SvetlanaAction.MakeCall(contact)
         val callPermission = permissionManager.isGranted(android.Manifest.permission.CALL_PHONE)
         val proof = proofBuilder.start("PLAN0_TARGET=MAKE_CALL contact=$contact mode=dial call_permission=$callPermission")
         return try {
-            context.startActivity(intentResolver.dial(contact).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            proof.ok(ProofStage.ACTION_ATTEMPTED, "dial intent sent")
-            val opened = launchVerifier.waitForAnyActivity(skipPackage = context.packageName)
-            proof.add(ProofStage.ACTION_PERFORMED, if (opened) StepStatus.OK else StepStatus.UNVERIFIED,
-                if (opened) "dialer in foreground" else "no foreground change detected")
-            proof.add(ProofStage.RESULT_VERIFIED, StepStatus.UNVERIFIED,
-                "PLAN0_RESULT=NOT PROVEN user places the call in the phone app")
-            ActionResult(action, opened,
-                if (opened) "Открыла набор номера: $contact. Нажмите вызов"
-                else "Не удалось подтвердить, что открылся набор номера",
-                proof.build(), "intent")
+            when (val callee = callees.resolve(contact)) {
+                is Callee.Refused -> ActionResult(action, false, callee.message, proof.failed(callee.why), "intent")
+                is Callee.Card -> {
+                    proof.ok(ProofStage.TARGET_APP_IDENTIFIED, "contact card: several numbers")
+                    context.startActivity(callee.intent)
+                    proof.ok(ProofStage.ACTION_ATTEMPTED, "contact card intent sent")
+                    val opened = launchVerifier.waitForAnyActivity(skipPackage = context.packageName)
+                    proof.add(ProofStage.ACTION_PERFORMED, if (opened) StepStatus.OK else StepStatus.UNVERIFIED,
+                        if (opened) "contact card in foreground" else "no foreground change detected")
+                    proof.add(ProofStage.RESULT_VERIFIED, StepStatus.UNVERIFIED,
+                        "PLAN0_RESULT=NOT PROVEN user picks the number")
+                    ActionResult(action, opened,
+                        if (opened) "У контакта ${callee.name} несколько номеров — открыла карточку, выберите номер"
+                        else "Не удалось открыть карточку контакта",
+                        proof.build(), "intent")
+                }
+                is Callee.Dial -> {
+                    proof.ok(ProofStage.TARGET_APP_IDENTIFIED, "number resolved")
+                    context.startActivity(intentResolver.dial(callee.number).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                    proof.ok(ProofStage.ACTION_ATTEMPTED, "dial intent sent")
+                    val opened = launchVerifier.waitForAnyActivity(skipPackage = context.packageName)
+                    proof.add(ProofStage.ACTION_PERFORMED, if (opened) StepStatus.OK else StepStatus.UNVERIFIED,
+                        if (opened) "dialer in foreground" else "no foreground change detected")
+                    proof.add(ProofStage.RESULT_VERIFIED, StepStatus.UNVERIFIED,
+                        "PLAN0_RESULT=NOT PROVEN user places the call in the phone app")
+                    val who = if (PhoneLookup.isPhoneNumber(callee.name)) callee.number
+                        else "${callee.name} (${callee.number})"
+                    ActionResult(action, opened,
+                        if (opened) "Открыла набор номера: $who. Нажмите вызов"
+                        else "Не удалось подтвердить, что открылся набор номера",
+                        proof.build(), "intent")
+                }
+            }
         } catch (t: Throwable) {
             ActionResult(action, false, "Не удалось открыть набор номера", proof.failed("startActivity failed"))
         }
@@ -837,18 +863,38 @@ class AppControlEngine(
         val action = SvetlanaAction.SendMessage(contact, text)
         val proof = proofBuilder.start("PLAN0_TARGET=SMS_DRAFT contact=$contact")
         return try {
-            val intent = intentResolver.sms(contact, text)
-            context.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            proof.ok(ProofStage.ACTION_ATTEMPTED, "startActivity sent")
-            val opened = launchVerifier.waitForAnyActivity(skipPackage = context.packageName)
-            proof.add(ProofStage.ACTION_PERFORMED, if (opened) StepStatus.OK else StepStatus.UNVERIFIED,
-                if (opened) "sms app with draft in foreground" else "no foreground change detected")
-            proof.add(ProofStage.RESULT_VERIFIED, StepStatus.UNVERIFIED,
-                "PLAN0_RESULT=NOT PROVEN message is sent by the user in the SMS app")
-            ActionResult(action, opened,
-                if (opened) "Сообщение для $contact подготовлено. Нажмите «Отправить»"
-                else "Не удалось подтвердить, что открылось приложение SMS",
-                proof.build(), "intent")
+            when (val callee = callees.resolve(contact)) {
+                is Callee.Refused -> ActionResult(action, false, callee.message, proof.failed(callee.why), "intent")
+                is Callee.Card -> {
+                    proof.ok(ProofStage.TARGET_APP_IDENTIFIED, "contact card: several numbers")
+                    context.startActivity(callee.intent)
+                    proof.ok(ProofStage.ACTION_ATTEMPTED, "contact card intent sent")
+                    val opened = launchVerifier.waitForAnyActivity(skipPackage = context.packageName)
+                    proof.add(ProofStage.ACTION_PERFORMED, if (opened) StepStatus.OK else StepStatus.UNVERIFIED,
+                        if (opened) "contact card in foreground" else "no foreground change detected")
+                    proof.add(ProofStage.RESULT_VERIFIED, StepStatus.UNVERIFIED,
+                        "PLAN0_RESULT=NOT PROVEN user picks the number")
+                    ActionResult(action, opened,
+                        if (opened) "У контакта ${callee.name} несколько номеров — открыла карточку, выберите номер для SMS"
+                        else "Не удалось открыть карточку контакта",
+                        proof.build(), "intent")
+                }
+                is Callee.Dial -> {
+                    proof.ok(ProofStage.TARGET_APP_IDENTIFIED, "number resolved")
+                    val intent = intentResolver.sms(callee.number, text)
+                    context.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                    proof.ok(ProofStage.ACTION_ATTEMPTED, "startActivity sent")
+                    val opened = launchVerifier.waitForAnyActivity(skipPackage = context.packageName)
+                    proof.add(ProofStage.ACTION_PERFORMED, if (opened) StepStatus.OK else StepStatus.UNVERIFIED,
+                        if (opened) "sms app with draft in foreground" else "no foreground change detected")
+                    proof.add(ProofStage.RESULT_VERIFIED, StepStatus.UNVERIFIED,
+                        "PLAN0_RESULT=NOT PROVEN message is sent by the user in the SMS app")
+                    ActionResult(action, opened,
+                        if (opened) "Сообщение для ${callee.name} подготовлено. Нажмите «Отправить»"
+                        else "Не удалось подтвердить, что открылось приложение SMS",
+                        proof.build(), "intent")
+                }
+            }
         } catch (t: Throwable) {
             ActionResult(action, false, "Не удалось подготовить сообщение", proof.failed("startActivity failed"))
         }
