@@ -7,9 +7,11 @@ import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
- * Поверхность атаки из других приложений: наружу открыты только главный экран и два системных сервиса,
- * которые может вызвать только система (через BIND_*-разрешения). Приёмник загрузки не экспортирован:
- * BOOT_COMPLETED присылает система, а другие приложения до него достучаться не могут.
+ * Поверхность атаки из других приложений: наружу открыты только главный экран, экран ассистента
+ * (ACTION_ASSIST; микрофон сам включается только у выбранного помощника, см. AssistLaunch) и два
+ * системных сервиса, которые может вызвать только система (через BIND_*-разрешения). Приёмник
+ * загрузки не экспортирован: BOOT_COMPLETED присылает система, а другие приложения до него
+ * достучаться не могут.
  */
 class ManifestExposureTest {
     private val ns = "http://schemas.android.com/apk/res/android"
@@ -38,9 +40,19 @@ class ManifestExposureTest {
             .map { it.getAttributeNS(ns, "name") }
         assertThat(exported).containsExactly(
             ".ui.launcher.HomeActivity",
+            ".ui.launcher.AssistActivity",
             ".hands.SvetlanaAccessibilityService",
             ".ui.launcher.NotificationDotsService"
         )
+    }
+
+    @Test
+    fun assistActivityOnlyHandlesAssist() {
+        val assist = components("activity").single { it.getAttributeNS(ns, "name") == ".ui.launcher.AssistActivity" }
+        val actions = assist.getElementsByTagName("action")
+        val names = (0 until actions.length).map { (actions.item(it) as Element).getAttributeNS(ns, "name") }
+        assertThat(names).containsExactly("android.intent.action.ASSIST")
+        assertThat(assist.getAttributeNS(ns, "excludeFromRecents")).isEqualTo("true")
     }
 
     @Test
