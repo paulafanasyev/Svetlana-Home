@@ -29,19 +29,29 @@ sealed class SvetlanaAction {
     @Serializable data class MakeCall(val contact: String) : SvetlanaAction() { override val name = "MakeCall" }
     @Serializable data class Share(val text: String) : SvetlanaAction() { override val name = "Share" }
 
-    /** Прочитать входящие из уведомлений (все или от [contact]). */
-    @Serializable data class ReadIncoming(val contact: String? = null) : SvetlanaAction() { override val name = "ReadIncoming" }
+    /**
+     * Прочитать входящие из уведомлений (все или от [contact]); [app] — только этот мессенджер
+     * ("whatsapp", "telegram"…), [latestOnly] — только последнее сообщение.
+     */
+    @Serializable data class ReadIncoming(
+        val contact: String? = null,
+        val app: String? = null,
+        val latestOnly: Boolean = false
+    ) : SvetlanaAction() { override val name = "ReadIncoming" }
 
     /**
      * Ответить через кнопку «Ответить» уведомления. До подтверждения роутер заполняет
-     * [key] (конкретное уведомление), [contact] (кому именно) и [app] — пользователь
-     * подтверждает именно их.
+     * [key] (конкретное уведомление), [contact] (кому именно), [app] (название приложения;
+     * до этого — подсказка «в телеге»), [fp] (отпечаток беседы) и [quote] (на что отвечаем) —
+     * пользователь подтверждает именно их.
      */
     @Serializable data class ReplyIncoming(
         val contact: String?,
         val text: String,
         val key: String? = null,
-        val app: String? = null
+        val app: String? = null,
+        val fp: String? = null,
+        val quote: String? = null
     ) : SvetlanaAction() { override val name = "ReplyIncoming" }
 
     /**

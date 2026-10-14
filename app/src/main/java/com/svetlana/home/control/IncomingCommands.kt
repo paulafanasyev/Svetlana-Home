@@ -46,21 +46,24 @@ object IncomingCommands {
         Regex("^reply(?:\\s+to)?(?:\\s+([\\p{L}\\-]+))?\\s*[,:—–-]?\\s+(.+)$")
     )
 
-    /** Слова после «ответь», после которых идёт вопрос к ИИ, а не сообщение собеседнику. */
-    private val NOT_A_REPLY = setOf(
-        "на", "мне", "нам", "честно", "коротко", "кратко", "подробно", "пожалуйста", "всем",
+    /** Вопросительные слова: «ответь, почему…» — вопрос к ИИ, а не ответ собеседнику. */
+    private val INTERROGATIVES = setOf(
         "почему", "зачем", "как", "кто", "где", "когда", "сколько", "какой", "какая", "какое", "какие",
-        "чем", "куда", "откуда", "ли", "в", "во",
-        "me", "us", "please", "briefly", "honestly", "why", "how", "what", "who", "where", "when", "which",
-        "whether", "if", "in", "on"
+        "чем", "куда", "откуда", "ли",
+        "why", "how", "what", "who", "where", "when", "which", "whether", "if"
     )
-    private val CONJUNCTIONS = setOf("что", "that")
+    /** Слова после «ответь», после которых идёт вопрос к ИИ, а не сообщение собеседнику. */
+    private val NOT_A_REPLY = INTERROGATIVES + setOf(
+        "на", "мне", "нам", "честно", "коротко", "кратко", "подробно", "пожалуйста", "всем", "в", "во",
+        "me", "us", "please", "briefly", "honestly", "in", "on"
+    )
     /** «ответь, что такое ИИ» — вопрос, «ответь, что буду поздно» — ответ. */
     private val QUESTION_AFTER_CHTO = listOf(
         "такое", "такой", "значит", "лучше", "делать", "думаешь", "ты ", "это ",
         "is ", "are ", "does ", "do ", "you "
     )
     private val LEADING_CONJ = Regex("^(?:что|that)\\s+", RegexOption.IGNORE_CASE)
+    private val FIRST_WORD = Regex("^[\\p{L}\\-]+")
 
     fun parse(raw: String): SvetlanaAction? {
         var s = raw.trim()
@@ -70,11 +73,10 @@ object IncomingCommands {
         WAKE.find(low)?.let { s = s.substring(it.range.last + 1); low = low.substring(it.range.last + 1) }
         POLITE.find(low)?.let { s = s.substring(it.range.last + 1); low = low.substring(it.range.last + 1) }
         TRAILING.find(low)?.let { s = s.substring(0, it.range.first); low = low.substring(0, it.range.first) }
-        if (s.length != low.length) return null
         val lead = low.length - low.trimStart().length
         s = s.substring(lead).trimEnd()
         low = low.substring(lead).trimEnd()
-        if (low.isEmpty()) return null
+        if (low.isEmpty() || low.length != s.length) return null
 
         for (re in READ_FROM) re.matchEntire(low)?.let { m ->
             val who = m.groupValues[1].trim()
@@ -109,15 +111,25 @@ object IncomingCommands {
         return null
     }
 
+    private fun startsWithQuestionAfterChto(lowText: String): Boolean {
+        val rest = LEADING_CONJ.find(lowText)?.let { lowText.substring(it.range.last + 1) } ?: return false
+        return QUESTION_AFTER_CHTO.any { rest.startsWith(it) }
+    }
+
     private fun reply(s: String, whoRaw: String?, textRange: IntRange, app: String?): SvetlanaAction? {
         var who = whoRaw?.trim()?.lowercase()
         var text = s.substring(textRange).trim()
         if (text.isEmpty()) return null
+        val lowText = text.lowercase()
         if (who != null && who in NOT_A_REPLY) return null
         if (who != null && who in CONJUNCTIONS) {
-            val lowText = text.lowercase()
             if (QUESTION_AFTER_CHTO.any { lowText.startsWith(it) }) return null
             who = null
+        } else if (who == null) {
+            // «ответь, как работает …» / «ответь, что такое …» — вопрос к ИИ.
+            val first = FIRST_WORD.find(lowText)?.value
+            if (first != null && first in INTERROGATIVES) return null
+            if (startsWithQuestionAfterChto(lowText)) return null
         }
         if (who != null && IncomingLogic.isPronoun(who)) who = null
         // «ответь Серому, что буду поздно» → текст «буду поздно».
@@ -125,4 +137,6 @@ object IncomingCommands {
         if (text.isEmpty()) return null
         return SvetlanaAction.ReplyIncoming(who, text, app = app)
     }
+
+    private val CONJUNCTIONS = setOf("что", "that")
 }
