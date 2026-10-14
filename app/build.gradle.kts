@@ -54,8 +54,8 @@ android {
         applicationId = "com.svetlana.home"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.2.1"
+        versionCode = 3
+        versionName = "1.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         // llama.cpp runtime собран только под arm64-v8a (POCO X3 NFC = ARM64).
