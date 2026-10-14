@@ -8,7 +8,7 @@ package com.svetlana.home.control
  *   «ответь, что буду поздно» → [SvetlanaAction.ReplyIncoming].
  *
  * Вопросы к ИИ («ответь, почему небо голубое», «ответь на вопрос…», «ответь, что такое…»,
- * «reply why…») не трогаем. Регистр текста ответа сохраняется.
+ * «reply why…») не трогаем. Регистр и знаки в конце текста ответа («!», «?») сохраняются.
  */
 object IncomingCommands {
 
@@ -64,6 +64,7 @@ object IncomingCommands {
     )
     private val LEADING_CONJ = Regex("^(?:что|that)\\s+", RegexOption.IGNORE_CASE)
     private val FIRST_WORD = Regex("^[\\p{L}\\-]+")
+    private val CONJUNCTIONS = setOf("что", "that")
 
     fun parse(raw: String): SvetlanaAction? {
         var s = raw.trim()
@@ -72,7 +73,13 @@ object IncomingCommands {
         if (low.length != s.length) s = low
         WAKE.find(low)?.let { s = s.substring(it.range.last + 1); low = low.substring(it.range.last + 1) }
         POLITE.find(low)?.let { s = s.substring(it.range.last + 1); low = low.substring(it.range.last + 1) }
-        TRAILING.find(low)?.let { s = s.substring(0, it.range.first); low = low.substring(0, it.range.first) }
+        // Знаки в конце мешают разбору команды, но в тексте ответа их надо сохранить.
+        var tail = ""
+        TRAILING.find(low)?.let {
+            tail = s.substring(it.range.first).trim()
+            s = s.substring(0, it.range.first)
+            low = low.substring(0, it.range.first)
+        }
         val lead = low.length - low.trimStart().length
         s = s.substring(lead).trimEnd()
         low = low.substring(lead).trimEnd()
@@ -95,18 +102,18 @@ object IncomingCommands {
         }
         for (re in ANY_NEW) if (re.matches(low)) return SvetlanaAction.ReadIncoming(null)
         for (re in REPLY_BARE) re.matchEntire(low)?.let { m ->
-            return reply(s, null, m.groups[1]!!.range, null)
+            return reply(s, null, m.groups[1]!!.range, null, tail)
         }
         for (re in REPLY_IN_APP) re.matchEntire(low)?.let { m ->
             val app = IncomingLogic.canonicalApp(m.groups[1]?.value)
-            if (app != null) return reply(s, null, m.groups[2]!!.range, app)
+            if (app != null) return reply(s, null, m.groups[2]!!.range, app, tail)
         }
         for (re in REPLY_WHO_IN_APP) re.matchEntire(low)?.let { m ->
             val app = IncomingLogic.canonicalApp(m.groups[2]?.value)
-            if (app != null) return reply(s, m.groups[1]?.value, m.groups[3]!!.range, app)
+            if (app != null) return reply(s, m.groups[1]?.value, m.groups[3]!!.range, app, tail)
         }
         for (re in REPLY) re.matchEntire(low)?.let { m ->
-            return reply(s, m.groups[1]?.value, m.groups[2]!!.range, null)
+            return reply(s, m.groups[1]?.value, m.groups[2]!!.range, null, tail)
         }
         return null
     }
@@ -116,7 +123,7 @@ object IncomingCommands {
         return QUESTION_AFTER_CHTO.any { rest.startsWith(it) }
     }
 
-    private fun reply(s: String, whoRaw: String?, textRange: IntRange, app: String?): SvetlanaAction? {
+    private fun reply(s: String, whoRaw: String?, textRange: IntRange, app: String?, tail: String): SvetlanaAction? {
         var who = whoRaw?.trim()?.lowercase()
         var text = s.substring(textRange).trim()
         if (text.isEmpty()) return null
@@ -135,8 +142,6 @@ object IncomingCommands {
         // «ответь Серому, что буду поздно» → текст «буду поздно».
         text = text.replace(LEADING_CONJ, "").trim()
         if (text.isEmpty()) return null
-        return SvetlanaAction.ReplyIncoming(who, text, app = app)
+        return SvetlanaAction.ReplyIncoming(who, text + tail, app = app)
     }
-
-    private val CONJUNCTIONS = setOf("что", "that")
 }
