@@ -39,6 +39,10 @@ import com.svetlana.home.permissions.PermissionManager
  * ([waitFor]); строка чата нажимается через нажимаемого родителя (текст имени в WhatsApp сам по себе
  * не нажимается); имена сравниваются без учёта регистра и «ё» ([ContactMatch]).
  *
+ * Падежи: «напиши Серому» — сначала ищется имя как сказано, и только если его нет — формы
+ * «Серый», «Серой»… ([ContactMatch.forms]). Подошли разные люди — отказ (неоднозначно). После выбора
+ * строки шапка чата проверяется по той форме, под которую подошла строка ([contactRows]).
+ *
  * Запрещено: произвольные shell-команды, root, Termux, скрытое управление, автонабор звонка.
  */
 class AppControlEngine(
@@ -103,6 +107,7 @@ class AppControlEngine(
     /**
      * Открыт чат именно с этим собеседником: шапка чата (самый верхний текст выше поля ввода)
      * равна имени контакта или начинается с него ([ContactMatch]). Имя в сообщении ниже шапки не считается.
+     * Сравнение — только с одной, уже выбранной формой имени (без падежных вариантов).
      */
     private fun recipientShown(contact: String, input: UiNode): Boolean {
         if (ContactMatch.norm(contact).isEmpty()) return false
@@ -115,18 +120,36 @@ class AppControlEngine(
     }
 
     /**
-     * На экране несколько РАЗНЫХ строк, подходящих под это имя (два «Алекса» или «Алекс» и
-     * «Алекс Иванов» — шапка любого из них пройдёт [recipientShown]): кому писать — неизвестно,
+     * Строки (не поля ввода и не [exclude]), подходящие под имя, вместе с формой имени, под которую
+     * они подошли. Если есть строки с именем как сказано — только они (прежнее поведение);
+     * иначе — строки, подходящие под падежные формы ([ContactMatch.forms]): «Серому» → «Серый».
+     */
+    private fun contactRows(contact: String, exclude: UiNode? = null): List<Pair<UiNode, String>> {
+        val forms = ContactMatch.forms(contact)
+        if (forms.isEmpty()) return emptyList()
+        val tree = hands.uiTree() ?: return emptyList()
+        val nodes = tree.nodes.filter {
+            !it.bounds.isEmpty && !isInputLike(it) && !(exclude != null && sameSpot(exclude, it))
+        }
+        val literal = nodes.filter { ContactMatch.matches(it.visibleText, forms[0]) }
+        if (literal.isNotEmpty()) return literal.map { it to forms[0] }
+        val derived = forms.drop(1)
+        return nodes.mapNotNull { n ->
+            derived.firstOrNull { ContactMatch.matches(n.visibleText, it) }?.let { n to it }
+        }
+    }
+
+    /**
+     * На экране несколько РАЗНЫХ строк, подходящих под это имя (два «Алекса», «Алекс» и
+     * «Алекс Иванов», или «Серый» и «Серой» для «Серому»): кому писать — неизвестно,
      * первую попавшуюся не выбираем. Поля ввода (поиск с тем же текстом, [exclude]) не считаются,
      * вложенные элементы одной строки (перекрывающиеся границы) считаются одной строкой.
      */
     private fun ambiguousContact(contact: String, exclude: UiNode? = null): Boolean {
         if (ContactMatch.norm(contact).isEmpty()) return true
-        val tree = hands.uiTree() ?: return true
+        if (hands.uiTree() == null) return true
         val rows = mutableListOf<Rect>()
-        for (n in tree.nodes) {
-            if (n.bounds.isEmpty || isInputLike(n) || (exclude != null && sameSpot(exclude, n))) continue
-            if (!ContactMatch.matches(n.visibleText, contact)) continue
+        for ((n, _) in contactRows(contact, exclude)) {
             if (rows.none { Rect.intersects(it, n.bounds) }) rows += Rect(n.bounds)
         }
         return rows.size > 1
@@ -137,15 +160,13 @@ class AppControlEngine(
         return cls.contains("edittext") || cls.contains("autocomplete") || cls.contains("searchview")
     }
 
-    /** Строка чата/контакта с этим именем (не поле ввода): самая верхняя. */
-    private fun findContactRow(contact: String, exclude: UiNode? = null): UiNode? {
-        if (ContactMatch.norm(contact).isEmpty()) return null
-        val tree = hands.uiTree() ?: return null
-        return tree.nodes
-            .filter { !it.bounds.isEmpty && !isInputLike(it) && !(exclude != null && sameSpot(exclude, it)) &&
-                ContactMatch.matches(it.visibleText, contact) }
-            .minWithOrNull(compareBy<UiNode>({ it.bounds.top }, { it.bounds.left }))
-    }
+    /** Строка чата/контакта с этим именем (не поле ввода): самая верхняя, с формой имени. */
+    private fun findContactMatch(contact: String, exclude: UiNode? = null): Pair<UiNode, String>? =
+        contactRows(contact, exclude)
+            .minWithOrNull(compareBy<Pair<UiNode, String>>({ it.first.bounds.top }, { it.first.bounds.left }))
+
+    private fun findContactRow(contact: String, exclude: UiNode? = null): UiNode? =
+        findContactMatch(contact, exclude)?.first
 
     /**
      * Кнопка/строка поиска в мессенджере: по описанию/id, либо по ТОЧНОМУ тексту вроде «Поиск».
@@ -594,6 +615,11 @@ class AppControlEngine(
             steps += ProofStep(ProofStage.RESULT_VERIFIED, StepStatus.FAILED, "PLAN_RESULT=NOT VERIFIED: чат не открыт")
             return ActionResult(action, false, chat.message, steps, "hands")
         }
+        // Шапка чата дальше сверяется с той формой имени, под которую подошла строка («Серому» → «серый»).
+        val who = chat.who ?: contact
+        if (who != ContactMatch.norm(contact)) {
+            steps += ProofStep(ProofStage.TARGET_APP_IDENTIFIED, StepStatus.OK, "собеседник по форме имени: $who")
+        }
 
         val field = waitFor(FIELD_TIMEOUT_MS) { hands.findEditableField() }
         if (field == null) {
@@ -603,7 +629,7 @@ class AppControlEngine(
         }
         // Перед вводом: то же поле и тот же собеседник в шапке.
         if (!sameSpot(field, hands.findEditableField())) return changed("поле ввода изменилось")
-        if (!recipientShown(contact, field)) return changed("собеседник не подтверждён")
+        if (!recipientShown(who, field)) return changed("собеседник не подтверждён")
         if (!onScreen(appPkg)) return moved(hands.currentPackage())
         val typed = hands.inputText(field, text, appPkg)
         steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "текст введён: «${text.take(32)}»")
@@ -629,7 +655,7 @@ class AppControlEngine(
         // Перед отправкой: та же кнопка, то же поле с текстом и тот же собеседник в шапке.
         if (!sameTarget(appPkg, send, hands.findSendButton())) return changed("кнопка отправки изменилась")
         if (!sameSpot(field, hands.findEditableField())) return changed("поле ввода изменилось")
-        if (!recipientShown(contact, field)) return changed("собеседник не подтверждён")
+        if (!recipientShown(who, field)) return changed("собеседник не подтверждён")
         if (!onScreen(appPkg)) return moved(hands.currentPackage())
         val sent = hands.clickNode(send, appPkg)
         steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "нажата кнопка отправки")
@@ -656,7 +682,7 @@ class AppControlEngine(
      * Мессенджер часто открывается там, где его оставили (в чужом чате, в настройках).
      * Возвращаемся «Назад» к списку чатов — не больше [MAX_BACK_STEPS] раз и только пока
      * на экране этот мессенджер.
-     * @return true — уже открыт чат именно с этим собеседником.
+     * @return true — уже открыт чат именно с этим собеседником (по имени как сказано, без падежных форм).
      */
     private suspend fun backToChatList(contact: String, appPkg: String, steps: MutableList<ProofStep>): Boolean {
         for (attempt in 1..MAX_BACK_STEPS) {
@@ -701,17 +727,17 @@ class AppControlEngine(
         }
 
         // 1. Чат виден в списке — нажимаем строку (нажатие уйдёт нажимаемому родителю строки).
-        val direct = findContactRow(contact)
+        val direct = findContactMatch(contact)
         if (direct != null) {
             if (ambiguousContact(contact)) return ambiguous()
             // Строка чата ищется ещё раз прямо перед нажатием: подмена или сдвиг = отказ.
-            if (!sameTarget(appPkg, direct, findContactRow(contact))) return swapped
+            if (!sameTarget(appPkg, direct.first, findContactRow(contact))) return swapped
             if (!onScreen(appPkg)) return away
-            val clicked = hands.clickNode(direct, appPkg)
-            val opened = clicked && awaitChatWith(contact, appPkg) != null
+            val clicked = hands.clickNode(direct.first, appPkg)
+            val opened = clicked && awaitChatWith(direct.second, appPkg) != null
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "чат найден в списке, нажатие")
             steps += stepPerformed(opened, "PLAN_STEP2=OPEN_CHAT")
-            if (opened) return StepResult(true, "Чат с $contact открыт")
+            if (opened) return StepResult(true, "Чат с $contact открыт", who = direct.second)
             // Не открылся нужный чат — назад к списку и через поиск.
             if (onScreen(appPkg) && findSearchEntry() == null) {
                 hands.pressBack()
@@ -719,7 +745,7 @@ class AppControlEngine(
             }
         }
 
-        // 2. Поиск по имени.
+        // 2. Поиск по имени (общее начало всех форм: «Серому» → «сер», найдутся и «Серый», и «Серому»).
         val searchEntry = waitFor(SEARCH_TIMEOUT_MS) { findSearchEntry() }
         if (searchEntry == null) {
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED,
@@ -734,23 +760,24 @@ class AppControlEngine(
                 return StepResult(false, "Не удалось открыть поиск контакта", retryable = true)
             }
         if (!onScreen(appPkg)) return away
-        if (!hands.inputText(searchField, contact, appPkg)) {
+        val query = ContactMatch.searchQuery(contact).ifBlank { contact }
+        if (!hands.inputText(searchField, query, appPkg)) {
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "имя не введено в поиск")
             return StepResult(false, "Не удалось ввести имя в поиск", retryable = true)
         }
-        steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "поиск: «${contact.take(40)}»")
-        val found = waitFor(RESULTS_TIMEOUT_MS) { if (onScreen(appPkg)) findContactRow(contact, exclude = searchField) else null }
+        steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.OK, "поиск: «${query.take(40)}»")
+        val found = waitFor(RESULTS_TIMEOUT_MS) { if (onScreen(appPkg)) findContactMatch(contact, exclude = searchField) else null }
         if (found == null) {
             steps += ProofStep(ProofStage.ACTION_ATTEMPTED, StepStatus.FAILED, "контакт не найден в результатах поиска")
             return StepResult(false, "Контакт $contact не найден — проверьте, как он записан")
         }
         if (ambiguousContact(contact, exclude = searchField)) return ambiguous()
-        if (!sameTarget(appPkg, found, findContactRow(contact, exclude = searchField))) return swapped
+        if (!sameTarget(appPkg, found.first, findContactRow(contact, exclude = searchField))) return swapped
         if (!onScreen(appPkg)) return away
-        val clicked = hands.clickNode(found, appPkg)
-        val opened = clicked && awaitChatWith(contact, appPkg) != null
+        val clicked = hands.clickNode(found.first, appPkg)
+        val opened = clicked && awaitChatWith(found.second, appPkg) != null
         steps += stepPerformed(opened, "PLAN_STEP2=OPEN_CHAT")
-        return if (opened) StepResult(true, "Чат с $contact открыт")
+        return if (opened) StepResult(true, "Чат с $contact открыт", who = found.second)
         else StepResult(false, "Не удалось открыть чат с $contact")
     }
 
@@ -758,7 +785,8 @@ class AppControlEngine(
         ProofStep(ProofStage.ACTION_PERFORMED, if (ok) StepStatus.OK else StepStatus.FAILED,
             "$plan PLAN_STEP2_STATUS=${if (ok) "ACTION_PERFORMED" else "FAILED"}")
 
-    private data class StepResult(val ok: Boolean, val message: String, val retryable: Boolean = false)
+    /** [who] — форма имени, под которую подошёл открытый чат (null — имя как сказано). */
+    private data class StepResult(val ok: Boolean, val message: String, val retryable: Boolean = false, val who: String? = null)
 
     companion object {
         private const val DEFAULT_MESSENGER = "whatsapp"
