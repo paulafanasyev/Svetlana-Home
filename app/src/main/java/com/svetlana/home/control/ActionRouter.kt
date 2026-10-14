@@ -39,8 +39,10 @@ private object RouterGrant : ActionGrant
  * Нажатие/ввод/очистка выполняются только на том элементе, который был оценён и подтверждён:
  * движок получает его метку (пакет, текст, id, границы) и отказывает, если на экране уже другой элемент.
  *
- * Ответ на входящее сначала привязывается к конкретному уведомлению (ключ, собеседник,
- * приложение) — подтверждение и отправка идут именно туда, кого показали пользователю.
+ * Ответ на входящее привязывается к конкретному уведомлению (ключ, собеседник, приложение,
+ * отпечаток беседы) ДО любого вопроса: и в приложении, и для фонового голоса, и для
+ * шагов цепочки. Пользователь всегда подтверждает конкретного человека, а не «последнего».
+ * Текст входящих в историю не пишется.
  *
  * Вопросы-подтверждения задаются на языке интерфейса; журнал истории остаётся русским.
  *
@@ -69,18 +71,42 @@ class ActionRouter(
 
     private fun currentPackageForScreenshot(): String = currentPackageSafe()
 
+    private sealed class Pin {
+        class Ok(val action: SvetlanaAction) : Pin()
+        class Fail(val message: String) : Pin()
+    }
+
+    /** Привязывает каждый ещё не привязанный ответ (в том числе внутри цепочки) к уведомлению. */
+    private fun pinReplies(action: SvetlanaAction): Pin {
+        if (action is SvetlanaAction.ReplyIncoming && action.key == null) {
+            return when (val p = incoming.pin(action)) {
+                is IncomingMessages.Pinned.Ok -> Pin.Ok(p.action)
+                is IncomingMessages.Pinned.Fail -> Pin.Fail(p.message)
+            }
+        }
+        if (action is SvetlanaAction.Compound && action.steps.any { it is SvetlanaAction.ReplyIncoming && it.key == null }) {
+            val steps = ArrayList<SvetlanaAction>(action.steps.size)
+            for (step in action.steps) {
+                when (val r = pinReplies(step)) {
+                    is Pin.Ok -> steps += r.action
+                    is Pin.Fail -> return r
+                }
+            }
+            return Pin.Ok(SvetlanaAction.Compound(steps))
+        }
+        return Pin.Ok(action)
+    }
+
     suspend fun execute(action: SvetlanaAction, confirmed: Boolean = false): ActionResult =
         executeInternal(action, confirmed, chainApproved = false)
 
-    private suspend fun executeInternal(action: SvetlanaAction, confirmed: Boolean, chainApproved: Boolean): ActionResult {
+    private suspend fun executeInternal(requested: SvetlanaAction, confirmed: Boolean, chainApproved: Boolean): ActionResult {
         // Ответ на входящее: сначала выбираем конкретное уведомление, и уже ЕГО подтверждает пользователь.
-        if (action is SvetlanaAction.ReplyIncoming && action.key == null) {
-            return when (val pinned = incoming.pin(action)) {
-                is IncomingMessages.Pinned.Ok -> executeInternal(pinned.action, confirmed, chainApproved)
-                is IncomingMessages.Pinned.Fail -> {
-                    historyManager.record(HistoryCategory.ERRORS, "${action.name} → FAILED: ${pinned.message}")
-                    ActionResult(action, false, pinned.message, way = "notification")
-                }
+        val action = when (val pinned = pinReplies(requested)) {
+            is Pin.Ok -> pinned.action
+            is Pin.Fail -> {
+                historyManager.record(HistoryCategory.ERRORS, "${requested.name} → FAILED: ${pinned.message}")
+                return ActionResult(requested, false, pinned.message, way = "notification")
             }
         }
         val policyRisk = ActionRiskPolicy.requiresConfirmation(action) && !chainApproved
@@ -130,15 +156,17 @@ class ActionRouter(
             is SvetlanaAction.Share -> engine.share(RouterGrant, action.text)
             is SvetlanaAction.ComposeMessage ->
                 engine.composeMessage(RouterGrant, action.appTarget, action.contact, action.text)
-            is SvetlanaAction.ReadIncoming -> incoming.read(action.contact)
+            is SvetlanaAction.ReadIncoming -> incoming.read(action)
             is SvetlanaAction.ReplyIncoming -> incoming.reply(RouterGrant, action)
             is SvetlanaAction.Compound -> executeCompound(action, confirmed)
         }
 
         if (result.requiresUserConfirmation) return result
+        // Текст чужих сообщений в историю не пишем — только факт чтения.
+        val logged = if (action is SvetlanaAction.ReadIncoming) "входящие прочитаны (текст не сохраняется)" else result.message
         historyManager.record(
             if (result.success) HistoryCategory.COMMANDS else HistoryCategory.ERRORS,
-            "${action.name} → ${if (result.success) "OK" else "FAILED"}: ${result.message}"
+            "${action.name} → ${if (result.success) "OK" else "FAILED"}: $logged"
         )
         return result
     }
@@ -240,9 +268,14 @@ class ActionRouter(
      * Одно нажатие «Подтвердить» в разблокированном приложении = согласие (одноразовое, 60 с).
      * Экранные действия (нажать/ввести/очистить/прочитать/скриншот) не получают заранее
      * выданного согласия: при подтверждении цель пересчитывается по живому экрану и, если она
-     * опасная, пользователь увидит её и подтвердит отдельно.
+     * опасная, пользователь увидит её и подтвердит отдельно. Ответ на входящее привязывается
+     * к уведомлению сразу: в вопросе видно, кому именно, и одно нажатие его отправляет.
      */
-    private fun proposeFromVoice(action: SvetlanaAction): ActionResult {
+    private fun proposeFromVoice(requested: SvetlanaAction): ActionResult {
+        val action = when (val pinned = pinReplies(requested)) {
+            is Pin.Ok -> pinned.action
+            is Pin.Fail -> return ActionResult(requested, false, pinned.message, way = "voice")
+        }
         historyManager.record(HistoryCategory.CONFIRMATIONS, "Голос из фона: ${action.name} ждёт подтверждения в приложении")
         if (!isScreenBound(action) && ActionRiskPolicy.requiresConfirmation(action)) {
             rememberApproval(Approval(action, null))

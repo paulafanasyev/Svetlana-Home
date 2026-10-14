@@ -44,9 +44,11 @@ object ConfirmationText {
         is SvetlanaAction.ComposeMessage ->
             "написать в ${quote(action.appTarget)} контакту ${quote(action.contact)}: ${quote(action.text)}"
         is SvetlanaAction.ReplyIncoming ->
-            "ответить в ${quote(action.app ?: "мессенджере")} ${quote(action.contact ?: "последнему собеседнику")}: ${quote(action.text)}"
+            "ответить в ${quote(action.app ?: "мессенджере")} ${quote(action.contact ?: "последнему собеседнику")}" +
+                (action.quote?.let { " на ${quote(it)}" } ?: "") + ": ${quote(action.text)}"
         is SvetlanaAction.ReadIncoming ->
-            "прочитать входящие сообщения" + (action.contact?.let { " от ${quote(it)}" } ?: "")
+            (if (action.latestOnly) "прочитать последнее входящее сообщение" else "прочитать входящие сообщения") +
+                (action.contact?.let { " от ${quote(it)}" } ?: "") + (action.app?.let { " в ${quote(it)}" } ?: "")
         is SvetlanaAction.Click -> "нажать ${quote(targetShown ?: action.element)} в ${quote(action.target)}"
         is SvetlanaAction.LongClick -> "долго нажать ${quote(targetShown ?: action.element)} в ${quote(action.target)}"
         is SvetlanaAction.TypeText -> {
@@ -69,9 +71,11 @@ object ConfirmationText {
             is SvetlanaAction.ComposeMessage ->
                 "write in ${q(action.appTarget)} to contact ${q(action.contact)}: ${q(action.text)}"
             is SvetlanaAction.ReplyIncoming ->
-                "reply in ${q(action.app ?: "the messenger")} to ${q(action.contact ?: "the last sender")}: ${q(action.text)}"
+                "reply in ${q(action.app ?: "the messenger")} to ${q(action.contact ?: "the last sender")}" +
+                    (action.quote?.let { " to ${q(it)}" } ?: "") + ": ${q(action.text)}"
             is SvetlanaAction.ReadIncoming ->
-                "read incoming messages" + (action.contact?.let { " from ${q(it)}" } ?: "")
+                (if (action.latestOnly) "read the latest incoming message" else "read incoming messages") +
+                    (action.contact?.let { " from ${q(it)}" } ?: "") + (action.app?.let { " in ${q(it)}" } ?: "")
             is SvetlanaAction.Click -> "tap ${q(targetShown ?: action.element)} in ${q(action.target)}"
             is SvetlanaAction.LongClick -> "long-press ${q(targetShown ?: action.element)} in ${q(action.target)}"
             is SvetlanaAction.TypeText -> {
