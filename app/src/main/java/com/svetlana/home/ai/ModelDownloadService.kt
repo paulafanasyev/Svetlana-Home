@@ -114,7 +114,8 @@ class ModelDownloadService : Service() {
         ensureChannel()
         val modelId = intent?.getStringExtra(EXTRA_MODEL_ID)
         val model = modelId?.let { ServiceLocator.modelRegistry.byId(it) }
-        startInForeground(progressNotification(model?.name ?: "…", percents[modelId] ?: 0))
+        val shownPercent = modelId?.let { percents[it] } ?: 0
+        startInForeground(progressNotification(model?.name ?: "…", shownPercent))
         if (model == null) {
             modelId?.let { ModelDownloads.set(it, ModelDownloads.State.Finished(false, t("Модель не найдена", "Model not found"))) }
             finishIfIdle()
@@ -122,13 +123,12 @@ class ModelDownloadService : Service() {
         }
         if (stopping) {
             // Сервис уже останавливается (лимит времени) — не оживляем остановленный поток.
-            val p = percents[model.id] ?: 0
-            ModelDownloads.set(model.id, ModelDownloads.State.Paused(p, pausedText(p)))
+            ModelDownloads.set(model.id, ModelDownloads.State.Paused(shownPercent, pausedText(shownPercent)))
             return START_NOT_STICKY
         }
         if (tokens.containsKey(model.id)) {
             // Уже качается: второй поток в тот же .part испортил бы файл.
-            ModelDownloads.set(model.id, ModelDownloads.State.Running(percents[model.id] ?: 0))
+            ModelDownloads.set(model.id, ModelDownloads.State.Running(shownPercent))
             return START_NOT_STICKY
         }
         launchWorker(model)
@@ -171,7 +171,7 @@ class ModelDownloadService : Service() {
         }
         val installed = result.getOrNull()
         val error = result.exceptionOrNull()
-        val state = when {
+        val state: ModelDownloads.State = when {
             installed != null -> ModelDownloads.State.Finished(true,
                 // Сервис останавливается — долгую проверку модели не запускаем.
                 if (token.get()) t("загружена", "downloaded") else verifyAfterInstall(installed))
@@ -180,19 +180,21 @@ class ModelDownloadService : Service() {
             else -> ModelDownloads.State.Finished(false, error?.message ?: t("Ошибка загрузки", "Download failed"))
         }
         ModelDownloads.set(model.id, state)
-        val (ok, message) = when (state) {
-            is ModelDownloads.State.Finished -> state.success to state.message
-            is ModelDownloads.State.Paused -> false to state.message
-            else -> false to ""
+        val ok = state is ModelDownloads.State.Finished && state.success
+        val paused = state is ModelDownloads.State.Paused
+        val message = when (state) {
+            is ModelDownloads.State.Finished -> state.message
+            is ModelDownloads.State.Paused -> state.message
+            is ModelDownloads.State.Running -> ""
         }
         try {
             ServiceLocator.historyManager.record(HistoryCategory.MODELS, when {
                 ok -> "Модель ${model.name} загружена: $message"
-                state is ModelDownloads.State.Paused -> "Загрузка ${model.name} на паузе (${state.percent}%)"
+                paused -> "Загрузка ${model.name} на паузе: $message"
                 else -> "Загрузка ${model.name} не удалась: $message"
             })
         } catch (_: Throwable) { }
-        notifySafe(doneNotification(model.name, ok, state is ModelDownloads.State.Paused, message),
+        notifySafe(doneNotification(model.name, ok, paused, message),
             DONE_ID_BASE + (model.id.hashCode() and 0xFFFF))
     }
 
