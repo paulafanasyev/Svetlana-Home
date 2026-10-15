@@ -229,7 +229,8 @@ fun ActionChip(text: String, onClick: () -> Unit) {
  * Локальный ИИ (ТЗ §34). Скачать можно только по решению пользователя.
  *
  * Загрузка идёт в [com.svetlana.home.ai.ModelDownloadService] — если свернуть окно,
- * модель докачивается, а прогресс виден в уведомлении и здесь.
+ * модель докачивается, а прогресс виден в уведомлении и здесь. Пауза (лимит времени,
+ * обрыв связи) показывается как пауза, а не как ошибка: «Скачать» продолжит с того же места.
  */
 @Composable
 fun LocalAiScreen() {
@@ -407,7 +408,7 @@ fun LocalAiScreen() {
                         } else if (!alreadyInstalled) {
                             ActionChip(stringResource(R.string.model_download)) {
                                 // Только по решению пользователя (ТЗ §32/§87).
-                                // Фоновый сервис: не обрывается, если свернуть окно.
+                                // Фоновый сервис: не обрывается, если свернуть окно; после паузы — докачка.
                                 ModelDownloads.start(context.applicationContext, report.model.id)
                             }
                             ActionChip(stringResource(R.string.model_details)) { }
@@ -420,6 +421,11 @@ fun LocalAiScreen() {
                         Spacer(Modifier.height(4.dp))
                         Text(tr("Можно свернуть окно — загрузка продолжится в фоне.",
                             "You can leave this screen — the download continues in the background."),
+                            style = MaterialTheme.typography.bodySmall, color = TextTertiary)
+                    }
+                    if (dl is ModelDownloads.State.Paused && !alreadyInstalled) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(tr("Пауза", "Paused") + " · ${dl.percent}% — ${dl.message}",
                             style = MaterialTheme.typography.bodySmall, color = TextTertiary)
                     }
                     if (dl is ModelDownloads.State.Finished && !dl.success && !alreadyInstalled) {

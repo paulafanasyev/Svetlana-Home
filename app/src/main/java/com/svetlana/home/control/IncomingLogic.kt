@@ -3,8 +3,9 @@ package com.svetlana.home.control
 /**
  * Входящее сообщение из уведомления мессенджера (без Android-объектов).
  * [sender] — последний ВХОДЯЩИЙ отправитель (свои ответы сюда не попадают), [chat] — название
- * группы (для личных чатов null), [canReply] — есть рабочая кнопка «Ответить»,
- * [answered] — после последнего входящего уже есть мой ответ.
+ * группы (для личных чатов null), [canReply] — есть рабочая кнопка «Ответить» у известного
+ * мессенджера, [answered] — после последнего входящего уже есть мой ответ, [convId] — устойчивый
+ * идентификатор беседы от мессенджера (ярлык беседы Android 11+), если он его даёт.
  */
 data class IncomingEntry(
     val key: String,
@@ -15,10 +16,14 @@ data class IncomingEntry(
     val time: Long,
     val canReply: Boolean,
     val chat: String? = null,
-    val answered: Boolean = false
+    val answered: Boolean = false,
+    val convId: String? = null
 ) {
-    /** С кем именно беседа. Ответ уходит только если перед отправкой она всё ещё та же. */
-    val fingerprint: String get() = "$pkg|${(chat ?: sender).trim().lowercase()}"
+    /**
+     * С кем именно беседа. Ответ уходит только если перед отправкой она всё ещё та же.
+     * Идентификатор беседы мессенджера надёжнее названия: две группы «Семья» не спутаются.
+     */
+    val fingerprint: String get() = "$pkg|" + (convId?.let { "id:$it" } ?: (chat ?: sender).trim().lowercase())
 }
 
 /** Сообщение из MessagingStyle; [fromMe] — моё собственное (мессенджер дописал мой ответ). */
@@ -52,6 +57,8 @@ object IncomingLogic {
     private val CODE_BEFORE = Regex("$CODE_WORDS[^\\d]{0,30}\\d{4,8}", RegexOption.IGNORE_CASE)
     private val CODE_AFTER = Regex("\\d{4,8}[^\\d]{0,30}$CODE_WORDS", RegexOption.IGNORE_CASE)
     private val BARE_CODE = Regex("(^|[^\\d])\\d{5,8}([^\\d]|$)")
+    /** Сообщение целиком из цифр («4829», «482 913») — почти наверняка код. */
+    private val DIGITS_ONLY = Regex("^[\\d\\s\\-]{4,12}$")
     private const val SHORT = 40
 
     private val APP_STEMS = listOf(
@@ -75,9 +82,32 @@ object IncomingLogic {
     fun isPronoun(s: String?): Boolean = s != null && ContactMatch.norm(s) in PRONOUNS
 
     /** Сообщение с одноразовым кодом/паролем — вслух не зачитываем. */
-    fun looksLikeCode(text: String): Boolean =
-        CODE_BEFORE.containsMatchIn(text) || CODE_AFTER.containsMatchIn(text) ||
-            (text.trim().length <= SHORT && BARE_CODE.containsMatchIn(text))
+    fun looksLikeCode(text: String): Boolean {
+        val t = text.trim()
+        if (DIGITS_ONLY.matches(t) && t.count { it.isDigit() } in 4..8) return true
+        return CODE_BEFORE.containsMatchIn(text) || CODE_AFTER.containsMatchIn(text) ||
+            (t.length <= SHORT && BARE_CODE.containsMatchIn(text))
+    }
+
+    /**
+     * Моё ли сообщение. По правилам MessagingStyle сообщения пользователя идут без Person, но
+     * некоторые мессенджеры вообще не указывают отправителей: если Person нет ни у одного
+     * сообщения ([allAnonymous]), считаем их входящими (отправитель — заголовок уведомления).
+     *
+     * У Person есть только ключи — надёжно сравниваем их. Имя само по себе ничего не доказывает:
+     * собеседник тёзка «Павел» не должен стать «мной», поэтому без ключей сообщение с Person — входящее.
+     */
+    fun isFromMe(
+        personKey: String?,
+        personName: String?,
+        userKey: String?,
+        userName: String?,
+        hasPerson: Boolean,
+        allAnonymous: Boolean
+    ): Boolean {
+        if (!hasPerson) return !allAnonymous
+        return personKey != null && userKey != null && personKey == userKey
+    }
 
     /**
      * Последнее ВХОДЯЩЕЕ из беседы: мои собственные ответы, которые мессенджер
@@ -119,9 +149,9 @@ object IncomingLogic {
         val hits = matching(contact, replyable)
         if (hits.isEmpty()) return IncomingPick.NotFound
         if (contact != null && !isPronoun(contact)) {
-            // Разные люди или один человек в разных приложениях — переспрашиваем.
-            val people = hits.map { "${ContactMatch.norm(who(it))}|${it.pkg}" }.distinct()
-            if (people.size > 1) return IncomingPick.Ambiguous(hits.map { "${who(it)} (${it.app})" }.distinct().take(5))
+            // Разные люди, один человек в разных приложениях или разные беседы с одним именем — переспрашиваем.
+            val conversations = hits.map { it.fingerprint }.distinct()
+            if (conversations.size > 1) return IncomingPick.Ambiguous(hits.map { "${who(it)} (${it.app})" }.distinct().take(5))
             return IncomingPick.Found(hits.maxByOrNull { it.time }!!)
         }
         // «Ответь ему»: последний, кому ещё не отвечено; если отвечено всем — просто последний.
