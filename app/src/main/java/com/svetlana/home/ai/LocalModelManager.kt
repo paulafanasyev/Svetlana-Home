@@ -54,6 +54,9 @@ data class BenchmarkResult(
     val status: String
 )
 
+/** Загрузка остановлена, но частичный файл сохранён: следующее «Скачать» продолжит. Не ошибка. */
+class DownloadPaused(val percent: Int, message: String) : IllegalStateException(message)
+
 open class LocalModelManager(
     private val context: Context,
     private val registry: AIModelRegistry = AIModelRegistry()
@@ -121,9 +124,14 @@ open class LocalModelManager(
         object Cancelled : Chunk()
     }
 
+    private fun paused(temp: File, model: AIModel): DownloadPaused {
+        val p = percentOf(if (temp.isFile) temp.length() else 0L, model)
+        return DownloadPaused(p, "Загрузка приостановлена ($p%). Нажмите «Скачать» — она продолжится с того же места.")
+    }
+
     /**
      * @param cancelled проверяется на каждом блоке: true — остановиться, сохранив частичный файл
-     *   для докачки (лимит времени foreground-сервиса в Android 15).
+     *   для докачки (лимит времени foreground-сервиса в Android 15). Пауза возвращается как [DownloadPaused].
      */
     fun install(
         model: AIModel,
@@ -149,13 +157,17 @@ open class LocalModelManager(
             if (!model.downloadUrl.startsWith("https://", ignoreCase = true)) {
                 return Result.failure(IllegalStateException("Модели скачиваются только по защищённому https"))
             }
+            // Процесс упал между «старая → .previous» и «новая → на место»: сначала вернуть старую.
+            if (!target.exists() && backup.exists() && backup.renameTo(target)) {
+                Log.w(TAG, "Восстановлена предыдущая версия ${model.id} после прерванной установки")
+            }
             val already = if (temp.isFile) temp.length() else 0L
             if (!isSpaceEnough(model, already)) {
                 return Result.failure(IllegalStateException("Недостаточно свободного места"))
             }
             val limit = maxDownloadBytes(model)
             Log.i(TAG, "Загрузка модели ${model.name} (${model.sizeMb}MB) по решению пользователя; уже есть $already байт")
-            backup.delete()
+            if (target.exists()) backup.delete()
             val client = okhttp3.OkHttpClient.Builder()
                 .followSslRedirects(false)
                 .connectTimeout(30, TimeUnit.SECONDS)
@@ -168,8 +180,7 @@ open class LocalModelManager(
                 attempt++
                 when (val chunk = downloadOnce(client, model, temp, limit, cancelled, progress)) {
                     Chunk.Done -> break
-                    Chunk.Cancelled -> return Result.failure(IllegalStateException(
-                        "Загрузка приостановлена (${percentOf(temp.length(), model)}%). Нажмите «Скачать» — она продолжится с того же места."))
+                    Chunk.Cancelled -> return Result.failure(paused(temp, model))
                     is Chunk.Fatal -> {
                         temp.delete()
                         return Result.failure(IllegalStateException(chunk.message))
@@ -177,12 +188,12 @@ open class LocalModelManager(
                     is Chunk.Retry -> {
                         Log.w(TAG, "Попытка $attempt не удалась, скачано ${temp.length()} байт", chunk.error)
                         if (attempt >= MAX_ATTEMPTS) {
-                            return Result.failure(IllegalStateException(
-                                "Связь прерывается (${percentOf(temp.length(), model)}% скачано). Нажмите «Скачать» ещё раз — загрузка продолжится."))
+                            val p = percentOf(temp.length(), model)
+                            return Result.failure(DownloadPaused(p,
+                                "Связь прерывается ($p% скачано). Нажмите «Скачать» ещё раз — загрузка продолжится."))
                         }
                         sleepUnlessCancelled(BACKOFF_MS * attempt, cancelled)
-                        if (cancelled()) return Result.failure(IllegalStateException(
-                            "Загрузка приостановлена. Нажмите «Скачать» — она продолжится с того же места."))
+                        if (cancelled()) return Result.failure(paused(temp, model))
                     }
                 }
             }
@@ -203,10 +214,13 @@ open class LocalModelManager(
                     "Контрольная сумма файла не совпадает с доверенной. Загрузка отменена. Предыдущая модель сохранена."))
             }
 
-            if (target.exists() && !target.renameTo(backup)) {
-                temp.delete()
-                return Result.failure(IllegalStateException(
-                    "Не удалось сохранить предыдущую версию модели перед заменой"))
+            if (target.exists()) {
+                backup.delete()
+                if (!target.renameTo(backup)) {
+                    temp.delete()
+                    return Result.failure(IllegalStateException(
+                        "Не удалось сохранить предыдущую версию модели перед заменой"))
+                }
             }
             if (!temp.renameTo(target)) {
                 temp.delete()
@@ -309,7 +323,8 @@ open class LocalModelManager(
                                 return Chunk.Fatal("Файл больше ожидаемого — загрузка отменена")
                             }
                             output.write(buffer, 0, n)
-                            if (total > 0) progress(((copied * 100) / total).toInt())
+                            // Без Content-Length прогресс считаем по размеру из реестра (не больше 99%).
+                            progress(if (total > 0) ((copied * 100) / total).toInt() else percentOf(copied, model))
                         }
                     }
                 }

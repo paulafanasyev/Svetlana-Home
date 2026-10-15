@@ -3,7 +3,7 @@ package com.svetlana.home.control
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
-/** Второй круг критики входящих. */
+/** Второй и третий круг критики входящих. */
 class IncomingRound2Test {
 
     private fun e(key: String, sender: String, chat: String?, convId: String?, time: Long) =
@@ -33,8 +33,14 @@ class IncomingRound2Test {
         assertThat(IncomingLogic.isFromMe(null, null, null, "Я", hasPerson = false, allAnonymous = true)).isFalse()
         assertThat(IncomingLogic.isFromMe("u1", "Серый", "me", "Я", hasPerson = true, allAnonymous = false)).isFalse()
         assertThat(IncomingLogic.isFromMe("me", "Я", "me", "Я", hasPerson = true, allAnonymous = false)).isTrue()
-        assertThat(IncomingLogic.isFromMe(null, "Я", null, "Я", hasPerson = true, allAnonymous = false)).isTrue()
         assertThat(IncomingLogic.isFromMe(null, "Серый", null, null, hasPerson = true, allAnonymous = false)).isFalse()
+    }
+
+    @Test
+    fun namesakeOfUserIsNotMe() {
+        // Собеседник тёзка «Павел» без ключей — входящее, а не мой ответ.
+        assertThat(IncomingLogic.isFromMe(null, "Павел", null, "Павел", hasPerson = true, allAnonymous = false)).isFalse()
+        assertThat(IncomingLogic.isFromMe("c1", "Павел", null, "Павел", hasPerson = true, allAnonymous = false)).isFalse()
     }
 
     @Test

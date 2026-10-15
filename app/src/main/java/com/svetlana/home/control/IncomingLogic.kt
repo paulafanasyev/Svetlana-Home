@@ -93,6 +93,9 @@ object IncomingLogic {
      * Моё ли сообщение. По правилам MessagingStyle сообщения пользователя идут без Person, но
      * некоторые мессенджеры вообще не указывают отправителей: если Person нет ни у одного
      * сообщения ([allAnonymous]), считаем их входящими (отправитель — заголовок уведомления).
+     *
+     * У Person есть только ключи — надёжно сравниваем их. Имя само по себе ничего не доказывает:
+     * собеседник тёзка «Павел» не должен стать «мной», поэтому без ключей сообщение с Person — входящее.
      */
     fun isFromMe(
         personKey: String?,
@@ -103,8 +106,7 @@ object IncomingLogic {
         allAnonymous: Boolean
     ): Boolean {
         if (!hasPerson) return !allAnonymous
-        if (personKey != null && userKey != null) return personKey == userKey
-        return personName != null && userName != null && personName.trim() == userName.trim()
+        return personKey != null && userKey != null && personKey == userKey
     }
 
     /**
