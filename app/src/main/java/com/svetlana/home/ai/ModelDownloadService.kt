@@ -7,7 +7,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
@@ -27,7 +29,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Состояние загрузок локальных моделей — одно на всё приложение, чтобы экран
@@ -36,6 +39,8 @@ import java.util.concurrent.atomic.AtomicInteger
 object ModelDownloads {
     sealed class State {
         data class Running(val percent: Int) : State()
+        /** Пауза: частичный файл сохранён, «Скачать» продолжит с того же места. Это не ошибка. */
+        data class Paused(val percent: Int, val message: String) : State()
         data class Finished(val success: Boolean, val message: String) : State()
     }
 
@@ -70,79 +75,144 @@ object ModelDownloads {
 /**
  * ModelDownloadService — загрузка локальной модели в фоне (foreground service типа dataSync).
  *
- * Раньше загрузка жила в корутине экрана настроек: стоило свернуть окно, и Android
- * ограничивал сеть/завершал процесс — модель не докачивалась. Все проверки целостности
- * (https, лимит размера, SHA-256 из реестра) остаются в [LocalModelManager.install].
+ * Все проверки целостности (https, лимит размера, SHA-256 из реестра) — в [LocalModelManager.install].
  *
- * Android 15 ограничивает dataSync-сервис шестью часами и зовёт [onTimeout]: сервис должен
- * остановиться за несколько секунд, иначе приложение аварийно завершается. Загрузка тогда
- * ставится на паузу с сохранением частичного файла.
+ * У каждой загрузки свой флаг остановки: новое нажатие «Скачать» не сбрасывает остановку
+ * чужого потока, а для модели, которая уже качается, второй поток не запускается.
+ *
+ * Android 15 ограничивает dataSync-сервис шестью часами и зовёт [onTimeout]: все загрузки
+ * ставятся на паузу с сохранением частичного файла, сервис сразу останавливается и до нового
+ * запуска новые загрузки не принимает.
  */
 class ModelDownloadService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val active = AtomicInteger(0)
+    private val main = Handler(Looper.getMainLooper())
+
+    /** modelId → флаг остановки ЭТОЙ загрузки. Есть запись — поток загрузки ещё жив. */
+    private val tokens = ConcurrentHashMap<String, AtomicBoolean>()
+    private val percents = ConcurrentHashMap<String, Int>()
     private var wakeLock: PowerManager.WakeLock? = null
 
+    /** Лимит времени или уничтожение: этот экземпляр больше не качает (не сбрасывается). */
     @Volatile
-    private var stopRequested = false
+    private var stopping = false
+
+    @Volatile
+    private var lastStartId = 0
 
     private fun t(ru: String, en: String): String = Tr.t(applicationContext, ru, en)
+
+    private fun pausedText(percent: Int) = t(
+        "Загрузка приостановлена ($percent%). Нажмите «Скачать» — она продолжится с того же места.",
+        "Download paused ($percent%). Tap “Download” to continue from the same place.")
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         ensureChannel()
-        stopRequested = false
         val modelId = intent?.getStringExtra(EXTRA_MODEL_ID)
         val model = modelId?.let { ServiceLocator.modelRegistry.byId(it) }
-        startInForeground(progressNotification(model?.name ?: "…", 0))
+        startInForeground(progressNotification(model?.name ?: "…", percents[modelId] ?: 0))
         if (model == null) {
             modelId?.let { ModelDownloads.set(it, ModelDownloads.State.Finished(false, t("Модель не найдена", "Model not found"))) }
-            if (active.get() == 0) finish()
+            finishIfIdle()
             return START_NOT_STICKY
         }
+        if (stopping) {
+            // Сервис уже останавливается (лимит времени) — не оживляем остановленный поток.
+            val p = percents[model.id] ?: 0
+            ModelDownloads.set(model.id, ModelDownloads.State.Paused(p, pausedText(p)))
+            return START_NOT_STICKY
+        }
+        if (tokens.containsKey(model.id)) {
+            // Уже качается: второй поток в тот же .part испортил бы файл.
+            ModelDownloads.set(model.id, ModelDownloads.State.Running(percents[model.id] ?: 0))
+            return START_NOT_STICKY
+        }
+        launchWorker(model)
+        return START_NOT_STICKY
+    }
+
+    private fun launchWorker(model: AIModel) {
+        val token = AtomicBoolean(false)
+        tokens[model.id] = token
+        percents[model.id] = 0
         acquireWakeLock()
-        active.incrementAndGet()
         scope.launch {
-            var lastPercent = -1
-            var lastAt = 0L
-            val result = try {
-                ServiceLocator.localModelManager.install(model, cancelled = { stopRequested }) { percent ->
-                    val now = SystemClock.elapsedRealtime()
-                    if (percent != lastPercent && (now - lastAt > 700L || percent >= 100)) {
-                        lastPercent = percent
-                        lastAt = now
+            try {
+                runDownload(model, token)
+            } finally {
+                tokens.remove(model.id, token)
+                main.post { finishIfIdle() }
+            }
+        }
+    }
+
+    private fun runDownload(model: AIModel, token: AtomicBoolean) {
+        var lastPercent = -1
+        var lastAt = 0L
+        val result = try {
+            ServiceLocator.localModelManager.install(model, cancelled = { token.get() }) { percent ->
+                val now = SystemClock.elapsedRealtime()
+                if (percent != lastPercent && (now - lastAt > 700L || percent >= 100)) {
+                    lastPercent = percent
+                    lastAt = now
+                    percents[model.id] = percent
+                    if (!token.get()) {
                         ModelDownloads.set(model.id, ModelDownloads.State.Running(percent))
                         notifySafe(progressNotification(model.name, percent))
                     }
                 }
-            } catch (e: Throwable) {
-                Result.failure(e)
             }
-            val installed = result.getOrNull()
-            val message = if (installed != null) {
-                verifyAfterInstall(installed)
-            } else {
-                result.exceptionOrNull()?.message ?: t("Ошибка загрузки", "Download failed")
-            }
-            ModelDownloads.set(model.id, ModelDownloads.State.Finished(installed != null, message))
-            try {
-                ServiceLocator.historyManager.record(HistoryCategory.MODELS,
-                    if (installed != null) "Модель ${model.name} загружена: $message"
-                    else "Загрузка ${model.name} не удалась: $message")
-            } catch (_: Throwable) { }
-            notifySafe(doneNotification(model.name, installed != null, message), DONE_ID_BASE + (model.id.hashCode() and 0xFFFF))
-            if (active.decrementAndGet() == 0) finish()
+        } catch (e: Throwable) {
+            Result.failure(e)
         }
-        return START_NOT_STICKY
+        val installed = result.getOrNull()
+        val error = result.exceptionOrNull()
+        val state = when {
+            installed != null -> ModelDownloads.State.Finished(true,
+                // Сервис останавливается — долгую проверку модели не запускаем.
+                if (token.get()) t("загружена", "downloaded") else verifyAfterInstall(installed))
+            error is DownloadPaused -> ModelDownloads.State.Paused(error.percent,
+                error.message ?: pausedText(error.percent))
+            else -> ModelDownloads.State.Finished(false, error?.message ?: t("Ошибка загрузки", "Download failed"))
+        }
+        ModelDownloads.set(model.id, state)
+        val (ok, message) = when (state) {
+            is ModelDownloads.State.Finished -> state.success to state.message
+            is ModelDownloads.State.Paused -> false to state.message
+            else -> false to ""
+        }
+        try {
+            ServiceLocator.historyManager.record(HistoryCategory.MODELS, when {
+                ok -> "Модель ${model.name} загружена: $message"
+                state is ModelDownloads.State.Paused -> "Загрузка ${model.name} на паузе (${state.percent}%)"
+                else -> "Загрузка ${model.name} не удалась: $message"
+            })
+        } catch (_: Throwable) { }
+        notifySafe(doneNotification(model.name, ok, state is ModelDownloads.State.Paused, message),
+            DONE_ID_BASE + (model.id.hashCode() and 0xFFFF))
     }
 
-    /** Android 15: лимит времени dataSync исчерпан — пауза с сохранением скачанного и сразу остановка. */
+    /** Android 15: лимит времени dataSync исчерпан — все загрузки на паузу и сразу остановка. */
     override fun onTimeout(startId: Int, fgsType: Int) {
-        Log.w(TAG, "Лимит времени foreground-сервиса — ставим загрузку на паузу")
-        stopRequested = true
-        finish()
+        Log.w(TAG, "Лимит времени foreground-сервиса — ставим загрузки на паузу")
+        pauseAll()
+        releaseWakeLock()
+        try { ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE) } catch (_: Throwable) { }
+        stopSelf()
+    }
+
+    /** Остановить все потоки и сразу показать паузу — даже если поток уже не успеет отчитаться. */
+    private fun pauseAll() {
+        stopping = true
+        tokens.forEach { (id, token) ->
+            token.set(true)
+            val p = percents[id] ?: 0
+            ModelDownloads.set(id, ModelDownloads.State.Paused(p, pausedText(p)))
+        }
     }
 
     /** Аудит п.2: «установлена» ≠ «работает» — сразу проверяем модель. */
@@ -169,10 +239,15 @@ class ModelDownloadService : Service() {
         }
     }
 
-    private fun finish() {
+    /**
+     * Вызывается только в главном потоке (как и onStartCommand), поэтому новая загрузка
+     * не потеряет foreground. stopSelf(lastStartId) не остановит сервис, если пришёл более новый запуск.
+     */
+    private fun finishIfIdle() {
+        if (tokens.isNotEmpty()) return
         releaseWakeLock()
         try { ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE) } catch (_: Throwable) { }
-        stopSelf()
+        stopSelf(lastStartId)
     }
 
     private fun acquireWakeLock() {
@@ -211,10 +286,14 @@ class ModelDownloadService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-    private fun doneNotification(name: String, ok: Boolean, message: String) =
+    private fun doneNotification(name: String, ok: Boolean, paused: Boolean, message: String) =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(if (ok) t("Модель загружена", "Model downloaded") else t("Загрузка не завершена", "Download not finished"))
+            .setContentTitle(when {
+                ok -> t("Модель загружена", "Model downloaded")
+                paused -> t("Загрузка на паузе", "Download paused")
+                else -> t("Загрузка не завершена", "Download not finished")
+            })
             .setContentText("$name: $message")
             .setStyle(NotificationCompat.BigTextStyle().bigText("$name: $message"))
             .setAutoCancel(true)
@@ -229,8 +308,10 @@ class ModelDownloadService : Service() {
     }
 
     override fun onDestroy() {
-        // Сервис уничтожен (системой или по тайм-ауту) — поток загрузки останавливается с сохранением .part.
-        stopRequested = true
+        // Сервис уничтожен (системой или по тайм-ауту) — потоки останавливаются с сохранением .part,
+        // а экран сразу видит паузу вместо вечного «Загрузка…».
+        pauseAll()
+        main.removeCallbacksAndMessages(null)
         releaseWakeLock()
         scope.cancel()
         super.onDestroy()
